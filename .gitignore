@@ -1,0 +1,7 @@
+/target
+/.sqlx-dev.db
+/.sqlx-dev.db-shm
+/.sqlx-dev.db-wal
+
+# inception working notes
+.claude/inception/

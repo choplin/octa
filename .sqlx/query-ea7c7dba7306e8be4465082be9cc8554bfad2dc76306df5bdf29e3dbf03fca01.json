@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n    id         AS \"id!: i64\",\n    body       AS \"body!: String\",\n    created_at AS \"created_at!: String\"\nFROM comments\nWHERE issue_number = ?\nORDER BY id;\n",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "body!: String",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!: String",
+        "ordinal": 2,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "ea7c7dba7306e8be4465082be9cc8554bfad2dc76306df5bdf29e3dbf03fca01"
+}

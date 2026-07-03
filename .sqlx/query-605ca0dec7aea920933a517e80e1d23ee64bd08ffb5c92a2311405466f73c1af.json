@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT\n    number     AS \"number!: i64\",\n    title      AS \"title!: String\",\n    body       AS \"body!: String\",\n    state      AS \"state!: String\",\n    created_at AS \"created_at!: String\",\n    updated_at AS \"updated_at!: String\"\nFROM issues\nORDER BY number;\n",
+  "describe": {
+    "columns": [
+      {
+        "name": "number!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "title!: String",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "body!: String",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "state!: String",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!: String",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_at!: String",
+        "ordinal": 5,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "605ca0dec7aea920933a517e80e1d23ee64bd08ffb5c92a2311405466f73c1af"
+}

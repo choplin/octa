@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE issues SET title = ? WHERE number = ?;\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "9ea48c6af442cb7195998e03af071097d05273a68bcc32650bbca5888516e2ba"
+}
