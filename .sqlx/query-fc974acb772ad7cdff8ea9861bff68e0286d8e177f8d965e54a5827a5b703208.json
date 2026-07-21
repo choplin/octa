@@ -1,25 +1,25 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT\n    number     AS \"number!: i64\",\n    title      AS \"title!: String\",\n    body       AS \"body!: String\",\n    state      AS \"state!: String\",\n    created_at AS \"created_at!: String\",\n    updated_at AS \"updated_at!: String\"\nFROM issues\nORDER BY number;\n",
+  "query": "SELECT r.name AS \"repo!: String\", w.slug AS \"slug!: String\",\n                      w.title AS \"title!: String\", w.body AS \"body!: String\",\n                      w.created_at AS \"created_at!: String\", w.updated_at AS \"updated_at!: String\"\n               FROM wiki_pages w JOIN repos r ON r.id = w.repo_id\n               WHERE w.repo_id = ? ORDER BY w.slug",
   "describe": {
     "columns": [
       {
-        "name": "number!: i64",
+        "name": "repo!: String",
         "ordinal": 0,
-        "type_info": "Integer"
+        "type_info": "Text"
       },
       {
-        "name": "title!: String",
+        "name": "slug!: String",
         "ordinal": 1,
         "type_info": "Text"
       },
       {
-        "name": "body!: String",
+        "name": "title!: String",
         "ordinal": 2,
         "type_info": "Text"
       },
       {
-        "name": "state!: String",
+        "name": "body!: String",
         "ordinal": 3,
         "type_info": "Text"
       },
@@ -35,7 +35,7 @@
       }
     ],
     "parameters": {
-      "Right": 0
+      "Right": 1
     },
     "nullable": [
       false,
@@ -46,5 +46,5 @@
       false
     ]
   },
-  "hash": "605ca0dec7aea920933a517e80e1d23ee64bd08ffb5c92a2311405466f73c1af"
+  "hash": "fc974acb772ad7cdff8ea9861bff68e0286d8e177f8d965e54a5827a5b703208"
 }

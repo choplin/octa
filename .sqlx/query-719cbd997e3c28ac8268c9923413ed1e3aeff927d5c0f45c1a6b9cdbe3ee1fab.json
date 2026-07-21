@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT name AS \"name!: String\",\n                      is_starting AS \"is_starting!: i64\",\n                      is_terminal AS \"is_terminal!: i64\",\n                      position AS \"position!: i64\"\n               FROM issue_states WHERE repo_id = ? ORDER BY position, name",
+  "describe": {
+    "columns": [
+      {
+        "name": "name!: String",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "is_starting!: i64",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "is_terminal!: i64",
+        "ordinal": 2,
+        "type_info": "Integer"
+      },
+      {
+        "name": "position!: i64",
+        "ordinal": 3,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "719cbd997e3c28ac8268c9923413ed1e3aeff927d5c0f45c1a6b9cdbe3ee1fab"
+}

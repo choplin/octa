@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT name AS \"name!: String\", group_name AS \"group_name?: String\"\n               FROM labels WHERE repo_id = ? ORDER BY group_name, name",
+  "describe": {
+    "columns": [
+      {
+        "name": "name!: String",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "group_name?: String",
+        "ordinal": 1,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "11a0d714267d3379ddafebc753fccff3129f0784e39bd9a6f583690a83d0af4c"
+}

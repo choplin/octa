@@ -1,0 +1,62 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT r.name        AS \"repo!: String\",\n                      i.number      AS \"number!: i64\",\n                      i.title       AS \"title!: String\",\n                      i.body        AS \"body!: String\",\n                      i.state       AS \"state!: String\",\n                      i.locked_by   AS \"locked_by?: String\",\n                      i.created_at  AS \"created_at!: String\",\n                      i.updated_at  AS \"updated_at!: String\"\n               FROM issues i JOIN repos r ON r.id = i.repo_id\n               WHERE i.repo_id = ? AND i.number = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "repo!: String",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "number!: i64",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "title!: String",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "body!: String",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "state!: String",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "locked_by?: String",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!: String",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_at!: String",
+        "ordinal": 7,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "3bdc65bc4e25068918132a6d3cfb943f46fd2b39bab73a0247bb5f2a22ec9a71"
+}

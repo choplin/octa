@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT COALESCE(MAX(position), -1) + 1 AS \"p!: i64\"\n               FROM issue_states WHERE repo_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "p!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a8ac0a1fc320d6dabc31e906e8821d7f4c16903111bc38a881897b17894541f0"
+}

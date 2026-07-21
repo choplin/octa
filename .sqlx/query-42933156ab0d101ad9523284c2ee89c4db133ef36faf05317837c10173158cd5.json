@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM issue_deps WHERE repo_id = ? AND blocker_number = ? AND blocked_number = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "42933156ab0d101ad9523284c2ee89c4db133ef36faf05317837c10173158cd5"
+}

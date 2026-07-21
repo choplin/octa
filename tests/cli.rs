@@ -1,6 +1,7 @@
 //! Integration tests driving the built `octa` binary against throwaway git
-//! repositories. These exercise the issue lifecycle and the worktree-sharing
-//! guarantee that is octa's reason to exist.
+//! repositories, each with an isolated global store (a per-test XDG data dir).
+//! These exercise every primitive plus the worktree-sharing guarantee that is
+//! octa's reason to exist.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -19,126 +20,141 @@ fn git(dir: &Path, args: &[&str]) {
     assert!(status.success(), "git {args:?} failed in {}", dir.display());
 }
 
-/// A fresh git repository with an initial commit (so `git worktree add` works).
-fn init_repo() -> TempDir {
-    let dir = TempDir::new().unwrap();
-    git(dir.path(), &["init", "-q", "-b", "main"]);
-    git(dir.path(), &["config", "user.email", "test@example.com"]);
-    git(dir.path(), &["config", "user.name", "test"]);
-    git(dir.path(), &["commit", "-q", "--allow-empty", "-m", "init"]);
-    dir
+/// A throwaway repository plus its own isolated global store.
+struct Env {
+    repo: TempDir,
+    xdg: TempDir,
 }
 
-fn run(dir: &Path, args: &[&str]) -> Output {
-    Command::new(bin())
-        .current_dir(dir)
-        .args(args)
-        .output()
-        .expect("failed to spawn octa")
+impl Env {
+    fn new() -> Self {
+        let repo = TempDir::new().unwrap();
+        git(repo.path(), &["init", "-q", "-b", "main"]);
+        git(repo.path(), &["config", "user.email", "test@example.com"]);
+        git(repo.path(), &["config", "user.name", "test"]);
+        git(
+            repo.path(),
+            &["commit", "-q", "--allow-empty", "-m", "init"],
+        );
+        Env {
+            repo,
+            xdg: TempDir::new().unwrap(),
+        }
+    }
+
+    fn path(&self) -> &Path {
+        self.repo.path()
+    }
+
+    /// Run octa in `dir`, pointing its global store at this env's XDG dir.
+    fn run_in(&self, dir: &Path, args: &[&str]) -> Output {
+        Command::new(bin())
+            .current_dir(dir)
+            .env("XDG_DATA_HOME", self.xdg.path())
+            .args(args)
+            .output()
+            .expect("failed to spawn octa")
+    }
+
+    fn run(&self, args: &[&str]) -> Output {
+        self.run_in(self.path(), args)
+    }
+
+    fn ok(&self, args: &[&str]) -> String {
+        self.ok_in(self.path(), args)
+    }
+
+    fn ok_in(&self, dir: &Path, args: &[&str]) -> String {
+        let out = self.run_in(dir, args);
+        assert!(
+            out.status.success(),
+            "octa {args:?} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8(out.stdout).unwrap()
+    }
 }
 
-fn run_ok(dir: &Path, args: &[&str]) -> String {
-    let out = run(dir, args);
-    assert!(
-        out.status.success(),
-        "octa {args:?} failed: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    String::from_utf8(out.stdout).unwrap()
+fn json(s: &str) -> serde_json::Value {
+    serde_json::from_str(s.trim()).unwrap()
 }
+
+// --- Issue lifecycle --------------------------------------------------------
 
 #[test]
 fn create_list_show_roundtrip() {
-    let repo = init_repo();
-    let dir = repo.path();
-
-    let created = run_ok(
-        dir,
-        &["issue", "create", "--title", "First", "--body", "hello"],
+    let env = Env::new();
+    assert_eq!(
+        env.ok(&["issue", "create", "--title", "First", "--body", "hello"])
+            .trim(),
+        "#1"
     );
-    assert_eq!(created.trim(), "#1");
+    // Per-repo sequential numbering.
+    assert_eq!(
+        env.ok(&["issue", "create", "--title", "Second"]).trim(),
+        "#2"
+    );
 
-    // A second issue gets the next sequential number.
-    let created2 = run_ok(dir, &["issue", "create", "--title", "Second"]);
-    assert_eq!(created2.trim(), "#2");
-
-    let listed = run_ok(dir, &["issue", "list"]);
+    let listed = env.ok(&["issue", "list"]);
     assert!(listed.contains("First"), "list missing First: {listed}");
     assert!(listed.contains("Second"), "list missing Second: {listed}");
 
-    let shown = run_ok(dir, &["issue", "show", "1"]);
+    let shown = env.ok(&["issue", "show", "1"]);
     assert!(shown.contains("First"), "show missing title: {shown}");
     assert!(shown.contains("hello"), "show missing body: {shown}");
 }
 
 #[test]
 fn comment_appears_in_thread() {
-    let repo = init_repo();
-    let dir = repo.path();
+    let env = Env::new();
+    env.ok(&["issue", "create", "--title", "Discuss"]);
+    env.ok(&["issue", "comment", "1", "--body", "first reply"]);
+    env.ok(&["issue", "comment", "1", "--body", "second reply"]);
 
-    run_ok(dir, &["issue", "create", "--title", "Discuss"]);
-    run_ok(dir, &["issue", "comment", "1", "--body", "first reply"]);
-    run_ok(dir, &["issue", "comment", "1", "--body", "second reply"]);
-
-    let shown = run_ok(dir, &["issue", "show", "1"]);
+    let shown = env.ok(&["issue", "show", "1"]);
     let first = shown.find("first reply").expect("first reply missing");
     let second = shown.find("second reply").expect("second reply missing");
-    assert!(
-        first < second,
-        "comments out of chronological order: {shown}"
-    );
+    assert!(first < second, "comments out of order: {shown}");
 }
 
 #[test]
 fn close_reopen_and_state_filter() {
-    let repo = init_repo();
-    let dir = repo.path();
+    let env = Env::new();
+    env.ok(&["issue", "create", "--title", "Bug"]);
+    env.ok(&["issue", "close", "1"]);
 
-    run_ok(dir, &["issue", "create", "--title", "Bug"]);
-    run_ok(dir, &["issue", "close", "1"]);
-
-    // Default list is open-only: the closed issue is hidden.
-    let open_list = run_ok(dir, &["issue", "list"]);
+    let open_list = env.ok(&["issue", "list"]);
     assert!(
         !open_list.contains("Bug"),
-        "closed issue still in open list: {open_list}"
+        "closed issue in open list: {open_list}"
     );
 
-    let closed_list = run_ok(dir, &["issue", "list", "--state", "closed"]);
+    let closed_list = env.ok(&["issue", "list", "--state", "closed"]);
     assert!(
         closed_list.contains("Bug"),
-        "closed issue missing from closed list: {closed_list}"
+        "missing from closed list: {closed_list}"
     );
 
-    let all_list = run_ok(dir, &["issue", "list", "--state", "all"]);
+    let all_list = env.ok(&["issue", "list", "--state", "all"]);
     assert!(
         all_list.contains("Bug"),
-        "closed issue missing from all list: {all_list}"
+        "missing from all list: {all_list}"
     );
 
-    run_ok(dir, &["issue", "reopen", "1"]);
-    let reopened = run_ok(dir, &["issue", "list"]);
+    env.ok(&["issue", "reopen", "1"]);
     assert!(
-        reopened.contains("Bug"),
-        "reopened issue missing from open list: {reopened}"
+        env.ok(&["issue", "list"]).contains("Bug"),
+        "reopened issue missing"
     );
 }
 
 #[test]
 fn edit_updates_title_and_body() {
-    let repo = init_repo();
-    let dir = repo.path();
+    let env = Env::new();
+    env.ok(&["issue", "create", "--title", "Old", "--body", "old body"]);
+    env.ok(&["issue", "edit", "1", "--title", "New", "--body", "new body"]);
 
-    run_ok(
-        dir,
-        &["issue", "create", "--title", "Old", "--body", "old body"],
-    );
-    run_ok(
-        dir,
-        &["issue", "edit", "1", "--title", "New", "--body", "new body"],
-    );
-
-    let shown = run_ok(dir, &["issue", "show", "1"]);
+    let shown = env.ok(&["issue", "show", "1"]);
     assert!(shown.contains("New"), "edited title missing: {shown}");
     assert!(shown.contains("new body"), "edited body missing: {shown}");
     assert!(!shown.contains("old body"), "stale body present: {shown}");
@@ -146,50 +162,255 @@ fn edit_updates_title_and_body() {
 
 #[test]
 fn json_outputs_have_expected_fields() {
-    let repo = init_repo();
-    let dir = repo.path();
+    let env = Env::new();
+    let created = json(&env.ok(&["issue", "create", "--title", "JSON", "--json"]));
+    assert_eq!(created["number"], 1);
 
-    let created = run_ok(dir, &["issue", "create", "--title", "JSON", "--json"]);
-    let created_json: serde_json::Value = serde_json::from_str(created.trim()).unwrap();
-    assert_eq!(created_json["number"], 1);
+    env.ok(&["issue", "comment", "1", "--body", "a note"]);
 
-    run_ok(dir, &["issue", "comment", "1", "--body", "a note"]);
-
-    let list = run_ok(dir, &["issue", "list", "--json"]);
-    let list_json: serde_json::Value = serde_json::from_str(list.trim()).unwrap();
-    let arr = list_json.as_array().expect("list --json is not an array");
+    let list = json(&env.ok(&["issue", "list", "--json"]));
+    let arr = list.as_array().expect("list --json not an array");
     assert_eq!(arr.len(), 1);
     assert_eq!(arr[0]["number"], 1);
     assert_eq!(arr[0]["title"], "JSON");
     assert_eq!(arr[0]["state"], "open");
 
-    let show = run_ok(dir, &["issue", "show", "1", "--json"]);
-    let show_json: serde_json::Value = serde_json::from_str(show.trim()).unwrap();
-    assert_eq!(show_json["number"], 1);
-    assert_eq!(show_json["title"], "JSON");
-    let comments = show_json["comments"]
-        .as_array()
-        .expect("comments not an array");
+    let show = json(&env.ok(&["issue", "show", "1", "--json"]));
+    assert_eq!(show["number"], 1);
+    assert_eq!(show["title"], "JSON");
+    let comments = show["comments"].as_array().expect("comments not an array");
     assert_eq!(comments.len(), 1);
     assert_eq!(comments[0]["body"], "a note");
 }
 
-#[test]
-fn issues_are_shared_across_worktrees() {
-    let repo = init_repo();
-    let main_dir = repo.path();
+// --- States, dependencies, lock ---------------------------------------------
 
-    // Create an issue in the main worktree.
-    run_ok(
-        main_dir,
-        &["issue", "create", "--title", "Shared", "--json"],
+#[test]
+fn custom_state_and_set() {
+    let env = Env::new();
+    env.ok(&["issue", "create", "--title", "Task"]);
+
+    // Default set is seeded.
+    let states = json(&env.ok(&["state", "list", "--json"]));
+    let names: Vec<&str> = states
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["name"].as_str().unwrap())
+        .collect();
+    assert!(names.contains(&"open") && names.contains(&"in_progress") && names.contains(&"closed"));
+
+    env.ok(&["state", "add", "blocked", "--starting"]);
+    env.ok(&["issue", "set-state", "1", "blocked"]);
+    let shown = env.ok(&["issue", "show", "1"]);
+    assert!(shown.contains("blocked"), "state not applied: {shown}");
+
+    // Unknown state is rejected.
+    assert!(!env
+        .run(&["issue", "set-state", "1", "nonsense"])
+        .status
+        .success());
+}
+
+#[test]
+fn dependencies_and_unblocked_query() {
+    let env = Env::new();
+    env.ok(&["issue", "create", "--title", "Foundation"]); // #1
+    env.ok(&["issue", "create", "--title", "Feature"]); // #2
+    env.ok(&["issue", "dep", "add", "1", "2"]); // #1 blocks #2
+
+    // #2 is blocked while #1 is open; only #1 is unblocked.
+    let unblocked = json(&env.ok(&["issue", "list", "--unblocked", "--json"]));
+    let nums: Vec<i64> = unblocked
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i["number"].as_i64().unwrap())
+        .collect();
+    assert!(
+        nums.contains(&1),
+        "foundation should be unblocked: {nums:?}"
+    );
+    assert!(!nums.contains(&2), "feature should be blocked: {nums:?}");
+
+    // Completing #1 unblocks #2.
+    env.ok(&["issue", "close", "1"]);
+    let unblocked = json(&env.ok(&["issue", "list", "--unblocked", "--json"]));
+    let nums: Vec<i64> = unblocked
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i["number"].as_i64().unwrap())
+        .collect();
+    assert!(
+        nums.contains(&2),
+        "feature should now be unblocked: {nums:?}"
     );
 
-    // Add a linked worktree in a separate location.
+    // The edge is visible from both sides.
+    let shown = env.ok(&["issue", "show", "2"]);
+    assert!(shown.contains("blocked by"), "blocked-by missing: {shown}");
+}
+
+#[test]
+fn atomic_lock_prevents_double_acquire() {
+    let env = Env::new();
+    env.ok(&["issue", "create", "--title", "Contended"]);
+
+    env.ok(&["issue", "lock", "1", "--as", "agent-a"]);
+    // A second holder cannot acquire it.
+    let out = env.run(&["issue", "lock", "1", "--as", "agent-b"]);
+    assert!(!out.status.success(), "second lock unexpectedly succeeded");
+    assert!(String::from_utf8_lossy(&out.stderr).contains("agent-a"));
+
+    // The holder can release, then another may take it.
+    env.ok(&["issue", "unlock", "1", "--as", "agent-a"]);
+    env.ok(&["issue", "lock", "1", "--as", "agent-b"]);
+}
+
+// --- Labels -----------------------------------------------------------------
+
+#[test]
+fn single_select_group_is_mutually_exclusive() {
+    let env = Env::new();
+    env.ok(&["issue", "create", "--title", "Typed"]);
+    env.ok(&["label", "group", "type", "--selection", "single"]);
+    env.ok(&["label", "create", "impl", "--group", "type"]);
+    env.ok(&["label", "create", "design", "--group", "type"]);
+
+    env.ok(&["issue", "label", "1", "impl"]);
+    env.ok(&["issue", "label", "1", "design"]); // replaces impl (single group)
+
+    let show = json(&env.ok(&["issue", "show", "1", "--json"]));
+    let labels: Vec<&str> = show["labels"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|l| l.as_str().unwrap())
+        .collect();
+    assert_eq!(
+        labels,
+        vec!["design"],
+        "single group not exclusive: {labels:?}"
+    );
+
+    // Filter by label.
+    let listed = json(&env.ok(&["issue", "list", "--label", "design", "--json"]));
+    assert_eq!(listed.as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn multi_select_group_labels_coexist() {
+    let env = Env::new();
+    env.ok(&["issue", "create", "--title", "Multi"]);
+    env.ok(&["label", "group", "area", "--selection", "multi"]);
+    env.ok(&["label", "create", "cli", "--group", "area"]);
+    env.ok(&["label", "create", "storage", "--group", "area"]);
+
+    env.ok(&["issue", "label", "1", "cli"]);
+    env.ok(&["issue", "label", "1", "storage"]);
+
+    let show = json(&env.ok(&["issue", "show", "1", "--json"]));
+    let mut labels: Vec<&str> = show["labels"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|l| l.as_str().unwrap())
+        .collect();
+    labels.sort();
+    assert_eq!(labels, vec!["cli", "storage"], "multi group should coexist");
+}
+
+// --- Pull requests ----------------------------------------------------------
+
+#[test]
+fn pr_lifecycle_tracks_branch_and_comments() {
+    let env = Env::new();
+    let created = env.ok(&[
+        "pr",
+        "create",
+        "--title",
+        "Add feature",
+        "--branch",
+        "feat/x",
+    ]);
+    assert_eq!(created.trim(), "#1");
+
+    env.ok(&["pr", "comment", "1", "--body", "looks good"]);
+    let show = json(&env.ok(&["pr", "show", "1", "--json"]));
+    assert_eq!(show["branch"], "feat/x");
+    assert_eq!(show["comments"].as_array().unwrap().len(), 1);
+
+    env.ok(&["pr", "close", "1"]);
+    let open = env.ok(&["pr", "list"]);
+    assert!(
+        !open.contains("Add feature"),
+        "closed PR still open: {open}"
+    );
+    let all = env.ok(&["pr", "list", "--state", "all"]);
+    assert!(all.contains("Add feature"), "PR missing from all: {all}");
+}
+
+// --- Wiki -------------------------------------------------------------------
+
+#[test]
+fn wiki_pages_link_and_backlink() {
+    let env = Env::new();
+    env.ok(&[
+        "wiki",
+        "create",
+        "--title",
+        "Home",
+        "--body",
+        "see [[design]]",
+    ]);
+    env.ok(&[
+        "wiki",
+        "create",
+        "--title",
+        "Design",
+        "--slug",
+        "design",
+        "--body",
+        "the design",
+    ]);
+
+    let home = json(&env.ok(&["wiki", "show", "home", "--json"]));
+    let links: Vec<&str> = home["links_to"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s.as_str().unwrap())
+        .collect();
+    assert!(
+        links.contains(&"design"),
+        "home should link to design: {links:?}"
+    );
+
+    let design = json(&env.ok(&["wiki", "show", "design", "--json"]));
+    let backlinks: Vec<&str> = design["backlinks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s.as_str().unwrap())
+        .collect();
+    assert!(
+        backlinks.contains(&"home"),
+        "design should be backlinked by home: {backlinks:?}"
+    );
+}
+
+// --- Cross-worktree and cross-repo scope ------------------------------------
+
+#[test]
+fn issues_are_shared_across_worktrees() {
+    let env = Env::new();
+    env.ok(&["issue", "create", "--title", "Shared", "--json"]);
+
     let wt_parent = TempDir::new().unwrap();
     let wt: PathBuf = wt_parent.path().join("linked");
     git(
-        main_dir,
+        env.path(),
         &[
             "worktree",
             "add",
@@ -200,10 +421,8 @@ fn issues_are_shared_across_worktrees() {
         ],
     );
 
-    // The linked worktree must see the same issue.
-    let list = run_ok(&wt, &["issue", "list", "--json"]);
-    let list_json: serde_json::Value = serde_json::from_str(list.trim()).unwrap();
-    let arr = list_json.as_array().expect("list --json is not an array");
+    let list = json(&env.ok_in(&wt, &["issue", "list", "--json"]));
+    let arr = list.as_array().expect("list --json not an array");
     assert_eq!(
         arr.len(),
         1,
@@ -211,11 +430,51 @@ fn issues_are_shared_across_worktrees() {
     );
     assert_eq!(arr[0]["title"], "Shared");
 
-    // And a comment added from the worktree is visible in the main worktree.
-    run_ok(&wt, &["issue", "comment", "1", "--body", "from worktree"]);
-    let shown = run_ok(main_dir, &["issue", "show", "1"]);
+    env.ok_in(&wt, &["issue", "comment", "1", "--body", "from worktree"]);
+    let shown = env.ok(&["issue", "show", "1"]);
     assert!(
         shown.contains("from worktree"),
         "cross-worktree comment missing: {shown}"
+    );
+}
+
+#[test]
+fn all_repos_aggregates_across_repositories() {
+    let env = Env::new();
+    env.ok(&["issue", "create", "--title", "In first repo"]);
+
+    // A second repository sharing the same global store.
+    let repo2 = TempDir::new().unwrap();
+    git(repo2.path(), &["init", "-q", "-b", "main"]);
+    git(repo2.path(), &["config", "user.email", "t@e.com"]);
+    git(repo2.path(), &["config", "user.name", "t"]);
+    git(
+        repo2.path(),
+        &["commit", "-q", "--allow-empty", "-m", "init"],
+    );
+    env.ok_in(
+        repo2.path(),
+        &["issue", "create", "--title", "In second repo"],
+    );
+
+    // Each repo numbers from 1 independently.
+    let second = json(&env.ok_in(repo2.path(), &["issue", "list", "--json"]));
+    assert_eq!(second.as_array().unwrap()[0]["number"], 1);
+
+    // --all-repos sees both.
+    let all = json(&env.ok_in(repo2.path(), &["issue", "list", "--all-repos", "--json"]));
+    let titles: Vec<&str> = all
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i["title"].as_str().unwrap())
+        .collect();
+    assert!(
+        titles.contains(&"In first repo"),
+        "cross-repo view missing first: {titles:?}"
+    );
+    assert!(
+        titles.contains(&"In second repo"),
+        "cross-repo view missing second: {titles:?}"
     );
 }

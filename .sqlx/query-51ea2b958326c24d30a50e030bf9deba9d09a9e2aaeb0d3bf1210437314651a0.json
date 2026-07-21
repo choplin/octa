@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT i.number AS \"number!: i64\", COALESCE(s.is_terminal, 0) AS \"is_terminal!: i64\"\n               FROM issues i\n               LEFT JOIN issue_states s ON s.repo_id = i.repo_id AND s.name = i.state\n               WHERE i.repo_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "number!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "is_terminal!: i64",
+        "ordinal": 1,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "51ea2b958326c24d30a50e030bf9deba9d09a9e2aaeb0d3bf1210437314651a0"
+}

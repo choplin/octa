@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT r.name       AS \"repo!: String\",\n                      w.slug       AS \"slug!: String\",\n                      w.title      AS \"title!: String\",\n                      w.body       AS \"body!: String\",\n                      w.created_at AS \"created_at!: String\",\n                      w.updated_at AS \"updated_at!: String\"\n               FROM wiki_pages w JOIN repos r ON r.id = w.repo_id\n               WHERE w.repo_id = ? AND w.slug = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "repo!: String",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "slug!: String",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "title!: String",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "body!: String",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!: String",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_at!: String",
+        "ordinal": 5,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "5c8854959d234fe20d9550ad09edba5febe68c8d8fa5dd396c7c6c42aec65ff6"
+}
