@@ -512,3 +512,72 @@ fn all_repos_aggregates_across_repositories() {
         assert!(!out.status.success(), "{args:?} unexpectedly succeeded");
     }
 }
+
+#[test]
+fn pr_state_filter_and_edit_validation_are_preserved() {
+    let env = Env::new();
+    env.ok(&["pr", "create", "--title", "One", "--branch", "one"]);
+    env.ok(&["pr", "set-state", "1", "waiting"]);
+    assert!(env.ok(&["pr", "list", "--state", "closed"]).contains("One"));
+    assert!(!env.ok(&["pr", "list"]).contains("One"));
+    let out = env.run(&["pr", "edit", "1"]);
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("nothing to update"));
+}
+
+#[test]
+fn wiki_body_edit_replaces_links_and_title_edit_preserves_them() {
+    let env = Env::new();
+    env.ok(&[
+        "wiki",
+        "create",
+        "--title",
+        "Home",
+        "--body",
+        "[[old]] [[old]] [[home]]",
+    ]);
+    env.ok(&["wiki", "create", "--title", "Old", "--slug", "old"]);
+    env.ok(&["wiki", "create", "--title", "New", "--slug", "new"]);
+    env.ok(&["wiki", "edit", "home", "--body", "[[new]]"]);
+    assert_eq!(
+        json(&env.ok(&["wiki", "show", "home", "--json"]))["links_to"],
+        serde_json::json!(["new"])
+    );
+    assert!(
+        json(&env.ok(&["wiki", "show", "old", "--json"]))["backlinks"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    env.ok(&["wiki", "edit", "home", "--title", "Renamed"]);
+    assert_eq!(
+        json(&env.ok(&["wiki", "show", "home", "--json"]))["links_to"],
+        serde_json::json!(["new"])
+    );
+}
+
+#[test]
+fn label_errors_and_idempotent_operations_are_preserved() {
+    let env = Env::new();
+    assert!(!env
+        .run(&["label", "group", "kind", "--selection", "bad"])
+        .status
+        .success());
+    assert!(!env
+        .run(&["label", "create", "x", "--group", "missing"])
+        .status
+        .success());
+    env.ok(&["issue", "create", "--title", "Task"]);
+    env.ok(&["label", "create", "plain"]);
+    env.ok(&["issue", "label", "1", "plain"]);
+    env.ok(&["issue", "label", "1", "plain"]);
+    env.ok(&["issue", "unlabel", "1", "missing"]);
+    assert_eq!(
+        json(&env.ok(&["issue", "show", "1", "--json"]))["labels"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(!env.run(&["issue", "label", "99", "plain"]).status.success());
+}
