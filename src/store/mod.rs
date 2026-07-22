@@ -156,22 +156,3 @@ impl Store {
         crate::sql::repo::by_name(&self.pool, name).await
     }
 }
-
-/// A slug is lowercase alphanumerics and dashes — a stable, link-friendly key.
-pub fn slugify(input: &str) -> String {
-    let mut out = String::new();
-    let mut prev_dash = false;
-    for ch in input.chars() {
-        if ch.is_ascii_alphanumeric() {
-            out.push(ch.to_ascii_lowercase());
-            prev_dash = false;
-        } else if !prev_dash && !out.is_empty() {
-            out.push('-');
-            prev_dash = true;
-        }
-    }
-    while out.ends_with('-') {
-        out.pop();
-    }
-    out
-}

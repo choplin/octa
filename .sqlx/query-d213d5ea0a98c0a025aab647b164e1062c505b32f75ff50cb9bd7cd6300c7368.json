@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT r.name       AS \"repo!: String\",\n                      w.slug       AS \"slug!: String\",\n                      w.title      AS \"title!: String\",\n                      w.body       AS \"body!: String\",\n                      w.created_at AS \"created_at!: String\",\n                      w.updated_at AS \"updated_at!: String\"\n               FROM wiki_pages w JOIN repos r ON r.id = w.repo_id\n               WHERE w.repo_id = ? AND w.slug = ?",
+  "query": "SELECT r.name AS \"repo!: String\", w.slug AS \"slug!: String\", w.title AS \"title!: String\", w.body AS \"body!: String\", w.created_at AS \"created_at!: String\", w.updated_at AS \"updated_at!: String\" FROM wiki_pages w JOIN repos r ON r.id = w.repo_id WHERE w.repo_id = ? ORDER BY w.slug",
   "describe": {
     "columns": [
       {
@@ -35,7 +35,7 @@
       }
     ],
     "parameters": {
-      "Right": 2
+      "Right": 1
     },
     "nullable": [
       false,
@@ -46,5 +46,5 @@
       false
     ]
   },
-  "hash": "5c8854959d234fe20d9550ad09edba5febe68c8d8fa5dd396c7c6c42aec65ff6"
+  "hash": "d213d5ea0a98c0a025aab647b164e1062c505b32f75ff50cb9bd7cd6300c7368"
 }

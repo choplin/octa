@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT to_slug AS \"s!: String\" FROM wiki_links\n               WHERE repo_id = ? AND from_slug = ? ORDER BY to_slug",
+  "query": "SELECT to_slug AS \"s!: String\" FROM wiki_links WHERE repo_id = ? AND from_slug = ? ORDER BY to_slug",
   "describe": {
     "columns": [
       {
@@ -16,5 +16,5 @@
       false
     ]
   },
-  "hash": "ff173362247582088b42fd26096ae69ba9df166b2617d1f9bddb3eafb407389d"
+  "hash": "b347177b206bc229064170f60cd6a9537954c863190e71dcf451a0981e1e3b86"
 }
