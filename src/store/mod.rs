@@ -14,8 +14,7 @@ mod label;
 mod pr;
 mod wiki;
 
-pub use crate::domain::issue::{LockOutcome, StateFilter};
-pub use crate::domain::Comment;
+pub use crate::domain::{issue::LockOutcome, StateFilter};
 
 use anyhow::{bail, Context, Result};
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqlitePoolOptions};

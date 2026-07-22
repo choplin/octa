@@ -2,7 +2,10 @@
 //! persistence to `crate::sql::issue`; this module intentionally has no SQL.
 
 use super::Store;
-use crate::domain::issue::{Issue, IssueDetail, IssueState, LockOutcome, StateFilter};
+use crate::domain::{
+    issue::{Issue, IssueDetail, IssueState, LockOutcome},
+    StateFilter,
+};
 use anyhow::Result;
 
 impl Store {

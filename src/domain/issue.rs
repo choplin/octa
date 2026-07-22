@@ -1,4 +1,4 @@
-use crate::domain::Comment;
+use crate::domain::{state_filter::StateFilter, Comment};
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
@@ -37,13 +37,6 @@ pub struct IssueState {
     pub is_starting: bool,
     pub is_terminal: bool,
     pub position: i64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum StateFilter {
-    Open,
-    Closed,
-    All,
 }
 
 impl StateFilter {

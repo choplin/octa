@@ -1,6 +1,9 @@
 //! Issue workflows: validation, policy, and composition of the SQL repository.
 
-use crate::domain::issue::{Issue, IssueDetail, IssueState, LockOutcome, StateFilter};
+use crate::domain::{
+    issue::{Issue, IssueDetail, IssueState, LockOutcome},
+    StateFilter,
+};
 use anyhow::{anyhow, bail, Result};
 use sqlx::SqlitePool;
 use std::collections::{HashMap, HashSet};
