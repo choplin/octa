@@ -37,4 +37,4 @@ numbered discussion thread.
   directory) and scoped logically per repository via a `repo_id` column — the
   current repository by default, resolved from the git common directory so every
   worktree shares it, with `--repo`/`--all-repos` for cross-repository views. It
-  is not committed into any repository. See `docs/adr/0001-storage-foundation.md`.
+  is not committed into any repository.

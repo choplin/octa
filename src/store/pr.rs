@@ -1,7 +1,7 @@
 //! Pull request primitive: a per-repo numbered discussion entity tied to a git
 //! branch. octa stores the discussion/state; the code and diff live on the git
-//! side, and the diff-anchored review experience is revia's domain (see
-//! `docs/adr/0002-revia-integration.md`).
+//! side, and the diff-anchored review experience is revia's domain (octa keeps
+//! only the entity + branch reference + state/comments).
 
 use super::{Comment, StateFilter, Store};
 use anyhow::{bail, Result};

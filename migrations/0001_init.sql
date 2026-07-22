@@ -1,6 +1,6 @@
 -- octa schema: a single global SQLite database holds every entity for every
 -- repository. Each row carries a `repo_id` so the store is physically central
--- but logically scoped per repository. See docs/adr/0001-storage-foundation.md.
+-- but logically scoped per repository.
 
 -- Repositories: the logical per-repo scope within the global store.
 -- `identity_key` is the canonicalized `git rev-parse --git-common-dir` path,

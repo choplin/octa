@@ -4,7 +4,10 @@
 //! repository — the current repository by default (resolved from cwd via the
 //! git common directory), any named repository, or all of them at once.
 //!
-//! See `docs/adr/0001-storage-foundation.md` for the design rationale.
+//! Repo identity is the canonicalized git common directory path (works without
+//! a remote; every worktree of a repo shares it). Concurrency rides on SQLite
+//! WAL plus a busy timeout; per-repo issue/PR numbers are assigned atomically by
+//! a single `INSERT ... RETURNING`, and the issue lock is a compare-and-set.
 
 mod issue;
 mod label;
