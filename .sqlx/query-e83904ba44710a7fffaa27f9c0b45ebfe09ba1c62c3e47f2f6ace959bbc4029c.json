@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT\n                selection AS \"s!: String\"\n            FROM\n                label_groups\n            WHERE\n                repo_id = ?\n            AND\n                name = ?\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "s!: String",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "e83904ba44710a7fffaa27f9c0b45ebfe09ba1c62c3e47f2f6ace959bbc4029c"
+}

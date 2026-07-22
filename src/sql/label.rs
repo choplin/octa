@@ -34,10 +34,42 @@ pub async fn insert(pool: &SqlitePool, repo: i64, name: &str, group: Option<&str
     Ok(())
 }
 pub async fn list(pool: &SqlitePool, repo: i64) -> Result<Vec<Label>> {
-    Ok(sqlx::query_as!(Label, r#"SELECT name AS "name!: String", group_name AS "group?: String" FROM labels WHERE repo_id = ? ORDER BY group_name, name"#, repo).fetch_all(pool).await?)
+    Ok(sqlx::query_as!(
+        Label,
+        r#"
+        SELECT
+            name AS "name!: String",
+            group_name AS "group?: String"
+        FROM
+            labels
+        WHERE
+            repo_id = ?
+        ORDER BY
+            group_name, name
+    "#,
+        repo
+    )
+    .fetch_all(pool)
+    .await?)
 }
 pub async fn list_groups(pool: &SqlitePool, repo: i64) -> Result<Vec<LabelGroup>> {
-    Ok(sqlx::query_as!(LabelGroup, r#"SELECT name AS "name!: String", selection AS "selection!: String" FROM label_groups WHERE repo_id = ? ORDER BY name"#, repo).fetch_all(pool).await?)
+    Ok(sqlx::query_as!(
+        LabelGroup,
+        r#"
+        SELECT
+            name AS "name!: String",
+            selection AS "selection!: String"
+        FROM
+            label_groups
+        WHERE
+            repo_id = ?
+        ORDER BY
+            name
+    "#,
+        repo
+    )
+    .fetch_all(pool)
+    .await?)
 }
 pub async fn issue_exists_tx(
     tx: &mut Transaction<'_, Sqlite>,
@@ -59,7 +91,16 @@ pub async fn label_group_tx(
     label: &str,
 ) -> Result<Option<Option<String>>> {
     Ok(sqlx::query_scalar!(
-        r#"SELECT group_name AS "g?: String" FROM labels WHERE repo_id = ? AND name = ?"#,
+        r#"
+            SELECT
+                group_name AS "g?: String"
+            FROM
+                labels
+            WHERE
+                repo_id = ?
+            AND
+                name = ?
+        "#,
         repo,
         label
     )
@@ -72,7 +113,16 @@ pub async fn group_selection_tx(
     group: &str,
 ) -> Result<String> {
     Ok(sqlx::query_scalar!(
-        r#"SELECT selection AS "s!: String" FROM label_groups WHERE repo_id = ? AND name = ?"#,
+        r#"
+            SELECT
+                selection AS "s!: String"
+            FROM
+                label_groups
+            WHERE
+                repo_id = ?
+            AND
+                name = ?
+        "#,
         repo,
         group
     )

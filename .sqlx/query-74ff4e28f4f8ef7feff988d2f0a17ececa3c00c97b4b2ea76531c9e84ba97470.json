@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "\n            SELECT\n                r.name AS \"repo!: String\",\n                p.number AS \"number!: i64\",\n                p.title AS \"title!: String\",\n                p.body AS \"body!: String\",\n                p.branch AS \"branch!: String\",\n                p.state AS \"state!: String\",\n                p.created_at AS \"created_at!: String\",\n                p.updated_at AS \"updated_at!: String\"\n            FROM prs p\n            JOIN repos r ON r.id = p.repo_id\n            ORDER BY r.name, p.number\n        ",
+  "query": "\n            SELECT\n                r.name AS \"repo!: String\",\n                p.number AS \"number!: i64\",\n                p.title AS \"title!: String\",\n                p.body AS \"body!: String\",\n                p.branch AS \"branch!: String\",\n                p.state AS \"state!: String\",\n                p.created_at AS \"created_at!: String\",\n                p.updated_at AS \"updated_at!: String\"\n            FROM\n                prs p\n            JOIN\n                repos r ON r.id = p.repo_id\n            WHERE\n                p.repo_id = ?\n            ORDER BY\n                p.number\n        ",
   "describe": {
     "columns": [
       {
@@ -45,7 +45,7 @@
       }
     ],
     "parameters": {
-      "Right": 0
+      "Right": 1
     },
     "nullable": [
       false,
@@ -58,5 +58,5 @@
       false
     ]
   },
-  "hash": "bebe80589aef3ebbe2d1fbca2a69547377e904817b75edca01136440177cfbcd"
+  "hash": "74ff4e28f4f8ef7feff988d2f0a17ececa3c00c97b4b2ea76531c9e84ba97470"
 }

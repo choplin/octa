@@ -23,10 +23,14 @@ pub async fn get(pool: &SqlitePool, repo: i64, slug: &str) -> Result<Option<Wiki
             w.body AS "body!: String",
             w.created_at AS "created_at!: String",
             w.updated_at AS "updated_at!: String"
-        FROM wiki_pages w
-        JOIN repos r ON r.id = w.repo_id
-        WHERE w.repo_id = ?
-          AND w.slug = ?
+        FROM
+            wiki_pages w
+        JOIN
+            repos r ON r.id = w.repo_id
+        WHERE
+            w.repo_id = ?
+        AND
+            w.slug = ?
     "#,
         repo,
         slug
@@ -35,16 +39,68 @@ pub async fn get(pool: &SqlitePool, repo: i64, slug: &str) -> Result<Option<Wiki
     .await?)
 }
 pub async fn list(pool: &SqlitePool, repo: Option<i64>) -> Result<Vec<WikiPage>> {
-    Ok(match repo { Some(repo) => sqlx::query_as!(WikiPage, r#"SELECT r.name AS "repo!: String", w.slug AS "slug!: String", w.title AS "title!: String", w.body AS "body!: String", w.created_at AS "created_at!: String", w.updated_at AS "updated_at!: String" FROM wiki_pages w JOIN repos r ON r.id = w.repo_id WHERE w.repo_id = ? ORDER BY w.slug"#, repo).fetch_all(pool).await?, None => sqlx::query_as!(WikiPage, r#"SELECT r.name AS "repo!: String", w.slug AS "slug!: String", w.title AS "title!: String", w.body AS "body!: String", w.created_at AS "created_at!: String", w.updated_at AS "updated_at!: String" FROM wiki_pages w JOIN repos r ON r.id = w.repo_id ORDER BY r.name, w.slug"#).fetch_all(pool).await? })
+    Ok(match repo {
+        Some(repo) => {
+            sqlx::query_as!(
+                WikiPage,
+                r#"
+            SELECT
+                r.name AS "repo!: String",
+                w.slug AS "slug!: String",
+                w.title AS "title!: String",
+                w.body AS "body!: String",
+                w.created_at AS "created_at!: String",
+                w.updated_at AS "updated_at!: String"
+            FROM
+                wiki_pages w
+            JOIN
+                repos r ON r.id = w.repo_id
+            WHERE
+                w.repo_id = ?
+            ORDER BY
+                w.slug
+        "#,
+                repo
+            )
+            .fetch_all(pool)
+            .await?
+        }
+        None => {
+            sqlx::query_as!(
+                WikiPage,
+                r#"
+            SELECT
+                r.name AS "repo!: String",
+                w.slug AS "slug!: String",
+                w.title AS "title!: String",
+                w.body AS "body!: String",
+                w.created_at AS "created_at!: String",
+                w.updated_at AS "updated_at!: String"
+            FROM
+                wiki_pages w
+            JOIN
+                repos r ON r.id = w.repo_id
+            ORDER BY
+                r.name, w.slug
+        "#
+            )
+            .fetch_all(pool)
+            .await?
+        }
+    })
 }
 pub async fn links_to(pool: &SqlitePool, repo: i64, slug: &str) -> Result<Vec<String>> {
     Ok(sqlx::query_scalar!(
         r#"
         SELECT to_slug AS "s!: String"
-        FROM wiki_links
-        WHERE repo_id = ?
-          AND from_slug = ?
-        ORDER BY to_slug
+        FROM
+            wiki_links
+        WHERE
+            repo_id = ?
+        AND
+            from_slug = ?
+        ORDER BY
+            to_slug
     "#,
         repo,
         slug
@@ -56,10 +112,14 @@ pub async fn backlinks(pool: &SqlitePool, repo: i64, slug: &str) -> Result<Vec<S
     Ok(sqlx::query_scalar!(
         r#"
         SELECT from_slug AS "s!: String"
-        FROM wiki_links
-        WHERE repo_id = ?
-          AND to_slug = ?
-        ORDER BY from_slug
+        FROM
+            wiki_links
+        WHERE
+            repo_id = ?
+        AND
+            to_slug = ?
+        ORDER BY
+            from_slug
     "#,
         repo,
         slug

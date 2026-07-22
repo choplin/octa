@@ -45,10 +45,14 @@ pub async fn get(pool: &SqlitePool, repo: i64, number: i64) -> Result<Option<Pr>
                 p.state AS "state!: String",
                 p.created_at AS "created_at!: String",
                 p.updated_at AS "updated_at!: String"
-            FROM prs p
-            JOIN repos r ON r.id = p.repo_id
-            WHERE p.repo_id = ?
-              AND p.number = ?
+            FROM
+                prs p
+            JOIN
+                repos r ON r.id = p.repo_id
+            WHERE
+                p.repo_id = ?
+            AND
+                p.number = ?
         "#,
         repo,
         number
@@ -72,10 +76,14 @@ pub async fn list(pool: &SqlitePool, repo: Option<i64>) -> Result<Vec<Pr>> {
                 p.state AS "state!: String",
                 p.created_at AS "created_at!: String",
                 p.updated_at AS "updated_at!: String"
-            FROM prs p
-            JOIN repos r ON r.id = p.repo_id
-            WHERE p.repo_id = ?
-            ORDER BY p.number
+            FROM
+                prs p
+            JOIN
+                repos r ON r.id = p.repo_id
+            WHERE
+                p.repo_id = ?
+            ORDER BY
+                p.number
         "#,
                 repo
             )
@@ -95,9 +103,12 @@ pub async fn list(pool: &SqlitePool, repo: Option<i64>) -> Result<Vec<Pr>> {
                 p.state AS "state!: String",
                 p.created_at AS "created_at!: String",
                 p.updated_at AS "updated_at!: String"
-            FROM prs p
-            JOIN repos r ON r.id = p.repo_id
-            ORDER BY r.name, p.number
+            FROM
+                prs p
+            JOIN
+                repos r ON r.id = p.repo_id
+            ORDER BY
+                r.name, p.number
         "#
             )
             .fetch_all(pool)
@@ -114,10 +125,14 @@ pub async fn comments(pool: &SqlitePool, repo: i64, number: i64) -> Result<Vec<C
             id AS "id!: i64",
             body AS "body!: String",
             created_at AS "created_at!: String"
-        FROM pr_comments
-        WHERE repo_id = ?
-          AND pr_number = ?
-        ORDER BY id
+        FROM
+            pr_comments
+        WHERE
+            repo_id = ?
+        AND
+            pr_number = ?
+        ORDER BY
+            id
     "#,
         repo,
         number

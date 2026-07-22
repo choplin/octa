@@ -41,13 +41,95 @@ pub async fn insert(
 }
 
 pub async fn get(pool: &SqlitePool, repo: i64, number: i64) -> Result<Option<Issue>> {
-    Ok(sqlx::query_as!(Issue, r#"SELECT r.name AS "repo!: String", i.number AS "number!: i64", i.title AS "title!: String", i.body AS "body!: String", i.state AS "state!: String", i.locked_by AS "locked_by?: String", i.created_at AS "created_at!: String", i.updated_at AS "updated_at!: String" FROM issues i JOIN repos r ON r.id = i.repo_id WHERE i.repo_id = ? AND i.number = ?"#, repo, number).fetch_optional(pool).await?)
+    Ok(sqlx::query_as!(
+        Issue,
+        r#"
+        SELECT
+            r.name AS "repo!: String",
+            i.number AS "number!: i64",
+            i.title AS "title!: String",
+            i.body AS "body!: String",
+            i.state AS "state!: String",
+            i.locked_by AS "locked_by?: String",
+            i.created_at AS "created_at!: String",
+            i.updated_at AS "updated_at!: String"
+        FROM
+            issues i
+        JOIN
+            repos r ON r.id = i.repo_id
+        WHERE
+            i.repo_id = ?
+        AND
+            i.number = ?
+    "#,
+        repo,
+        number
+    )
+    .fetch_optional(pool)
+    .await?)
 }
 
 pub async fn list_entries(pool: &SqlitePool, repo: Option<i64>) -> Result<Vec<IssueListEntry>> {
     let rows: Vec<IssueListRow> = match repo {
-        Some(repo) => sqlx::query_as!(IssueListRow, r#"SELECT r.name AS "repo!: String", i.number AS "number!: i64", i.title AS "title!: String", i.body AS "body!: String", i.state AS "state!: String", i.locked_by AS "locked_by?: String", i.created_at AS "created_at!: String", i.updated_at AS "updated_at!: String", COALESCE(s.is_terminal, 0) AS "is_terminal!: i64" FROM issues i JOIN repos r ON r.id = i.repo_id LEFT JOIN issue_states s ON s.repo_id = i.repo_id AND s.name = i.state WHERE i.repo_id = ? ORDER BY i.number"#, repo).fetch_all(pool).await?,
-        None => sqlx::query_as!(IssueListRow, r#"SELECT r.name AS "repo!: String", i.number AS "number!: i64", i.title AS "title!: String", i.body AS "body!: String", i.state AS "state!: String", i.locked_by AS "locked_by?: String", i.created_at AS "created_at!: String", i.updated_at AS "updated_at!: String", COALESCE(s.is_terminal, 0) AS "is_terminal!: i64" FROM issues i JOIN repos r ON r.id = i.repo_id LEFT JOIN issue_states s ON s.repo_id = i.repo_id AND s.name = i.state ORDER BY r.name, i.number"#).fetch_all(pool).await?,
+        Some(repo) => {
+            sqlx::query_as!(
+                IssueListRow,
+                r#"
+            SELECT
+                r.name AS "repo!: String",
+                i.number AS "number!: i64",
+                i.title AS "title!: String",
+                i.body AS "body!: String",
+                i.state AS "state!: String",
+                i.locked_by AS "locked_by?: String",
+                i.created_at AS "created_at!: String",
+                i.updated_at AS "updated_at!: String",
+                COALESCE(s.is_terminal, 0) AS "is_terminal!: i64"
+            FROM
+                issues i
+            JOIN
+                repos r ON r.id = i.repo_id
+            LEFT JOIN
+                issue_states s ON s.repo_id = i.repo_id
+                    AND s.name = i.state
+            WHERE
+                i.repo_id = ?
+            ORDER BY
+                i.number
+        "#,
+                repo
+            )
+            .fetch_all(pool)
+            .await?
+        }
+        None => {
+            sqlx::query_as!(
+                IssueListRow,
+                r#"
+            SELECT
+                r.name AS "repo!: String",
+                i.number AS "number!: i64",
+                i.title AS "title!: String",
+                i.body AS "body!: String",
+                i.state AS "state!: String",
+                i.locked_by AS "locked_by?: String",
+                i.created_at AS "created_at!: String",
+                i.updated_at AS "updated_at!: String",
+                COALESCE(s.is_terminal, 0) AS "is_terminal!: i64"
+            FROM
+                issues i
+            JOIN
+                repos r ON r.id = i.repo_id
+            LEFT JOIN
+                issue_states s ON s.repo_id = i.repo_id
+                    AND s.name = i.state
+            ORDER BY
+                r.name, i.number
+        "#
+            )
+            .fetch_all(pool)
+            .await?
+        }
     };
     Ok(rows
         .into_iter()

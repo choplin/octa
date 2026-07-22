@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT r.name AS \"repo!: String\", i.number AS \"number!: i64\", i.title AS \"title!: String\", i.body AS \"body!: String\", i.state AS \"state!: String\", i.locked_by AS \"locked_by?: String\", i.created_at AS \"created_at!: String\", i.updated_at AS \"updated_at!: String\", COALESCE(s.is_terminal, 0) AS \"is_terminal!: i64\" FROM issues i JOIN repos r ON r.id = i.repo_id LEFT JOIN issue_states s ON s.repo_id = i.repo_id AND s.name = i.state WHERE i.repo_id = ? ORDER BY i.number",
+  "query": "\n            SELECT\n                r.name AS \"repo!: String\",\n                i.number AS \"number!: i64\",\n                i.title AS \"title!: String\",\n                i.body AS \"body!: String\",\n                i.state AS \"state!: String\",\n                i.locked_by AS \"locked_by?: String\",\n                i.created_at AS \"created_at!: String\",\n                i.updated_at AS \"updated_at!: String\",\n                COALESCE(s.is_terminal, 0) AS \"is_terminal!: i64\"\n            FROM\n                issues i\n            JOIN\n                repos r ON r.id = i.repo_id\n            LEFT JOIN\n                issue_states s ON s.repo_id = i.repo_id\n                    AND s.name = i.state\n            ORDER BY\n                r.name, i.number\n        ",
   "describe": {
     "columns": [
       {
@@ -46,11 +46,11 @@
       {
         "name": "is_terminal!: i64",
         "ordinal": 8,
-        "type_info": "Null"
+        "type_info": "Integer"
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 0
     },
     "nullable": [
       false,
@@ -61,8 +61,8 @@
       true,
       false,
       false,
-      null
+      false
     ]
   },
-  "hash": "b2dde2157407079211437a06401954bde68d86a3a42b09a60c3f8fdbbb3e82c4"
+  "hash": "d1c47bdfd8f8fb2920bf6639f5b934a3f545035ed7f7176ef140431d134f256f"
 }

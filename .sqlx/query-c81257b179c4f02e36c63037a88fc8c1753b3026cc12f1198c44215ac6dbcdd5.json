@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT r.name AS \"repo!: String\", i.number AS \"number!: i64\", i.title AS \"title!: String\", i.body AS \"body!: String\", i.state AS \"state!: String\", i.locked_by AS \"locked_by?: String\", i.created_at AS \"created_at!: String\", i.updated_at AS \"updated_at!: String\", COALESCE(s.is_terminal, 0) AS \"is_terminal!: i64\" FROM issues i JOIN repos r ON r.id = i.repo_id LEFT JOIN issue_states s ON s.repo_id = i.repo_id AND s.name = i.state ORDER BY r.name, i.number",
+  "query": "\n            SELECT\n                r.name AS \"repo!: String\",\n                p.number AS \"number!: i64\",\n                p.title AS \"title!: String\",\n                p.body AS \"body!: String\",\n                p.branch AS \"branch!: String\",\n                p.state AS \"state!: String\",\n                p.created_at AS \"created_at!: String\",\n                p.updated_at AS \"updated_at!: String\"\n            FROM\n                prs p\n            JOIN\n                repos r ON r.id = p.repo_id\n            ORDER BY\n                r.name, p.number\n        ",
   "describe": {
     "columns": [
       {
@@ -24,12 +24,12 @@
         "type_info": "Text"
       },
       {
-        "name": "state!: String",
+        "name": "branch!: String",
         "ordinal": 4,
         "type_info": "Text"
       },
       {
-        "name": "locked_by?: String",
+        "name": "state!: String",
         "ordinal": 5,
         "type_info": "Text"
       },
@@ -42,11 +42,6 @@
         "name": "updated_at!: String",
         "ordinal": 7,
         "type_info": "Text"
-      },
-      {
-        "name": "is_terminal!: i64",
-        "ordinal": 8,
-        "type_info": "Integer"
       }
     ],
     "parameters": {
@@ -58,11 +53,10 @@
       false,
       false,
       false,
-      true,
       false,
       false,
       false
     ]
   },
-  "hash": "f717fd87ace461fb04ffc94cc8bd9a36d11ef0a671e2ad02bc2ec23371466365"
+  "hash": "c81257b179c4f02e36c63037a88fc8c1753b3026cc12f1198c44215ac6dbcdd5"
 }
