@@ -340,6 +340,9 @@ fn pr_lifecycle_tracks_branch_and_comments() {
     let show = json(&env.ok(&["pr", "show", "1", "--json"]));
     assert_eq!(show["branch"], "feat/x");
     assert_eq!(show["comments"].as_array().unwrap().len(), 1);
+    let text_show = env.ok(&["pr", "show", "1"]);
+    assert!(text_show.contains("--- comments ---"));
+    assert!(text_show.contains("looks good"));
 
     env.ok(&["pr", "close", "1"]);
     let open = env.ok(&["pr", "list"]);
@@ -398,6 +401,10 @@ fn wiki_pages_link_and_backlink() {
         backlinks.contains(&"home"),
         "design should be backlinked by home: {backlinks:?}"
     );
+    let home_text = env.ok(&["wiki", "show", "home"]);
+    assert!(home_text.contains("links to: design"));
+    let design_text = env.ok(&["wiki", "show", "design"]);
+    assert!(design_text.contains("backlinks: home"));
 }
 
 // --- Cross-worktree and cross-repo scope ------------------------------------
