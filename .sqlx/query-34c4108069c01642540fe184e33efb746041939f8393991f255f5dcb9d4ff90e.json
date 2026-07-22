@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM issue_labels WHERE repo_id = ? AND issue_number = ? AND label_name IN (SELECT name FROM labels WHERE repo_id = ? AND group_name = ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "34c4108069c01642540fe184e33efb746041939f8393991f255f5dcb9d4ff90e"
+}

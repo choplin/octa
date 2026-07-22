@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT name AS \"name!: String\", selection AS \"selection!: String\"\n               FROM label_groups WHERE repo_id = ? ORDER BY name",
+  "query": "SELECT name AS \"name!: String\", group_name AS \"group?: String\" FROM labels WHERE repo_id = ? ORDER BY group_name, name",
   "describe": {
     "columns": [
       {
@@ -9,7 +9,7 @@
         "type_info": "Text"
       },
       {
-        "name": "selection!: String",
+        "name": "group?: String",
         "ordinal": 1,
         "type_info": "Text"
       }
@@ -19,8 +19,8 @@
     },
     "nullable": [
       false,
-      false
+      true
     ]
   },
-  "hash": "c1bd56de66237715abc920ff117727354e980e6f5aad087510511fae4ba53f76"
+  "hash": "7343225b91e33cfd66e1d013a3ac860d97a060a9a26e312c62ab87c0aef037f0"
 }
