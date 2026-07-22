@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id AS \"id!: i64\", body AS \"body!: String\", created_at AS \"created_at!: String\"\n               FROM comments WHERE repo_id = ? AND issue_number = ? ORDER BY id",
+  "query": "SELECT id AS \"id!: i64\", body AS \"body!: String\", created_at AS \"created_at!: String\" FROM comments WHERE repo_id = ? AND issue_number = ? ORDER BY id",
   "describe": {
     "columns": [
       {
@@ -28,5 +28,5 @@
       false
     ]
   },
-  "hash": "a786be5b7069079e09ba199f06b7739a8fcf5e4e56cec4a551e296bbfd037b04"
+  "hash": "b8fd48caa71d7cbf0509d9638a97564a4ec7c47e7c12b89c17be8c57d59dc33a"
 }

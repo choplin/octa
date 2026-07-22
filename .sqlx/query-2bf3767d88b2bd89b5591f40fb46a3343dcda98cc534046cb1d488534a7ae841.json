@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT i.number AS \"number!: i64\", COALESCE(s.is_terminal, 0) AS \"is_terminal!: i64\"\n               FROM issues i\n               LEFT JOIN issue_states s ON s.repo_id = i.repo_id AND s.name = i.state\n               WHERE i.repo_id = ?",
+  "query": "SELECT i.number AS \"number!: i64\", COALESCE(s.is_terminal, 0) AS \"is_terminal!: i64\" FROM issues i LEFT JOIN issue_states s ON s.repo_id = i.repo_id AND s.name = i.state WHERE i.repo_id = ?",
   "describe": {
     "columns": [
       {
@@ -22,5 +22,5 @@
       null
     ]
   },
-  "hash": "51ea2b958326c24d30a50e030bf9deba9d09a9e2aaeb0d3bf1210437314651a0"
+  "hash": "2bf3767d88b2bd89b5591f40fb46a3343dcda98cc534046cb1d488534a7ae841"
 }

@@ -14,22 +14,14 @@ mod label;
 mod pr;
 mod wiki;
 
-pub use issue::{LockOutcome, StateFilter};
+pub use crate::domain::issue::{LockOutcome, StateFilter};
+pub use crate::domain::Comment;
 
 use anyhow::{bail, Context, Result};
-use serde::Serialize;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqlitePoolOptions};
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
-
-/// A comment on an issue or a pull request.
-#[derive(Debug, Serialize)]
-pub struct Comment {
-    pub id: i64,
-    pub body: String,
-    pub created_at: String,
-}
 
 /// Which repositories an operation targets.
 #[derive(Debug, Clone)]
@@ -103,7 +95,7 @@ pub fn resolve_db_path() -> Result<PathBuf> {
 }
 
 pub struct Store {
-    pool: SqlitePool,
+    pub(crate) pool: SqlitePool,
     scope: Resolved,
 }
 
@@ -145,64 +137,24 @@ impl Store {
     }
 
     /// The active single repo, or an error when the scope is `--all-repos`.
-    fn repo_id(&self) -> Result<i64> {
+    pub(crate) fn repo_id(&self) -> Result<i64> {
         match self.scope {
             Resolved::One(id) => Ok(id),
             Resolved::All => bail!("this command needs a single repository; drop --all-repos"),
         }
     }
 
-    fn is_all(&self) -> bool {
+    pub(crate) fn is_all(&self) -> bool {
         matches!(self.scope, Resolved::All)
     }
 
     /// Insert the repo if new, seed its default state set, and return its id.
     async fn upsert_repo(&self, identity_key: &str, name: &str) -> Result<i64> {
-        sqlx::query!(
-            "INSERT INTO repos (identity_key, name) VALUES (?, ?) \
-             ON CONFLICT(identity_key) DO NOTHING",
-            identity_key,
-            name
-        )
-        .execute(&self.pool)
-        .await?;
-        let id = sqlx::query_scalar!(
-            r#"SELECT id AS "id!: i64" FROM repos WHERE identity_key = ?"#,
-            identity_key
-        )
-        .fetch_one(&self.pool)
-        .await?;
-        // Seed the default, unlocked state set (idempotent).
-        for (state, starting, terminal, pos) in [
-            ("open", 1, 0, 0),
-            ("in_progress", 0, 0, 1),
-            ("closed", 0, 1, 2),
-        ] {
-            sqlx::query!(
-                "INSERT OR IGNORE INTO issue_states \
-                 (repo_id, name, is_starting, is_terminal, position) VALUES (?, ?, ?, ?, ?)",
-                id,
-                state,
-                starting,
-                terminal,
-                pos
-            )
-            .execute(&self.pool)
-            .await?;
-        }
-        Ok(id)
+        crate::sql::repo::upsert(&self.pool, identity_key, name).await
     }
 
     async fn repo_by_name(&self, name: &str) -> Result<i64> {
-        let rows =
-            sqlx::query_scalar!(r#"SELECT id AS "id!: i64" FROM repos WHERE name = ?"#, name)
-                .fetch_all(&self.pool)
-                .await?;
-        match rows.len() {
-            0 => bail!("no repository named {name:?} in the store"),
-            1 => Ok(rows[0]),
-            n => bail!("{n} repositories named {name:?}; identity is ambiguous"),
-        }
+        crate::sql::repo::by_name(&self.pool, name).await
     }
 }
 

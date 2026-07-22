@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT COALESCE(MAX(position), -1) + 1 AS \"p!: i64\"\n               FROM issue_states WHERE repo_id = ?",
+  "query": "SELECT COALESCE(MAX(position), -1) + 1 AS \"p!: i64\" FROM issue_states WHERE repo_id = ?",
   "describe": {
     "columns": [
       {
@@ -16,5 +16,5 @@
       false
     ]
   },
-  "hash": "a8ac0a1fc320d6dabc31e906e8821d7f4c16903111bc38a881897b17894541f0"
+  "hash": "209a89145b0ed440ceb7db7a7b889bb997826d193da85620d3d72b33027754f8"
 }

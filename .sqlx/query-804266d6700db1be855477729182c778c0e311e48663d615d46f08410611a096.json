@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT blocker_number AS \"n!: i64\" FROM issue_deps\n               WHERE repo_id = ? AND blocked_number = ? ORDER BY blocker_number",
+  "query": "SELECT blocker_number AS \"n!: i64\" FROM issue_deps WHERE repo_id = ? AND blocked_number = ? ORDER BY blocker_number",
   "describe": {
     "columns": [
       {
@@ -16,5 +16,5 @@
       false
     ]
   },
-  "hash": "e793819fadecfd958a0a52763026675d98c5f22e40223cb816561441b0216f53"
+  "hash": "804266d6700db1be855477729182c778c0e311e48663d615d46f08410611a096"
 }

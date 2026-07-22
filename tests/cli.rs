@@ -442,6 +442,7 @@ fn issues_are_shared_across_worktrees() {
 fn all_repos_aggregates_across_repositories() {
     let env = Env::new();
     env.ok(&["issue", "create", "--title", "In first repo"]);
+    env.ok(&["issue", "close", "1"]);
 
     // A second repository sharing the same global store.
     let repo2 = TempDir::new().unwrap();
@@ -462,7 +463,10 @@ fn all_repos_aggregates_across_repositories() {
     assert_eq!(second.as_array().unwrap()[0]["number"], 1);
 
     // --all-repos sees both.
-    let all = json(&env.ok_in(repo2.path(), &["issue", "list", "--all-repos", "--json"]));
+    let all = json(&env.ok_in(
+        repo2.path(),
+        &["issue", "list", "--all-repos", "--state", "all", "--json"],
+    ));
     let titles: Vec<&str> = all
         .as_array()
         .unwrap()
@@ -477,4 +481,27 @@ fn all_repos_aggregates_across_repositories() {
         titles.contains(&"In second repo"),
         "cross-repo view missing second: {titles:?}"
     );
+
+    let closed = json(&env.ok_in(
+        repo2.path(),
+        &[
+            "issue",
+            "list",
+            "--all-repos",
+            "--state",
+            "closed",
+            "--json",
+        ],
+    ));
+    assert_eq!(closed.as_array().unwrap().len(), 1);
+    assert_eq!(closed.as_array().unwrap()[0]["title"], "In first repo");
+
+    for args in [
+        vec!["issue", "list", "--all-repos", "--state", "in_progress"],
+        vec!["issue", "list", "--all-repos", "--label", "missing"],
+        vec!["issue", "list", "--all-repos", "--unblocked"],
+    ] {
+        let out = env.run_in(repo2.path(), &args);
+        assert!(!out.status.success(), "{args:?} unexpectedly succeeded");
+    }
 }

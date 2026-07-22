@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT r.name        AS \"repo!: String\",\n                      i.number      AS \"number!: i64\",\n                      i.title       AS \"title!: String\",\n                      i.body        AS \"body!: String\",\n                      i.state       AS \"state!: String\",\n                      i.locked_by   AS \"locked_by?: String\",\n                      i.created_at  AS \"created_at!: String\",\n                      i.updated_at  AS \"updated_at!: String\"\n               FROM issues i JOIN repos r ON r.id = i.repo_id\n               WHERE i.repo_id = ? AND i.number = ?",
+  "query": "SELECT r.name AS \"repo!: String\", i.number AS \"number!: i64\", i.title AS \"title!: String\", i.body AS \"body!: String\", i.state AS \"state!: String\", i.locked_by AS \"locked_by?: String\", i.created_at AS \"created_at!: String\", i.updated_at AS \"updated_at!: String\" FROM issues i JOIN repos r ON r.id = i.repo_id WHERE i.repo_id = ? AND i.number = ?",
   "describe": {
     "columns": [
       {
@@ -58,5 +58,5 @@
       false
     ]
   },
-  "hash": "3bdc65bc4e25068918132a6d3cfb943f46fd2b39bab73a0247bb5f2a22ec9a71"
+  "hash": "c10f8de5b9326a366f6eb33b72b73ccd6890395c3fe440978178d6de70cfa15b"
 }

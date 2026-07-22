@@ -1,5 +1,8 @@
 //! octa: GitHub-style Issue / Pull Request / Wiki collaboration, fully local.
 
+mod app;
+mod domain;
+mod sql;
 mod store;
 
 use anyhow::Result;
