@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            INSERT INTO prs (repo_id, number, title, body, branch)\n            VALUES (\n                ?,\n                (SELECT COALESCE(MAX(number), 0) + 1 FROM prs WHERE repo_id = ?),\n                ?, ?, ?\n            )\n            RETURNING number AS \"number!: i64\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "number!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "0a64d40357a03aca8fbd89992d617f9aaef8810e2a80e603ebfb361a1bf11776"
+}
