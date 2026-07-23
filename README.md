@@ -1,106 +1,297 @@
 # octa
 
-Local, GitHub-style collaboration for a Git repository. octa provides Issues,
-branch-linked pull-request discussions, Wiki pages, and labels without a hosted
-service or web UI. It is a CLI for keeping collaboration context available to
-people and agents working across multiple worktrees on the same machine.
+**チーム開発グレードの協働を、個人の AI エージェント駆動開発にローカルでもたらす CLI。**
 
-## What it provides
+octa は、1台のマシンで複数の AI エージェントと複数の開発セッションを並行して動かす個人開発者のための、ローカル協働基盤です。
 
-- **Issues** — numbered discussions with comments, states, dependencies, labels,
-  and an atomic exclusive lock for claiming work.
-- **Pull requests** — numbered discussion entities tied to a Git branch; code and
-  diffs remain in Git.
-- **Wiki** — repository-scoped pages with links and backlinks.
-- **Labels** — labels and single- or multi-select label groups.
+Issue、Pull Request、Wiki という GitHub 風のメンタルモデルで、リポジトリが何を目指し、何が残っているかを、セッションをまたいで残します。
 
-## Install and run
+データは外部サービスに送信せず、ローカルの SQLite に保存されます。
 
-This repository provides a Nix development shell with Rust, Cargo, and the
-supporting tools. From the repository root:
+## octa が解決すること
+
+AI エージェントに作業を分けると、判断の背景、未処理の作業、次の担当者へ渡すべき文脈がセッションごとに散ります。
+
+octa は、その情報をリポジトリ単位で持続する記録にします。
+
+- **Issue**：状態、依存関係、コメント、ラベル、原子的な lock を持つ作業記録です。
+- **Pull Request**：Git ブランチに紐づく議論と状態の記録です。コードと diff は Git 側に残ります。
+- **Wiki**：方針や手順を残すページです。`[[slug]]` によるリンクと backlink を使えます。
+- **Label と state**：各プロジェクトの分類と作業フローを設定できます。
+
+octa は Git hosting、Web UI、リモート同期、認証、多人数のリアルタイム協働を提供しません。
+
+同じマシン上で動く複数の worktree、エージェント、セッションの調整に焦点を絞っています。
+
+## 前提条件
+
+- Git リポジトリの中で実行すること。
+- Rust と Cargo を使えること。
+
+このリポジトリには Nix の開発環境もあります。
 
 ```sh
 nix develop
 cargo build
-cargo run -- --help
 ```
 
-If Rust is already available locally, `cargo build` and `cargo run -- --help` are
-enough. The built binary is at `target/debug/octa`.
-
-## Quick start
-
-Run octa from inside a Git repository. The current repository is the default
-scope.
+ローカルにインストールして `octa` コマンドとして使うには、次を実行します。
 
 ```sh
-# Create and inspect an issue.
-octa issue create --title "Document the release" --body "Capture the steps."
+cargo install --path .
+```
+
+`~/.cargo/bin` が `PATH` に含まれている必要があります。
+
+インストールせず、開発中のバイナリを使う場合は次を実行します。
+
+```sh
+./target/debug/octa --help
+```
+
+以降の例では、`octa` が `PATH` に入っているものとします。
+
+## 最初の5分
+
+まず、対象の Git リポジトリに移動します。
+
+```sh
+cd path/to/your-repository
+```
+
+Issue を作成し、一覧と詳細を確認します。
+
+```sh
+octa issue create \
+  --title "リリース手順を文書化する" \
+  --body "必要な確認項目と実行手順を Wiki に残す。"
+
 octa issue list
 octa issue show 1
-octa issue comment 1 --body "I will take this."
-
-# Track state, dependencies, and a work claim.
-octa issue set-state 1 in_progress
-octa issue dep add 1 2       # issue 1 blocks issue 2
-octa issue lock 1 --as docs-agent
-octa issue unlock 1
-
-# Open a branch-linked PR discussion.
-octa pr create --title "Document the release" --branch docs/release
-octa pr comment 1 --body "Ready for review."
-
-# Keep repository knowledge in the Wiki.
-octa wiki create --title "Release process" --body "..."
-octa wiki list
-octa wiki show release-process
 ```
 
-Use `--json` on supported issue and PR commands when another program needs
-machine-readable output. Run `octa --help` or, for example,
-`octa issue --help` to see every available command.
-
-## Labels and states
-
-Create a mutually exclusive label group for one-of choices, or a multi-select
-group for labels that can coexist:
+作業を始めるエージェントまたはセッションは lock を取得できます。
 
 ```sh
-octa label group --selection single priority
+octa issue lock 1 --as docs-agent
+octa issue comment 1 --body "着手しました。"
+```
+
+完了後は lock を外し、状態を更新します。
+
+```sh
+octa issue unlock 1 --as docs-agent
+octa issue close 1
+```
+
+`OCTA_ACTOR` を設定すると、`--as` を省略したときの lock 保持者名に使われます。
+
+```sh
+export OCTA_ACTOR=docs-agent
+octa issue lock 1
+```
+
+## Issue で作業を調整する
+
+Issue は番号、本文、コメント、状態、依存関係、ラベルを持ちます。
+
+### 状態と一覧
+
+既定の状態は `open`、`in_progress`、`closed` です。
+
+```sh
+octa issue set-state 1 in_progress
+octa issue list --state open
+octa issue list --state closed
+octa issue list --state all
+```
+
+プロジェクト固有の状態も追加できます。
+
+```sh
+octa state add blocked
+octa state list
+```
+
+`--starting` と `--terminal` は状態の入口・終端を示すフラグです。
+
+初期状態では `open` が入口、`closed` が終端です。
+
+現在の CLI では、後から追加した状態を close / reopen の既定遷移先に変更する操作はありません。
+
+### 依存関係
+
+Issue 1 が Issue 2 をブロックする関係を作るには、次を実行します。
+
+```sh
+octa issue dep add 1 2
+octa issue show 1
+octa issue show 2
+```
+
+まだ終端状態ではない blocker を持たない作業は、`--unblocked` で一覧できます。
+
+```sh
+octa issue list --unblocked
+```
+
+依存を削除するには `dep rm` を使います。
+
+```sh
+octa issue dep rm 1 2
+```
+
+### ラベル
+
+ラベルは単独でも使えます。
+
+```sh
+octa label create documentation
+octa issue label 1 documentation
+octa issue unlabel 1 documentation
+```
+
+`single` グループでは、同じグループのラベルを一つだけ付けられます。
+
+`multi` グループでは、同じグループのラベルを複数共存させられます。
+
+```sh
+octa label group priority --selection single
 octa label create high --group priority
+octa label create low --group priority
 octa issue label 1 high
 
-# The default issue states include open, in_progress, and closed.
-octa state list
-octa state add blocked --starting
+octa label group area --selection multi
+octa label create cli --group area
+octa label create storage --group area
+octa issue label 1 cli
+octa issue label 1 storage
 ```
 
-## Repository scope and storage
+## Pull Request の議論を残す
 
-octa stores collaboration data in one SQLite database at
-`$XDG_DATA_HOME/octa/octa.db`. When `XDG_DATA_HOME` is unset, it uses
-`~/.local/share/octa/octa.db`. This database is not committed to a repository.
+octa の Pull Request は、ブランチに紐づく番号付きの議論エンティティです。
 
-The default repository identity comes from Git's common directory, so every
-worktree of the same repository shares its octa data. To work outside the
-current repository:
+コードと diff は Git が扱い、octa は状態とコメントを保持します。
 
 ```sh
-# Target a named repository in the store.
-octa --repo other-repository issue list
+octa pr create \
+  --title "リリース手順を追加する" \
+  --branch docs/release-process \
+  --body "Wiki と README を更新する。"
 
-# Aggregate read-only views across every stored repository.
-octa --all-repos issue list
+octa pr comment 1 --body "確認をお願いします。"
+octa pr show 1
+octa pr close 1
 ```
 
-## Current status
+PR 一覧は `open`、`closed`、`all` で絞り込めます。
 
-The v1 CLI surface for Issues, PR discussions, Wiki pages, labels, and states is
-implemented. An agent-oriented skill layer is planned but is not yet part of this
-repository.
+```sh
+octa pr list --state open
+octa pr list --state all
+```
 
-## Scope
+## Wiki に方針と手順を残す
 
-octa is a local collaboration layer, not a replacement for Git hosting. It does
-not provide a full web UI, remote synchronization, authentication, or
-multi-person real-time collaboration.
+Wiki はリポジトリ内のファイルではなく、octa のローカルストアに保存されます。
+
+slug を省略すると、タイトルから ASCII 英数字とハイフンの slug を自動生成します。
+
+日本語だけのタイトルなど、自動生成後に slug が空になるタイトルでは `--slug` を指定してください。
+
+```sh
+octa wiki create \
+  --title "リリース手順" \
+  --slug release-process \
+  --body "関連する方針は [[development-policy]] を参照する。"
+
+octa wiki show release-process
+octa wiki list
+```
+
+明示的な slug を指定することもできます。
+
+```sh
+octa wiki create \
+  --title "開発方針" \
+  --slug development-policy \
+  --body "設計判断をここに残す。"
+```
+
+本文中の `[[slug]]` はリンクとして記録されます。
+
+`wiki show` は、そのページからのリンクと、そのページへの backlink を表示します。
+
+## JSON 出力
+
+自動化やエージェントから利用する場合は、対応するコマンドに `--json` を付けます。
+
+```sh
+octa issue create --title "調査する" --json
+octa issue list --state all --json
+octa issue show 1 --json
+octa pr list --state all --json
+octa wiki show release-process --json
+octa label list --json
+```
+
+## worktree とリポジトリのスコープ
+
+通常は、現在いる Git リポジトリが対象です。
+
+Git の common directory を識別子に使うため、同じリポジトリの複数 worktree は同じ octa データを共有します。
+
+別の登録済みリポジトリを明示するには `--repo` を使います。
+
+```sh
+octa --repo other-repository issue list
+```
+
+読み取り系の一部の一覧では、`--all-repos` で登録済みリポジトリを横断できます。
+
+```sh
+octa --all-repos issue list --state all
+octa --all-repos pr list --state all
+octa --all-repos wiki list
+```
+
+更新操作と、Issue の `--label`、`--unblocked`、固有状態による絞り込みは、単一リポジトリで実行してください。
+
+## 保存場所とバックアップ
+
+octa は、ユーザーごとに一つの SQLite データベースを使います。
+
+```text
+$XDG_DATA_HOME/octa/octa.db
+```
+
+`XDG_DATA_HOME` が未設定の場合は、次の場所です。
+
+```text
+~/.local/share/octa/octa.db
+```
+
+このデータベースは Git にコミットされず、clone や remote には自動で同期されません。
+
+マシン移行やバックアップが必要な場合は、このデータベースをバックアップしてください。
+
+## コマンドを調べる
+
+```sh
+octa --help
+octa issue --help
+octa issue dep --help
+octa pr --help
+octa wiki --help
+octa label --help
+octa state --help
+```
+
+## 開発時の確認
+
+```sh
+cargo fmt --check
+SQLX_OFFLINE=true cargo clippy --all-targets -- -D warnings
+SQLX_OFFLINE=true TMPDIR=/private/tmp cargo test
+```
