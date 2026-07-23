@@ -12,6 +12,7 @@ pub async fn insert_group(pool: &SqlitePool, repo: i64, name: &str, selection: &
     .await?;
     Ok(())
 }
+
 pub async fn group_exists(pool: &SqlitePool, repo: i64, name: &str) -> Result<bool> {
     Ok(sqlx::query_scalar!(
         "SELECT COUNT(*) FROM label_groups WHERE repo_id = ? AND name = ?",
@@ -22,6 +23,7 @@ pub async fn group_exists(pool: &SqlitePool, repo: i64, name: &str) -> Result<bo
     .await?
         != 0)
 }
+
 pub async fn insert(pool: &SqlitePool, repo: i64, name: &str, group: Option<&str>) -> Result<()> {
     sqlx::query!(
         "INSERT INTO labels (repo_id, name, group_name) VALUES (?, ?, ?)",
@@ -33,6 +35,7 @@ pub async fn insert(pool: &SqlitePool, repo: i64, name: &str, group: Option<&str
     .await?;
     Ok(())
 }
+
 pub async fn list(pool: &SqlitePool, repo: i64) -> Result<Vec<Label>> {
     Ok(sqlx::query_as!(
         Label,
@@ -52,6 +55,7 @@ pub async fn list(pool: &SqlitePool, repo: i64) -> Result<Vec<Label>> {
     .fetch_all(pool)
     .await?)
 }
+
 pub async fn list_groups(pool: &SqlitePool, repo: i64) -> Result<Vec<LabelGroup>> {
     Ok(sqlx::query_as!(
         LabelGroup,
@@ -71,6 +75,7 @@ pub async fn list_groups(pool: &SqlitePool, repo: i64) -> Result<Vec<LabelGroup>
     .fetch_all(pool)
     .await?)
 }
+
 pub async fn issue_exists_tx(
     tx: &mut Transaction<'_, Sqlite>,
     repo: i64,
@@ -85,6 +90,7 @@ pub async fn issue_exists_tx(
     .await?
         != 0)
 }
+
 pub async fn label_group_tx(
     tx: &mut Transaction<'_, Sqlite>,
     repo: i64,
@@ -107,6 +113,7 @@ pub async fn label_group_tx(
     .fetch_optional(&mut **tx)
     .await?)
 }
+
 pub async fn group_selection_tx(
     tx: &mut Transaction<'_, Sqlite>,
     repo: i64,
@@ -129,6 +136,7 @@ pub async fn group_selection_tx(
     .fetch_one(&mut **tx)
     .await?)
 }
+
 pub async fn replace_single_group(
     tx: &mut Transaction<'_, Sqlite>,
     repo: i64,
@@ -138,6 +146,7 @@ pub async fn replace_single_group(
     sqlx::query!("DELETE FROM issue_labels WHERE repo_id = ? AND issue_number = ? AND label_name IN (SELECT name FROM labels WHERE repo_id = ? AND group_name = ?)", repo, number, repo, group).execute(&mut **tx).await?;
     Ok(())
 }
+
 pub async fn attach(
     tx: &mut Transaction<'_, Sqlite>,
     repo: i64,
@@ -154,6 +163,7 @@ pub async fn attach(
     .await?;
     Ok(())
 }
+
 pub async fn detach(pool: &SqlitePool, repo: i64, number: i64, label: &str) -> Result<()> {
     sqlx::query!(
         "DELETE FROM issue_labels WHERE repo_id = ? AND issue_number = ? AND label_name = ?",

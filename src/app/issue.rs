@@ -90,6 +90,7 @@ async fn unblocked_numbers(pool: &SqlitePool, repo: i64) -> Result<HashSet<i64>>
         })
         .collect())
 }
+
 pub async fn detail(pool: &SqlitePool, repo: i64, number: i64) -> Result<IssueDetail> {
     let issue = require(pool, repo, number).await?;
     Ok(IssueDetail {
@@ -100,11 +101,13 @@ pub async fn detail(pool: &SqlitePool, repo: i64, number: i64) -> Result<IssueDe
         issue,
     })
 }
+
 pub async fn comment(pool: &SqlitePool, repo: i64, number: i64, body: &str) -> Result<()> {
     require(pool, repo, number).await?;
     crate::sql::issue::insert_comment(pool, repo, number, body).await?;
     crate::sql::issue::touch(pool, repo, number).await
 }
+
 pub async fn set_state(pool: &SqlitePool, repo: i64, number: i64, state: &str) -> Result<()> {
     require(pool, repo, number).await?;
     if !crate::sql::issue::state_exists(pool, repo, state).await? {
@@ -112,16 +115,19 @@ pub async fn set_state(pool: &SqlitePool, repo: i64, number: i64, state: &str) -
     }
     crate::sql::issue::update_state(pool, repo, number, state).await
 }
+
 pub async fn close(pool: &SqlitePool, repo: i64, number: i64) -> Result<String> {
     let state = terminal(pool, repo).await?;
     set_state(pool, repo, number, &state).await?;
     Ok(state)
 }
+
 pub async fn reopen(pool: &SqlitePool, repo: i64, number: i64) -> Result<String> {
     let state = starting(pool, repo).await?;
     set_state(pool, repo, number, &state).await?;
     Ok(state)
 }
+
 pub async fn edit(
     pool: &SqlitePool,
     repo: i64,
@@ -141,6 +147,7 @@ pub async fn edit(
     }
     crate::sql::issue::touch(pool, repo, number).await
 }
+
 pub async fn add_dependency(
     pool: &SqlitePool,
     repo: i64,
@@ -154,6 +161,7 @@ pub async fn add_dependency(
     require(pool, repo, blocked).await?;
     crate::sql::issue::insert_dependency(pool, repo, blocker, blocked).await
 }
+
 pub async fn remove_dependency(
     pool: &SqlitePool,
     repo: i64,
@@ -162,6 +170,7 @@ pub async fn remove_dependency(
 ) -> Result<()> {
     crate::sql::issue::remove_dependency(pool, repo, blocker, blocked).await
 }
+
 pub async fn lock(pool: &SqlitePool, repo: i64, number: i64, holder: &str) -> Result<LockOutcome> {
     require(pool, repo, number).await?;
     if crate::sql::issue::try_lock(pool, repo, number, holder).await? {
@@ -174,6 +183,7 @@ pub async fn lock(pool: &SqlitePool, repo: i64, number: i64, holder: &str) -> Re
         ))
     }
 }
+
 pub async fn unlock(
     pool: &SqlitePool,
     repo: i64,
@@ -184,9 +194,11 @@ pub async fn unlock(
     require(pool, repo, number).await?;
     crate::sql::issue::release_lock(pool, repo, number, (!force).then_some(holder)).await
 }
+
 pub async fn list_states(pool: &SqlitePool, repo: i64) -> Result<Vec<IssueState>> {
     crate::sql::issue::list_states(pool, repo).await
 }
+
 pub async fn add_state(
     pool: &SqlitePool,
     repo: i64,

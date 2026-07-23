@@ -13,6 +13,7 @@ async fn require(pool: &SqlitePool, repo: i64, slug: &str) -> Result<WikiPage> {
         .await?
         .ok_or_else(|| anyhow!("wiki page {slug:?} not found"))
 }
+
 pub async fn create(
     pool: &SqlitePool,
     repo: i64,
@@ -30,6 +31,7 @@ pub async fn create(
     tx.commit().await?;
     Ok(slug)
 }
+
 pub async fn edit(
     pool: &SqlitePool,
     repo: i64,
@@ -55,6 +57,7 @@ pub async fn edit(
     }
     Ok(())
 }
+
 pub async fn detail(pool: &SqlitePool, repo: i64, raw_slug: &str) -> Result<WikiDetail> {
     let slug = slug(raw_slug)?;
     Ok(WikiDetail {
@@ -63,6 +66,7 @@ pub async fn detail(pool: &SqlitePool, repo: i64, raw_slug: &str) -> Result<Wiki
         backlinks: crate::sql::wiki::backlinks(pool, repo, &slug).await?,
     })
 }
+
 pub async fn list(pool: &SqlitePool, repo: Option<i64>) -> Result<Vec<WikiPage>> {
     crate::sql::wiki::list(pool, repo).await
 }

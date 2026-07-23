@@ -20,6 +20,7 @@ pub struct Cli {
     #[command(subcommand)]
     command: TopCommand,
 }
+
 #[derive(Args)]
 struct ScopeArgs {
     /// Select an already-known repository by name.
@@ -29,6 +30,7 @@ struct ScopeArgs {
     #[arg(long, global = true, conflicts_with = "repo")]
     all_repos: bool,
 }
+
 impl ScopeArgs {
     fn to_scope(&self) -> RepoScope {
         if self.all_repos {
@@ -40,6 +42,7 @@ impl ScopeArgs {
         }
     }
 }
+
 #[derive(Subcommand)]
 enum TopCommand {
     /// Manage issues.
@@ -68,6 +71,7 @@ enum TopCommand {
         command: LabelCommand,
     },
 }
+
 #[derive(Subcommand)]
 pub(crate) enum IssueCommand {
     /// Create a new issue.
@@ -140,6 +144,7 @@ pub(crate) enum IssueCommand {
     /// Remove a label from an issue.
     Unlabel { number: i64, label: String },
 }
+
 #[derive(Subcommand)]
 pub(crate) enum DepCommand {
     /// Add a blocking dependency.
@@ -147,6 +152,7 @@ pub(crate) enum DepCommand {
     /// Remove a blocking dependency.
     Rm { blocker: i64, blocked: i64 },
 }
+
 #[derive(Subcommand)]
 pub(crate) enum StateCommand {
     /// List configured states.
@@ -163,6 +169,7 @@ pub(crate) enum StateCommand {
         terminal: bool,
     },
 }
+
 #[derive(Subcommand)]
 pub(crate) enum PrCommand {
     /// Create a pull request.
@@ -210,6 +217,7 @@ pub(crate) enum PrCommand {
         body: Option<String>,
     },
 }
+
 #[derive(Subcommand)]
 pub(crate) enum WikiCommand {
     /// Create a wiki page.
@@ -241,6 +249,7 @@ pub(crate) enum WikiCommand {
         json: bool,
     },
 }
+
 #[derive(Subcommand)]
 pub(crate) enum LabelCommand {
     /// Create a label group.
@@ -287,6 +296,7 @@ pub(crate) fn parse_pr_state(value: &str) -> Result<StateFilter> {
         state => anyhow::bail!("unknown --state {state:?}; use open, closed, or all"),
     }
 }
+
 pub async fn run(cli: Cli) -> Result<()> {
     let store = Store::open(cli.scope.to_scope()).await?;
     match cli.command {

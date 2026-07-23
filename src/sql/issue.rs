@@ -152,9 +152,11 @@ pub async fn list_entries(pool: &SqlitePool, repo: Option<i64>) -> Result<Vec<Is
 pub async fn labelled_numbers(pool: &SqlitePool, repo: i64, label: &str) -> Result<HashSet<i64>> {
     Ok(sqlx::query_scalar!(r#"SELECT issue_number AS "n!: i64" FROM issue_labels WHERE repo_id = ? AND label_name = ?"#, repo, label).fetch_all(pool).await?.into_iter().collect())
 }
+
 pub async fn state_flags(pool: &SqlitePool, repo: i64) -> Result<Vec<(i64, bool)>> {
     Ok(sqlx::query!(r#"SELECT i.number AS "number!: i64", COALESCE(s.is_terminal, 0) AS "is_terminal!: i64" FROM issues i LEFT JOIN issue_states s ON s.repo_id = i.repo_id AND s.name = i.state WHERE i.repo_id = ?"#, repo).fetch_all(pool).await?.into_iter().map(|row| (row.number, row.is_terminal != 0)).collect())
 }
+
 pub async fn dependencies(pool: &SqlitePool, repo: i64) -> Result<Vec<(i64, i64)>> {
     Ok(sqlx::query!(r#"SELECT blocker_number AS "blocker!: i64", blocked_number AS "blocked!: i64" FROM issue_deps WHERE repo_id = ?"#, repo).fetch_all(pool).await?.into_iter().map(|row| (row.blocker, row.blocked)).collect())
 }
@@ -162,12 +164,15 @@ pub async fn dependencies(pool: &SqlitePool, repo: i64) -> Result<Vec<(i64, i64)
 pub async fn comments(pool: &SqlitePool, repo: i64, number: i64) -> Result<Vec<Comment>> {
     Ok(sqlx::query_as!(Comment, r#"SELECT id AS "id!: i64", body AS "body!: String", created_at AS "created_at!: String" FROM comments WHERE repo_id = ? AND issue_number = ? ORDER BY id"#, repo, number).fetch_all(pool).await?)
 }
+
 pub async fn labels(pool: &SqlitePool, repo: i64, number: i64) -> Result<Vec<String>> {
     Ok(sqlx::query_scalar!(r#"SELECT label_name AS "l!: String" FROM issue_labels WHERE repo_id = ? AND issue_number = ? ORDER BY label_name"#, repo, number).fetch_all(pool).await?)
 }
+
 pub async fn blocks(pool: &SqlitePool, repo: i64, number: i64) -> Result<Vec<i64>> {
     Ok(sqlx::query_scalar!(r#"SELECT blocked_number AS "n!: i64" FROM issue_deps WHERE repo_id = ? AND blocker_number = ? ORDER BY blocked_number"#, repo, number).fetch_all(pool).await?)
 }
+
 pub async fn blocked_by(pool: &SqlitePool, repo: i64, number: i64) -> Result<Vec<i64>> {
     Ok(sqlx::query_scalar!(r#"SELECT blocker_number AS "n!: i64" FROM issue_deps WHERE repo_id = ? AND blocked_number = ? ORDER BY blocker_number"#, repo, number).fetch_all(pool).await?)
 }
@@ -183,6 +188,7 @@ pub async fn insert_comment(pool: &SqlitePool, repo: i64, number: i64, body: &st
     .await?;
     Ok(())
 }
+
 pub async fn state_exists(pool: &SqlitePool, repo: i64, state: &str) -> Result<bool> {
     Ok(sqlx::query_scalar!(
         "SELECT COUNT(*) FROM issue_states WHERE repo_id = ? AND name = ?",
@@ -193,10 +199,12 @@ pub async fn state_exists(pool: &SqlitePool, repo: i64, state: &str) -> Result<b
     .await?
         != 0)
 }
+
 pub async fn update_state(pool: &SqlitePool, repo: i64, number: i64, state: &str) -> Result<()> {
     sqlx::query!("UPDATE issues SET state = ?, updated_at = datetime('now') WHERE repo_id = ? AND number = ?", state, repo, number).execute(pool).await?;
     Ok(())
 }
+
 pub async fn update_title(pool: &SqlitePool, repo: i64, number: i64, title: &str) -> Result<()> {
     sqlx::query!(
         "UPDATE issues SET title = ? WHERE repo_id = ? AND number = ?",
@@ -208,6 +216,7 @@ pub async fn update_title(pool: &SqlitePool, repo: i64, number: i64, title: &str
     .await?;
     Ok(())
 }
+
 pub async fn update_body(pool: &SqlitePool, repo: i64, number: i64, body: &str) -> Result<()> {
     sqlx::query!(
         "UPDATE issues SET body = ? WHERE repo_id = ? AND number = ?",
@@ -219,6 +228,7 @@ pub async fn update_body(pool: &SqlitePool, repo: i64, number: i64, body: &str) 
     .await?;
     Ok(())
 }
+
 pub async fn touch(pool: &SqlitePool, repo: i64, number: i64) -> Result<()> {
     sqlx::query!(
         "UPDATE issues SET updated_at = datetime('now') WHERE repo_id = ? AND number = ?",
@@ -229,6 +239,7 @@ pub async fn touch(pool: &SqlitePool, repo: i64, number: i64) -> Result<()> {
     .await?;
     Ok(())
 }
+
 pub async fn insert_dependency(
     pool: &SqlitePool,
     repo: i64,
@@ -238,6 +249,7 @@ pub async fn insert_dependency(
     sqlx::query!("INSERT OR IGNORE INTO issue_deps (repo_id, blocker_number, blocked_number) VALUES (?, ?, ?)", repo, blocker, blocked).execute(pool).await?;
     Ok(())
 }
+
 pub async fn remove_dependency(
     pool: &SqlitePool,
     repo: i64,
@@ -254,9 +266,11 @@ pub async fn remove_dependency(
     .await?;
     Ok(())
 }
+
 pub async fn try_lock(pool: &SqlitePool, repo: i64, number: i64, holder: &str) -> Result<bool> {
     Ok(sqlx::query!("UPDATE issues SET locked_by = ?, locked_at = datetime('now') WHERE repo_id = ? AND number = ? AND locked_by IS NULL", holder, repo, number).execute(pool).await?.rows_affected() == 1)
 }
+
 pub async fn locked_by(pool: &SqlitePool, repo: i64, number: i64) -> Result<Option<String>> {
     Ok(sqlx::query_scalar!(
         r#"SELECT locked_by AS "locked_by?: String" FROM issues WHERE repo_id = ? AND number = ?"#,
@@ -266,6 +280,7 @@ pub async fn locked_by(pool: &SqlitePool, repo: i64, number: i64) -> Result<Opti
     .fetch_one(pool)
     .await?)
 }
+
 pub async fn release_lock(
     pool: &SqlitePool,
     repo: i64,
@@ -275,9 +290,11 @@ pub async fn release_lock(
     let result = match holder { Some(holder) => sqlx::query!("UPDATE issues SET locked_by = NULL, locked_at = NULL WHERE repo_id = ? AND number = ? AND locked_by = ?", repo, number, holder).execute(pool).await?, None => sqlx::query!("UPDATE issues SET locked_by = NULL, locked_at = NULL WHERE repo_id = ? AND number = ?", repo, number).execute(pool).await?, };
     Ok(result.rows_affected() == 1)
 }
+
 pub async fn list_states(pool: &SqlitePool, repo: i64) -> Result<Vec<IssueState>> {
     Ok(sqlx::query!(r#"SELECT name AS "name!: String", is_starting AS "is_starting!: i64", is_terminal AS "is_terminal!: i64", position AS "position!: i64" FROM issue_states WHERE repo_id = ? ORDER BY position, name"#, repo).fetch_all(pool).await?.into_iter().map(|row| IssueState { name: row.name, is_starting: row.is_starting != 0, is_terminal: row.is_terminal != 0, position: row.position }).collect())
 }
+
 pub async fn insert_state(
     pool: &SqlitePool,
     repo: i64,
@@ -291,12 +308,15 @@ pub async fn insert_state(
     sqlx::query!("INSERT INTO issue_states (repo_id, name, is_starting, is_terminal, position) VALUES (?, ?, ?, ?, ?)", repo, name, starting, terminal, position).execute(pool).await?;
     Ok(())
 }
+
 pub async fn next_state_position(pool: &SqlitePool, repo: i64) -> Result<i64> {
     Ok(sqlx::query_scalar!(r#"SELECT COALESCE(MAX(position), -1) + 1 AS "p!: i64" FROM issue_states WHERE repo_id = ?"#, repo).fetch_one(pool).await?)
 }
+
 pub async fn default_starting_state(pool: &SqlitePool, repo: i64) -> Result<Option<String>> {
     Ok(sqlx::query_scalar!("SELECT name FROM issue_states WHERE repo_id = ? AND is_starting = 1 ORDER BY position LIMIT 1", repo).fetch_optional(pool).await?)
 }
+
 pub async fn default_terminal_state(pool: &SqlitePool, repo: i64) -> Result<Option<String>> {
     Ok(sqlx::query_scalar!("SELECT name FROM issue_states WHERE repo_id = ? AND is_terminal = 1 ORDER BY position LIMIT 1", repo).fetch_optional(pool).await?)
 }

@@ -7,6 +7,7 @@ pub async fn create_group(pool: &SqlitePool, repo: i64, name: &str, selection: &
     }
     crate::sql::label::insert_group(pool, repo, name, selection).await
 }
+
 pub async fn create(pool: &SqlitePool, repo: i64, name: &str, group: Option<&str>) -> Result<()> {
     if let Some(group) = group {
         if !crate::sql::label::group_exists(pool, repo, group).await? {
@@ -15,12 +16,15 @@ pub async fn create(pool: &SqlitePool, repo: i64, name: &str, group: Option<&str
     }
     crate::sql::label::insert(pool, repo, name, group).await
 }
+
 pub async fn list(pool: &SqlitePool, repo: i64) -> Result<Vec<Label>> {
     crate::sql::label::list(pool, repo).await
 }
+
 pub async fn list_groups(pool: &SqlitePool, repo: i64) -> Result<Vec<LabelGroup>> {
     crate::sql::label::list_groups(pool, repo).await
 }
+
 pub async fn attach(pool: &SqlitePool, repo: i64, number: i64, label: &str) -> Result<()> {
     let mut tx = pool.begin().await?;
     if !crate::sql::label::issue_exists_tx(&mut tx, repo, number).await? {
@@ -40,6 +44,7 @@ pub async fn attach(pool: &SqlitePool, repo: i64, number: i64, label: &str) -> R
     tx.commit().await?;
     Ok(())
 }
+
 pub async fn detach(pool: &SqlitePool, repo: i64, number: i64, label: &str) -> Result<()> {
     crate::sql::label::detach(pool, repo, number, label).await
 }

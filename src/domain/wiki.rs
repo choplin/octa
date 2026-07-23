@@ -9,6 +9,7 @@ pub struct WikiPage {
     pub created_at: String,
     pub updated_at: String,
 }
+
 #[derive(Debug, Serialize)]
 pub struct WikiDetail {
     #[serde(flatten)]

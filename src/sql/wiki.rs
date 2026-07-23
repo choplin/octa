@@ -12,6 +12,7 @@ pub async fn exists(pool: &SqlitePool, repo: i64, slug: &str) -> Result<bool> {
     .await?
         != 0)
 }
+
 pub async fn get(pool: &SqlitePool, repo: i64, slug: &str) -> Result<Option<WikiPage>> {
     Ok(sqlx::query_as!(
         WikiPage,
@@ -38,6 +39,7 @@ pub async fn get(pool: &SqlitePool, repo: i64, slug: &str) -> Result<Option<Wiki
     .fetch_optional(pool)
     .await?)
 }
+
 pub async fn list(pool: &SqlitePool, repo: Option<i64>) -> Result<Vec<WikiPage>> {
     Ok(match repo {
         Some(repo) => {
@@ -89,6 +91,7 @@ pub async fn list(pool: &SqlitePool, repo: Option<i64>) -> Result<Vec<WikiPage>>
         }
     })
 }
+
 pub async fn links_to(pool: &SqlitePool, repo: i64, slug: &str) -> Result<Vec<String>> {
     Ok(sqlx::query_scalar!(
         r#"
@@ -108,6 +111,7 @@ pub async fn links_to(pool: &SqlitePool, repo: i64, slug: &str) -> Result<Vec<St
     .fetch_all(pool)
     .await?)
 }
+
 pub async fn backlinks(pool: &SqlitePool, repo: i64, slug: &str) -> Result<Vec<String>> {
     Ok(sqlx::query_scalar!(
         r#"
@@ -127,6 +131,7 @@ pub async fn backlinks(pool: &SqlitePool, repo: i64, slug: &str) -> Result<Vec<S
     .fetch_all(pool)
     .await?)
 }
+
 pub async fn insert(
     tx: &mut Transaction<'_, Sqlite>,
     repo: i64,
@@ -145,10 +150,12 @@ pub async fn insert(
     .await?;
     Ok(())
 }
+
 pub async fn update_title(pool: &SqlitePool, repo: i64, slug: &str, title: &str) -> Result<()> {
     sqlx::query!("UPDATE wiki_pages SET title = ?, updated_at = datetime('now') WHERE repo_id = ? AND slug = ?", title, repo, slug).execute(pool).await?;
     Ok(())
 }
+
 pub async fn update_title_tx(
     tx: &mut Transaction<'_, Sqlite>,
     repo: i64,
@@ -158,6 +165,7 @@ pub async fn update_title_tx(
     sqlx::query!("UPDATE wiki_pages SET title = ?, updated_at = datetime('now') WHERE repo_id = ? AND slug = ?", title, repo, slug).execute(&mut **tx).await?;
     Ok(())
 }
+
 pub async fn update_body(
     tx: &mut Transaction<'_, Sqlite>,
     repo: i64,
@@ -167,6 +175,7 @@ pub async fn update_body(
     sqlx::query!("UPDATE wiki_pages SET body = ?, updated_at = datetime('now') WHERE repo_id = ? AND slug = ?", body, repo, slug).execute(&mut **tx).await?;
     Ok(())
 }
+
 pub async fn sync_links(
     tx: &mut Transaction<'_, Sqlite>,
     repo: i64,

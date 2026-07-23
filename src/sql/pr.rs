@@ -152,6 +152,7 @@ pub async fn insert_comment(pool: &SqlitePool, repo: i64, number: i64, body: &st
     .await?;
     Ok(())
 }
+
 pub async fn update_state(pool: &SqlitePool, repo: i64, number: i64, state: &str) -> Result<()> {
     sqlx::query!(
         "UPDATE prs SET state = ?, updated_at = datetime('now') WHERE repo_id = ? AND number = ?",
@@ -163,6 +164,7 @@ pub async fn update_state(pool: &SqlitePool, repo: i64, number: i64, state: &str
     .await?;
     Ok(())
 }
+
 pub async fn update_title(pool: &SqlitePool, repo: i64, number: i64, title: &str) -> Result<()> {
     sqlx::query!(
         "UPDATE prs SET title = ? WHERE repo_id = ? AND number = ?",
@@ -174,6 +176,7 @@ pub async fn update_title(pool: &SqlitePool, repo: i64, number: i64, title: &str
     .await?;
     Ok(())
 }
+
 pub async fn update_body(pool: &SqlitePool, repo: i64, number: i64, body: &str) -> Result<()> {
     sqlx::query!(
         "UPDATE prs SET body = ? WHERE repo_id = ? AND number = ?",
@@ -185,6 +188,7 @@ pub async fn update_body(pool: &SqlitePool, repo: i64, number: i64, body: &str) 
     .await?;
     Ok(())
 }
+
 pub async fn touch(pool: &SqlitePool, repo: i64, number: i64) -> Result<()> {
     sqlx::query!(
         "UPDATE prs SET updated_at = datetime('now') WHERE repo_id = ? AND number = ?",
