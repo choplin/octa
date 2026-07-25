@@ -6,7 +6,7 @@ use crate::domain::milestone::MilestoneRef;
 use crate::domain::Comment;
 use crate::domain::{pr::PrRef, project::ProjectRef};
 use anyhow::Result;
-use sqlx::{Acquire, FromRow, Row, SqlitePool};
+use sqlx::{Acquire, FromRow, SqlitePool};
 use std::collections::HashSet;
 
 #[derive(FromRow)]
@@ -553,25 +553,6 @@ pub async fn release_lock(
 
 pub async fn list_states(pool: &SqlitePool, repo: i64) -> Result<Vec<IssueState>> {
     Ok(sqlx::query!(r#"SELECT name AS "name!: String", status_type AS "status_type!: String", is_starting AS "is_starting!: i64", is_terminal AS "is_terminal!: i64", position AS "position!: i64" FROM issue_states WHERE repo_id = ? ORDER BY position, name"#, repo).fetch_all(pool).await?.into_iter().map(|row| IssueState { name: row.name, status_type: row.status_type, is_starting: row.is_starting != 0, is_terminal: row.is_terminal != 0, position: row.position }).collect())
-}
-
-pub async fn workflow_order(pool: &SqlitePool, repo: i64) -> Result<Vec<(String, String, i64)>> {
-    let rows = sqlx::query(
-        "SELECT name, workflow_group, workflow_rank FROM issue_states WHERE repo_id = ? ORDER BY workflow_rank, name",
-    )
-    .bind(repo)
-    .fetch_all(pool)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .map(|row| {
-            (
-                row.get::<String, _>("name"),
-                row.get::<String, _>("workflow_group"),
-                row.get::<i64, _>("workflow_rank"),
-            )
-        })
-        .collect())
 }
 
 pub async fn insert_state(

@@ -1490,29 +1490,6 @@ fn label_errors_and_idempotent_operations_are_preserved() {
 }
 
 #[test]
-fn reconstructed_workflow_and_project_list_policy_is_implicit() {
-    let env = Env::new();
-    let states = json(&env.ok(&["state", "list", "--json"]));
-    assert_eq!(states.as_array().unwrap().len(), 6);
-    assert_eq!(states[5]["name"], "Canceled");
-    let workflow = json(&env.ok(&["issue", "list", "--workflow", "--json"]));
-    assert!(workflow.as_array().unwrap().is_empty());
-    env.ok(&["project", "create", "--name", "Hidden"]);
-    env.ok(&[
-        "project",
-        "set-state",
-        "Hidden",
-        "done",
-        "--type",
-        "completed",
-    ]);
-    assert!(json(&env.ok(&["project", "list", "--json"]))
-        .as_array()
-        .unwrap()
-        .is_empty());
-}
-
-#[test]
 fn reconstructed_transition_requires_completion_note() {
     let env = Env::new();
     env.ok(&["issue", "create", "--title", "Complete"]);

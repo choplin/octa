@@ -397,7 +397,6 @@ octa state --help
 
 ## Reconstructed pre-separation policy baseline
 
-- Repositories receive Backlog/Todo/In Progress/In Review/Done/Canceled with persisted workflow groups/ranks, and Project lists are implicitly active-only.
 - Composite transitions require a completion note for terminal states.
 - Parent and child Issues must remain in the same Project.
 - Issue-to-PR ownership and Issue JSON projections are singular.

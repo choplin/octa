@@ -10,12 +10,6 @@ UPDATE issue_states SET status_type = 'unstarted' WHERE name = 'open';
 UPDATE issue_states SET status_type = 'started' WHERE name = 'in_progress';
 UPDATE issue_states SET status_type = 'completed' WHERE name = 'closed';
 
-ALTER TABLE issue_states
-ADD COLUMN workflow_group TEXT NOT NULL DEFAULT 'active';
-
-ALTER TABLE issue_states
-ADD COLUMN workflow_rank INTEGER NOT NULL DEFAULT 100;
-
 ALTER TABLE issues
 ADD COLUMN priority INTEGER NOT NULL DEFAULT 0
     CHECK (priority BETWEEN 0 AND 4);

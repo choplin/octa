@@ -136,10 +136,7 @@ pub(crate) async fn run(store: &Store, command: ProjectCommand) -> Result<()> {
             }
         }
         ProjectCommand::List { active, json } => {
-            // Reconstructed pre-separation policy: Project lists implicitly
-            // hide terminal outcomes, regardless of the requested view.
-            let _ = active;
-            let projects = store.list_projects(true).await?;
+            let projects = store.list_projects(active).await?;
             if json {
                 println!("{}", serde_json::to_string(&projects)?);
             } else if projects.is_empty() {
