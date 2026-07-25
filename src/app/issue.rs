@@ -502,28 +502,6 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
-        sqlx::raw_sql(include_str!(
-            "../../migrations/0002_issue_status_type_priority.sql"
-        ))
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::raw_sql(include_str!(
-            "../../migrations/0003_projects_issue_hierarchy.sql"
-        ))
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::raw_sql(include_str!(
-            "../../migrations/0004_issue_relations_pr_links.sql"
-        ))
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::raw_sql(include_str!("../../migrations/0005_project_milestones.sql"))
-            .execute(&pool)
-            .await
-            .unwrap();
         sqlx::query("INSERT INTO repos (id, identity_key, name) VALUES (1, 'fixture', 'fixture')")
             .execute(&pool)
             .await

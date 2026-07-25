@@ -358,178 +358,57 @@ mod migration_tests {
     }
 
     #[tokio::test]
-    async fn status_priority_migration_preserves_legacy_data() {
+    async fn fresh_schema_contains_the_current_model() {
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
             .connect("sqlite::memory:")
             .await
             .unwrap();
-        sqlx::raw_sql(include_str!("../../migrations/0001_init.sql"))
-            .execute(&pool)
-            .await
-            .unwrap();
-        sqlx::query(
-            "INSERT INTO repos (id, identity_key, name) VALUES (1, '/legacy/.git', 'legacy')",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        for (name, starting, terminal, position) in [
-            ("open", 1, 0, 0),
-            ("in_progress", 0, 0, 1),
-            ("closed", 0, 1, 2),
-            ("custom", 0, 0, 3),
-            ("archived", 0, 1, 4),
-            ("Backlog", 0, 0, 5),
-            ("Todo", 0, 0, 6),
-            ("In Progress", 0, 0, 7),
-            ("In Review", 0, 0, 8),
-            ("Done", 0, 1, 9),
-            ("Canceled", 0, 1, 10),
-        ] {
-            sqlx::query("INSERT INTO issue_states (repo_id, name, is_starting, is_terminal, position) VALUES (1, ?, ?, ?, ?)")
-                .bind(name)
-                .bind(starting)
-                .bind(terminal)
-                .bind(position)
-                .execute(&pool)
-                .await
-                .unwrap();
-        }
-        sqlx::query("INSERT INTO issues (repo_id, number, title, body, state) VALUES (1, 7, 'kept title', 'kept body', 'in_progress')")
-            .execute(&pool)
-            .await
-            .unwrap();
-        sqlx::query("INSERT INTO prs (repo_id, number, title, branch) VALUES (1, 4, 'legacy PR', 'issue-7')")
-            .execute(&pool)
-            .await
-            .unwrap();
-        sqlx::query("INSERT INTO prs (repo_id, number, title, branch) VALUES (1, 5, 'unlinked legacy PR', 'issue-7')")
-            .execute(&pool)
-            .await
-            .unwrap();
+        let migrator = sqlx::migrate!("./migrations");
+        assert_eq!(migrator.migrations.len(), 1);
+        migrator.run(&pool).await.unwrap();
 
-        sqlx::raw_sql(include_str!(
-            "../../migrations/0002_issue_status_type_priority.sql"
-        ))
-        .execute(&pool)
-        .await
-        .unwrap();
-        crate::sql::repo::upsert(&pool, "/legacy/.git", "legacy")
-            .await
-            .unwrap();
-
-        let issue: (String, String, String, i64) =
-            sqlx::query_as("SELECT title, body, state, priority FROM issues WHERE number = 7")
-                .fetch_one(&pool)
-                .await
-                .unwrap();
-        assert_eq!(
-            issue,
-            (
-                "kept title".into(),
-                "kept body".into(),
-                "in_progress".into(),
-                0
-            )
-        );
-
-        let states: Vec<(String, String)> =
-            sqlx::query_as("SELECT name, status_type FROM issue_states WHERE repo_id = 1")
-                .fetch_all(&pool)
-                .await
-                .unwrap();
         let state_columns: Vec<String> =
             sqlx::query_scalar("SELECT name FROM pragma_table_info('issue_states') ORDER BY cid")
                 .fetch_all(&pool)
                 .await
                 .unwrap();
-        assert!(!state_columns
-            .iter()
-            .any(|name| { name == "workflow_group" || name == "workflow_rank" }));
-        for expected in [
-            ("open", "unstarted"),
-            ("in_progress", "started"),
-            ("closed", "completed"),
-            ("custom", "unstarted"),
-            ("archived", "completed"),
-            ("Backlog", "unstarted"),
-            ("Todo", "unstarted"),
-            ("In Progress", "unstarted"),
-            // A pre-category custom state keeps the migration's generic
-            // unstarted default. Existing stores that already classified it
-            // as started retain that value because upsert is non-destructive.
-            ("In Review", "unstarted"),
-            ("Done", "completed"),
-            ("Canceled", "completed"),
-        ] {
-            assert!(
-                states
-                    .iter()
-                    .any(|state| state.0 == expected.0 && state.1 == expected.1),
-                "missing migrated state {expected:?}: {states:?}"
-            );
-        }
-
-        sqlx::raw_sql(include_str!(
-            "../../migrations/0003_projects_issue_hierarchy.sql"
-        ))
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::raw_sql(include_str!(
-            "../../migrations/0004_issue_relations_pr_links.sql"
-        ))
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::query(
-            "INSERT INTO issue_pr_links (repo_id, issue_number, pr_number) VALUES (1, 7, 4)",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::raw_sql(include_str!("../../migrations/0005_project_milestones.sql"))
-            .execute(&pool)
-            .await
-            .unwrap();
-        sqlx::raw_sql(include_str!(
-            "../../migrations/0006_many_to_many_issue_pr_links.sql"
-        ))
-        .execute(&pool)
-        .await
-        .unwrap();
-        let legacy_pr: (String, String) =
-            sqlx::query_as("SELECT title, branch FROM prs WHERE repo_id = 1 AND number = 4")
-                .fetch_one(&pool)
-                .await
-                .unwrap();
-        assert_eq!(legacy_pr, ("legacy PR".into(), "issue-7".into()));
-        let preserved_links: Vec<(i64, i64)> = sqlx::query_as(
-            "SELECT issue_number, pr_number FROM issue_pr_links ORDER BY issue_number, pr_number",
-        )
-        .fetch_all(&pool)
-        .await
-        .unwrap();
         assert_eq!(
-            preserved_links,
-            vec![(7, 4)],
-            "upgrade must preserve explicit links without inferring from branch names"
+            state_columns,
+            [
+                "repo_id",
+                "name",
+                "status_type",
+                "is_starting",
+                "is_terminal",
+                "position"
+            ]
         );
 
-        for (number, title, state) in [
-            (8, "under review", "In Review"),
-            (9, "active", "In Progress"),
-            (10, "ready", "Todo"),
-            (11, "finished", "Done"),
-        ] {
-            sqlx::query("INSERT INTO issues (repo_id, number, title, state) VALUES (1, ?, ?, ?)")
-                .bind(number)
-                .bind(title)
-                .bind(state)
-                .execute(&pool)
+        let issue_columns: Vec<String> =
+            sqlx::query_scalar("SELECT name FROM pragma_table_info('issues') ORDER BY cid")
+                .fetch_all(&pool)
                 .await
                 .unwrap();
+        assert!(issue_columns.iter().any(|name| name == "priority"));
+
+        for table in [
+            "projects",
+            "issue_projects",
+            "issue_parents",
+            "issue_relations",
+            "issue_pr_links",
+            "project_milestones",
+            "issue_milestones",
+        ] {
+            let exists: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?)",
+            )
+            .bind(table)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert!(exists, "missing table {table}");
         }
     }
 
