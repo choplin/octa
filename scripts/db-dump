@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if ! command -v sqlite3 >/dev/null 2>&1; then
+    echo "error: sqlite3 is required" >&2
+    exit 1
+fi
+
+if [[ -n "${XDG_DATA_HOME:-}" ]]; then
+    data_directory="$XDG_DATA_HOME"
+elif [[ -n "${HOME:-}" ]]; then
+    data_directory="$HOME/.local/share"
+else
+    echo "error: neither XDG_DATA_HOME nor HOME is set" >&2
+    exit 1
+fi
+
+database="$data_directory/octa/octa.db"
+timestamp="$(date '+%Y%m%d%H%M%S')"
+output="${1:-$data_directory/octa/octa-data-$timestamp.sql}"
+
+if [[ ! -f "$database" ]]; then
+    echo "error: database does not exist at $database" >&2
+    exit 1
+fi
+if [[ -e "$output" ]]; then
+    echo "error: refusing to overwrite $output" >&2
+    exit 1
+fi
+
+mkdir -p "$(dirname "$output")"
+temporary="$output.tmp.$$"
+trap 'rm -f "$temporary"' EXIT
+
+# SQLx owns this table. The current migration recreates it in the new database.
+sqlite3 -readonly "$database" '.dump --data-only --nosys' |
+    sed '/^INSERT INTO _sqlx_migrations /d' >"$temporary"
+
+mv "$temporary" "$output"
+trap - EXIT
+printf '%s\n' "$output"

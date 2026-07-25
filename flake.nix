@@ -63,6 +63,7 @@
             imports = [ (pkgs.devshell.importTOML ./devshell.toml) ];
             packages = [
               rustToolchain
+              pkgs.sqlite
               pkgs.sqlx-cli
             ];
           };

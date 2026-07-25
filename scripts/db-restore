@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+usage() {
+    echo "usage: scripts/db-restore <data-dump.sql>" >&2
+}
+
+if [[ $# -ne 1 ]]; then
+    usage
+    exit 2
+fi
+if ! command -v sqlite3 >/dev/null 2>&1; then
+    echo "error: sqlite3 is required" >&2
+    exit 1
+fi
+if ! command -v sqlx >/dev/null 2>&1; then
+    echo "error: sqlx-cli is required" >&2
+    exit 1
+fi
+
+dump="$1"
+if [[ ! -f "$dump" ]]; then
+    echo "error: dump does not exist at $dump" >&2
+    exit 1
+fi
+
+script_directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repository_root="$(cd "$script_directory/.." && pwd)"
+
+if [[ -n "${XDG_DATA_HOME:-}" ]]; then
+    data_directory="$XDG_DATA_HOME"
+elif [[ -n "${HOME:-}" ]]; then
+    data_directory="$HOME/.local/share"
+else
+    echo "error: neither XDG_DATA_HOME nor HOME is set" >&2
+    exit 1
+fi
+
+database="$data_directory/octa/octa.db"
+database_directory="$(dirname "$database")"
+temporary="$database.restore.$$"
+timestamp="$(date '+%Y%m%d%H%M%S')"
+archive="$database.pre-restore-$timestamp"
+
+mkdir -p "$database_directory"
+if [[ -e "$temporary" ]]; then
+    echo "error: temporary database already exists at $temporary" >&2
+    exit 1
+fi
+
+cleanup() {
+    rm -f "$temporary" "$temporary-wal" "$temporary-shm"
+}
+trap cleanup EXIT
+
+database_url="sqlite://$temporary"
+sqlx database create --database-url "$database_url"
+sqlx migrate run \
+    --source "$repository_root/migrations" \
+    --database-url "$database_url"
+
+# The generated dump contains INSERT statements only. A schema mismatch causes
+# sqlite3 to stop, and the surrounding transaction is rolled back.
+{
+    printf '%s\n' '.bail on'
+    printf '%s\n' 'PRAGMA foreign_keys=OFF;'
+    printf '%s\n' 'BEGIN IMMEDIATE;'
+    cat "$dump"
+    printf '%s\n' 'COMMIT;'
+} | sqlite3 "$temporary"
+
+foreign_key_errors="$(sqlite3 "$temporary" 'PRAGMA foreign_key_check;')"
+if [[ -n "$foreign_key_errors" ]]; then
+    echo "error: restored database has foreign key violations:" >&2
+    printf '%s\n' "$foreign_key_errors" >&2
+    exit 1
+fi
+
+integrity="$(sqlite3 "$temporary" 'PRAGMA integrity_check;')"
+if [[ "$integrity" != "ok" ]]; then
+    echo "error: restored database failed integrity_check:" >&2
+    printf '%s\n' "$integrity" >&2
+    exit 1
+fi
+
+archived=0
+if [[ -e "$database" ]]; then
+    if [[ -e "$archive" || -e "$archive-wal" || -e "$archive-shm" ]]; then
+        echo "error: archive destination already exists at $archive" >&2
+        exit 1
+    fi
+    mv "$database" "$archive"
+    archived=1
+    if [[ -e "$database-wal" ]]; then
+        mv "$database-wal" "$archive-wal"
+    fi
+    if [[ -e "$database-shm" ]]; then
+        mv "$database-shm" "$archive-shm"
+    fi
+fi
+
+if ! mv "$temporary" "$database"; then
+    if [[ "$archived" -eq 1 ]]; then
+        mv "$archive" "$database"
+        if [[ -e "$archive-wal" ]]; then
+            mv "$archive-wal" "$database-wal"
+        fi
+        if [[ -e "$archive-shm" ]]; then
+            mv "$archive-shm" "$database-shm"
+        fi
+    fi
+    echo "error: could not install restored database" >&2
+    exit 1
+fi
+
+trap - EXIT
+printf 'restored %s\n' "$database"
+if [[ "$archived" -eq 1 ]]; then
+    printf 'previous database archived at %s\n' "$archive"
+fi
