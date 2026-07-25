@@ -1,11 +1,63 @@
-use super::{holder, parse_issue_state, DepCommand, IssueCommand};
+use super::{
+    holder, parse_issue_state, CandidateCommand, DepCommand, IssueCommand, IssueMilestoneCommand,
+    IssueParentCommand, IssueProjectCommand, RelateCommand,
+};
 use crate::store::{LockOutcome, Store};
 use anyhow::Result;
 
 pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
     match command {
-        IssueCommand::Create { title, body, json } => {
-            let number = store.create_issue(&title, &body).await?;
+        IssueCommand::Candidates { command } => {
+            let (candidates, json) = match command {
+                CandidateCommand::Start { json } => (store.start_candidates().await?, json),
+                CandidateCommand::Groom { json } => (store.groom_candidates().await?, json),
+                CandidateCommand::Next { json } => (store.next_candidates().await?, json),
+            };
+            if json {
+                println!("{}", serde_json::to_string(&candidates)?);
+            } else {
+                for candidate in candidates {
+                    println!(
+                        "#{} rank={} {} [{}]",
+                        candidate.number,
+                        candidate.workflow_rank,
+                        candidate.title,
+                        candidate.reasons.join(", ")
+                    );
+                }
+            }
+        }
+        IssueCommand::Tui => {
+            // Details are repository-scoped (issue numbers are only unique
+            // within a repository), so the TUI deliberately rejects
+            // `--all-repos` before entering raw terminal mode.
+            store.repo_id()?;
+            // The TUI is a general-purpose issue browser, so it shows review,
+            // terminal, canceled, and legacy states.
+            let details = store.list_all_issue_details().await?;
+            crate::tui::run(details)?;
+        }
+        IssueCommand::Create {
+            title,
+            body,
+            state,
+            priority,
+            project,
+            milestone,
+            parent,
+            json,
+        } => {
+            let number = store
+                .create_issue(
+                    &title,
+                    &body,
+                    state.as_deref(),
+                    priority,
+                    project.as_deref(),
+                    milestone.as_deref(),
+                    parent,
+                )
+                .await?;
             if json {
                 println!("{}", serde_json::json!({ "number": number }));
             } else {
@@ -15,12 +67,45 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
         IssueCommand::List {
             state,
             label,
+            status_type,
+            priority,
+            project,
+            milestone,
+            related_to,
             unblocked,
+            workflow,
             json,
         } => {
+            if workflow {
+                let issues = store.list_workflow().await?;
+                if json {
+                    println!("{}", serde_json::to_string(&issues)?);
+                } else {
+                    for issue in issues {
+                        println!(
+                            "#{:<4} {:<10} {:<4} {}",
+                            issue.issue.number,
+                            issue.workflow_group,
+                            issue.workflow_rank,
+                            issue.issue.title
+                        );
+                    }
+                }
+                return Ok(());
+            }
             let (filter, state_name) = parse_issue_state(&state);
             let issues = store
-                .list_issues(filter, state_name.as_deref(), label.as_deref(), unblocked)
+                .list_issues(
+                    filter,
+                    state_name.as_deref(),
+                    status_type.as_deref(),
+                    priority,
+                    label.as_deref(),
+                    project.as_deref(),
+                    milestone.as_deref(),
+                    related_to,
+                    unblocked,
+                )
                 .await?;
             if json {
                 println!("{}", serde_json::to_string(&issues)?);
@@ -34,9 +119,20 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                         .map(|holder| format!(" [locked: {holder}]"))
                         .unwrap_or_default();
                     println!(
-                        "#{:<4} {:<12} {}{}",
-                        issue.number, issue.state, issue.title, lock
+                        "#{:<4} {:<12} {:<10} P{} {}{}",
+                        issue.number,
+                        issue.state,
+                        issue.status_type,
+                        issue.priority,
+                        issue.title,
+                        lock
                     );
+                    if let Some(project) = &issue.project {
+                        println!("      project: {}", project.name);
+                    }
+                    if let Some(milestone) = &issue.milestone {
+                        println!("      milestone: {}", milestone.name);
+                    }
                 }
             }
         }
@@ -47,6 +143,42 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             } else {
                 let issue = &detail.issue;
                 println!("#{} {} ({})", issue.number, issue.title, issue.state);
+                println!(
+                    "type: {}",
+                    detail.type_label.as_deref().unwrap_or("untyped")
+                );
+                println!("status type: {}", issue.status_type);
+                println!("priority: {}", issue.priority);
+                println!(
+                    "project: {}",
+                    issue
+                        .project
+                        .as_ref()
+                        .map(|project| project.name.as_str())
+                        .unwrap_or("No Project")
+                );
+                println!(
+                    "milestone: {}",
+                    issue
+                        .milestone
+                        .as_ref()
+                        .map(|milestone| milestone.name.as_str())
+                        .unwrap_or("No Milestone")
+                );
+                if let Some(parent) = &detail.parent {
+                    println!("parent: #{} {}", parent.number, parent.title);
+                }
+                if !detail.sub_issues.is_empty() {
+                    println!(
+                        "sub-issues: {}",
+                        detail
+                            .sub_issues
+                            .iter()
+                            .map(|issue| format!("#{} {}", issue.number, issue.title))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    );
+                }
                 if let Some(holder) = &issue.locked_by {
                     println!("locked by: {holder}");
                 }
@@ -58,6 +190,15 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                 }
                 if !detail.blocks.is_empty() {
                     println!("blocks: {}", join_numbers(&detail.blocks));
+                }
+                if !detail.related.is_empty() {
+                    println!("related: {}", join_numbers(&detail.related));
+                }
+                if let Some(pr) = &detail.pull_request {
+                    println!(
+                        "pull request: #{} {} (branch: {}, state: {})",
+                        pr.number, pr.title, pr.branch, pr.state
+                    );
                 }
                 println!();
                 if issue.body.is_empty() {
@@ -82,6 +223,16 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             store.set_issue_state(number, &state).await?;
             println!("issue #{number} -> {state}");
         }
+        IssueCommand::Transition {
+            number,
+            state,
+            completion_note,
+        } => {
+            store
+                .transition_issue(number, &state, completion_note.as_deref())
+                .await?;
+            println!("transitioned issue #{number} -> {state}");
+        }
         IssueCommand::Close { number } => {
             let state = store.close_issue(number).await?;
             println!("closed issue #{number} ({state})");
@@ -94,9 +245,10 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             number,
             title,
             body,
+            priority,
         } => {
             store
-                .edit_issue(number, title.as_deref(), body.as_deref())
+                .edit_issue(number, title.as_deref(), body.as_deref(), priority)
                 .await?;
             println!("updated issue #{number}");
         }
@@ -108,6 +260,16 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             DepCommand::Rm { blocker, blocked } => {
                 store.remove_dependency(blocker, blocked).await?;
                 println!("removed: #{blocker} blocks #{blocked}");
+            }
+        },
+        IssueCommand::Relate { command } => match command {
+            RelateCommand::Add { first, second } => {
+                store.add_issue_relation(first, second).await?;
+                println!("related issues #{first} and #{second}");
+            }
+            RelateCommand::Rm { first, second } => {
+                store.remove_issue_relation(first, second).await?;
+                println!("removed relation between #{first} and #{second}");
             }
         },
         IssueCommand::Lock { number, r#as } => {
@@ -141,6 +303,36 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             store.unlabel_issue(number, &label).await?;
             println!("removed label {label} from issue #{number}");
         }
+        IssueCommand::Project { command } => match command {
+            IssueProjectCommand::Set { number, project } => {
+                store.set_issue_project(number, &project).await?;
+                println!("issue #{number} -> project {project}");
+            }
+            IssueProjectCommand::Clear { number } => {
+                store.clear_issue_project(number).await?;
+                println!("cleared project from issue #{number}");
+            }
+        },
+        IssueCommand::Milestone { command } => match command {
+            IssueMilestoneCommand::Set { number, milestone } => {
+                store.set_issue_milestone(number, &milestone).await?;
+                println!("issue #{number} -> milestone {milestone}");
+            }
+            IssueMilestoneCommand::Clear { number } => {
+                store.clear_issue_milestone(number).await?;
+                println!("cleared milestone from issue #{number}");
+            }
+        },
+        IssueCommand::Parent { command } => match command {
+            IssueParentCommand::Set { number, parent } => {
+                store.set_issue_parent(number, parent).await?;
+                println!("issue #{number} -> parent #{parent}");
+            }
+            IssueParentCommand::Clear { number } => {
+                store.clear_issue_parent(number).await?;
+                println!("cleared parent from issue #{number}");
+            }
+        },
     }
     Ok(())
 }

@@ -9,8 +9,14 @@ use crate::domain::{
 use anyhow::Result;
 
 impl Store {
-    pub async fn create_pr(&self, title: &str, body: &str, branch: &str) -> Result<i64> {
-        crate::app::pr::create(&self.pool, self.repo_id()?, title, body, branch).await
+    pub async fn create_pr(
+        &self,
+        title: &str,
+        body: &str,
+        branch: &str,
+        issue: Option<i64>,
+    ) -> Result<i64> {
+        crate::app::pr::create(&self.pool, self.repo_id()?, title, body, branch, issue).await
     }
     pub async fn list_prs(&self, filter: StateFilter) -> Result<Vec<Pr>> {
         crate::app::pr::list(
@@ -36,5 +42,13 @@ impl Store {
         body: Option<&str>,
     ) -> Result<()> {
         crate::app::pr::edit(&self.pool, self.repo_id()?, number, title, body).await
+    }
+
+    pub async fn link_pr(&self, issue: i64, pr: i64) -> Result<()> {
+        crate::app::pr::link(&self.pool, self.repo_id()?, issue, pr).await
+    }
+
+    pub async fn unlink_pr(&self, issue: i64, pr: i64) -> Result<()> {
+        crate::app::pr::unlink(&self.pool, self.repo_id()?, issue, pr).await
     }
 }

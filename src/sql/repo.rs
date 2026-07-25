@@ -15,15 +15,27 @@ pub async fn upsert(pool: &SqlitePool, identity_key: &str, name: &str) -> Result
     )
     .fetch_one(pool)
     .await?;
-    for (state, starting, terminal, pos) in [
-        ("open", 1, 0, 0),
-        ("in_progress", 0, 0, 1),
-        ("closed", 0, 1, 2),
+    for (state, status_type, starting, terminal, pos, group, rank) in [
+        ("Backlog", "backlog", 1, 0, 0, "backlog", 0),
+        ("Todo", "unstarted", 0, 0, 1, "active", 10),
+        ("In Progress", "started", 0, 0, 2, "active", 20),
+        ("In Review", "started", 0, 0, 3, "active", 30),
+        ("Done", "completed", 0, 1, 4, "terminal", 40),
+        ("Canceled", "canceled", 0, 1, 5, "terminal", 50),
     ] {
         sqlx::query!(
-            "INSERT OR IGNORE INTO issue_states (repo_id, name, is_starting, is_terminal, position) VALUES (?, ?, ?, ?, ?)",
-            id, state, starting, terminal, pos
+            "INSERT OR IGNORE INTO issue_states (repo_id, name, status_type, is_starting, is_terminal, position) VALUES (?, ?, ?, ?, ?, ?)",
+            id, state, status_type, starting, terminal, pos
         )
+        .execute(pool)
+        .await?;
+        sqlx::query(
+            "UPDATE issue_states SET workflow_group = ?, workflow_rank = ? WHERE repo_id = ? AND name = ?",
+        )
+        .bind(group)
+        .bind(rank)
+        .bind(id)
+        .bind(state)
         .execute(pool)
         .await?;
     }

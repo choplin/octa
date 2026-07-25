@@ -1,7 +1,10 @@
 //! Issue workflows: validation, policy, and composition of the SQL repository.
 
 use crate::domain::{
-    issue::{Issue, IssueDetail, IssueState, LockOutcome},
+    issue::{
+        validate_priority, Issue, IssueCandidate, IssueDetail, IssueState, LockOutcome, StatusType,
+        WorkflowIssue,
+    },
     StateFilter,
 };
 use anyhow::{anyhow, bail, Result};
@@ -24,21 +27,301 @@ async fn terminal(pool: &SqlitePool, repo: i64) -> Result<String> {
         .ok_or_else(|| anyhow!("no terminal state configured for this repo"))
 }
 
-pub async fn create(pool: &SqlitePool, repo: i64, title: &str, body: &str) -> Result<i64> {
-    crate::sql::issue::insert(pool, repo, title, body, &starting(pool, repo).await?).await
+pub(crate) struct ListQuery<'a> {
+    pub filter: StateFilter,
+    pub state_name: Option<&'a str>,
+    pub status_type: Option<&'a str>,
+    pub priority: Option<i64>,
+    pub label: Option<&'a str>,
+    pub project: Option<&'a str>,
+    pub milestone: Option<&'a str>,
+    pub related_to: Option<i64>,
+    pub unblocked: bool,
+}
+
+pub async fn list_workflow(pool: &SqlitePool, repo: i64) -> Result<Vec<WorkflowIssue>> {
+    let ordering = crate::sql::issue::workflow_order(pool, repo)
+        .await?
+        .into_iter()
+        .map(|(name, group, rank)| (name, (group, rank)))
+        .collect::<HashMap<_, _>>();
+    let mut issues = list(
+        pool,
+        Some(repo),
+        ListQuery {
+            filter: StateFilter::All,
+            state_name: None,
+            status_type: None,
+            priority: None,
+            label: None,
+            project: None,
+            milestone: None,
+            related_to: None,
+            unblocked: false,
+        },
+    )
+    .await?
+    .into_iter()
+    .map(|issue| {
+        let (workflow_group, workflow_rank) = ordering
+            .get(&issue.state)
+            .cloned()
+            .unwrap_or_else(|| ("custom".to_string(), 100));
+        WorkflowIssue {
+            issue,
+            workflow_group,
+            workflow_rank,
+        }
+    })
+    .collect::<Vec<_>>();
+    issues.sort_by_key(|entry| {
+        (
+            entry.workflow_rank,
+            if entry.issue.priority == 0 {
+                i64::MAX
+            } else {
+                entry.issue.priority
+            },
+            entry.issue.number,
+        )
+    });
+    Ok(issues)
+}
+
+async fn candidate_details(pool: &SqlitePool, repo: i64) -> Result<Vec<IssueDetail>> {
+    let mut details = Vec::new();
+    for issue in list_workflow(pool, repo).await? {
+        if !matches!(issue.issue.status_type.as_str(), "completed" | "canceled") {
+            details.push(detail(pool, repo, issue.issue.number).await?);
+        }
+    }
+    Ok(details)
+}
+
+fn project_candidates(details: Vec<IssueDetail>, mode: &str) -> Vec<IssueCandidate> {
+    let mut label_counts = HashMap::<String, usize>::new();
+    for detail in &details {
+        for label in &detail.labels {
+            *label_counts.entry(label.clone()).or_default() += 1;
+        }
+    }
+    let mut candidates = details
+        .into_iter()
+        .filter_map(|detail| {
+            let issue = detail.issue;
+            let groomable = issue.body.trim().is_empty()
+                || issue.priority == 0
+                || issue.project.is_none()
+                || (issue.status_type == "backlog" && issue.milestone.is_none());
+            let is_unblocked = detail.blocked_by.is_empty();
+            let include = match mode {
+                "start" => {
+                    is_unblocked && matches!(issue.status_type.as_str(), "unstarted" | "started")
+                }
+                "groom" => groomable && issue.status_type == "backlog",
+                _ => is_unblocked,
+            };
+            if !include {
+                return None;
+            }
+            let shared_labels = detail
+                .labels
+                .iter()
+                .filter(|label| label_counts.get(*label).copied().unwrap_or_default() > 1)
+                .cloned()
+                .collect::<Vec<_>>();
+            let mut reasons = Vec::new();
+            reasons.push(format!("status:{}", issue.status_type));
+            if issue.priority > 0 {
+                reasons.push(format!("priority:{}", issue.priority));
+            }
+            if issue.milestone.is_some() {
+                reasons.push("milestone".to_string());
+            }
+            if detail.parent.is_some() {
+                reasons.push("has-parent".to_string());
+            }
+            if !detail.sub_issues.is_empty() {
+                reasons.push("has-sub-issues".to_string());
+            }
+            if !detail.blocked_by.is_empty() {
+                reasons.push("blocked".to_string());
+            }
+            if !detail.related.is_empty() {
+                reasons.push("related-context".to_string());
+            }
+            if !shared_labels.is_empty() {
+                reasons.push("shared-labels".to_string());
+            }
+            if groomable {
+                reasons.push("groomable".to_string());
+            }
+            let status_rank = match issue.status_type.as_str() {
+                "started" => 0,
+                "unstarted" => 10,
+                "backlog" => 20,
+                _ => 30,
+            };
+            let priority_rank = if issue.priority == 0 {
+                50
+            } else {
+                issue.priority * 5
+            };
+            let workflow_rank = status_rank + priority_rank
+                - i64::from(issue.milestone.is_some()) * 3
+                - i64::from(detail.parent.is_some())
+                - detail.sub_issues.len() as i64
+                + detail.blocked_by.len() as i64 * 20
+                - detail.related.len() as i64
+                - shared_labels.len() as i64;
+            Some(IssueCandidate {
+                number: issue.number,
+                title: issue.title,
+                state: issue.state,
+                status_type: issue.status_type,
+                priority: issue.priority,
+                milestone: issue.milestone,
+                parent: detail.parent,
+                sub_issues: detail.sub_issues,
+                blocking: detail.blocked_by,
+                related: detail.related,
+                shared_labels,
+                reasons,
+                groomable,
+                workflow_rank,
+            })
+        })
+        .collect::<Vec<_>>();
+    candidates.sort_by_key(|candidate| (candidate.workflow_rank, candidate.number));
+    candidates
+}
+
+pub async fn start_candidates(pool: &SqlitePool, repo: i64) -> Result<Vec<IssueCandidate>> {
+    Ok(project_candidates(
+        candidate_details(pool, repo).await?,
+        "start",
+    ))
+}
+
+pub async fn groom_candidates(pool: &SqlitePool, repo: i64) -> Result<Vec<IssueCandidate>> {
+    Ok(project_candidates(
+        candidate_details(pool, repo).await?,
+        "groom",
+    ))
+}
+
+pub async fn next_candidates(pool: &SqlitePool, repo: i64) -> Result<Vec<IssueCandidate>> {
+    Ok(project_candidates(
+        candidate_details(pool, repo).await?,
+        "next",
+    ))
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn create(
+    pool: &SqlitePool,
+    repo: i64,
+    title: &str,
+    body: &str,
+    state: Option<&str>,
+    priority: i64,
+    project: Option<&str>,
+    milestone: Option<&str>,
+    parent: Option<i64>,
+) -> Result<i64> {
+    let priority = validate_priority(priority)?;
+    let state = match state {
+        Some(state) => {
+            if !crate::sql::issue::state_exists(pool, repo, state).await? {
+                bail!("unknown state {state:?}; add it first with `octa state add`");
+            }
+            state.to_string()
+        }
+        None => starting(pool, repo).await?,
+    };
+    let parent_issue = match parent {
+        Some(number) => Some(require(pool, repo, number).await?),
+        None => None,
+    };
+    let explicit_project = match project {
+        Some(reference) => Some(crate::app::project::resolve(pool, repo, reference).await?),
+        None => None,
+    };
+    if let (Some(parent), Some(project)) = (&parent_issue, &explicit_project) {
+        if parent
+            .project
+            .as_ref()
+            .is_some_and(|parent_project| parent_project.id != project.id)
+        {
+            bail!("parent and child issues must belong to the same project");
+        }
+    }
+    if milestone.is_some() && explicit_project.is_none() {
+        bail!("--milestone requires an explicit --project");
+    }
+    let inherited_project_id = explicit_project
+        .as_ref()
+        .map(|project| project.id)
+        .or_else(|| {
+            parent_issue
+                .as_ref()?
+                .project
+                .as_ref()
+                .map(|project| project.id)
+        });
+    let resolved_milestone = match (milestone, explicit_project.as_ref()) {
+        (Some(reference), Some(project)) => {
+            Some(crate::app::milestone::resolve(pool, repo, project.id, reference).await?)
+        }
+        _ => None,
+    };
+    let number = crate::sql::issue::insert(pool, repo, title, body, &state, priority).await?;
+    if let Some(project_id) = inherited_project_id {
+        crate::sql::issue::set_project(pool, repo, number, project_id).await?;
+    }
+    if let Some(parent) = parent {
+        crate::sql::issue::set_parent(pool, repo, number, parent).await?;
+    }
+    if let Some(milestone) = resolved_milestone {
+        crate::sql::milestone::set_issue(pool, repo, number, milestone.project_id, milestone.id)
+            .await?;
+    }
+    Ok(number)
 }
 
 pub async fn list(
     pool: &SqlitePool,
     repo: Option<i64>,
-    filter: StateFilter,
-    state_name: Option<&str>,
-    label: Option<&str>,
-    unblocked: bool,
+    query: ListQuery<'_>,
 ) -> Result<Vec<Issue>> {
-    if repo.is_none() && (state_name.is_some() || label.is_some() || unblocked) {
-        bail!("--state <name>, --label and --unblocked need a single repository");
+    let ListQuery {
+        filter,
+        state_name,
+        status_type,
+        priority,
+        label,
+        project,
+        milestone,
+        related_to,
+        unblocked,
+    } = query;
+    if repo.is_none()
+        && (state_name.is_some()
+            || label.is_some()
+            || project.is_some()
+            || milestone.is_some()
+            || related_to.is_some()
+            || unblocked)
+    {
+        bail!(
+            "--state <name>, --label, --project, --milestone, --related-to and --unblocked need a single repository"
+        );
     }
+    if milestone.is_some() && project.is_none() {
+        bail!("--milestone requires --project so names and ids resolve within a Project");
+    }
+    let status_type = status_type.map(str::parse::<StatusType>).transpose()?;
+    let priority = priority.map(validate_priority).transpose()?;
     let labelled = match label {
         Some(label) => Some(
             crate::sql::issue::labelled_numbers(
@@ -56,22 +339,77 @@ pub async fn list(
         ),
         false => None,
     };
-    Ok(crate::sql::issue::list_entries(pool, repo)
-        .await?
-        .into_iter()
-        .filter(|entry| {
-            filter.includes(entry.is_terminal)
-                && state_name.is_none_or(|state| entry.issue.state == state)
-                && labelled
-                    .as_ref()
-                    .is_none_or(|set| set.contains(&entry.issue.number))
-                && allowed
-                    .as_ref()
-                    .is_none_or(|set| set.contains(&entry.issue.number))
-        })
-        .map(|entry| entry.issue)
-        .collect())
+    let project_id = match project {
+        Some(reference) => Some(
+            crate::app::project::resolve(
+                pool,
+                repo.expect("project filter requires a single repository"),
+                reference,
+            )
+            .await?
+            .id,
+        ),
+        None => None,
+    };
+    let milestone_id = match (milestone, project_id) {
+        (Some(reference), Some(project)) => Some(
+            crate::app::milestone::resolve(
+                pool,
+                repo.expect("milestone filter requires a single repository"),
+                project,
+                reference,
+            )
+            .await?
+            .id,
+        ),
+        _ => None,
+    };
+    let related_numbers = match related_to {
+        Some(number) => {
+            let repo = repo.expect("related filter requires a single repository");
+            require(pool, repo, number).await?;
+            Some(
+                crate::sql::issue::related(pool, repo, number)
+                    .await?
+                    .into_iter()
+                    .collect::<HashSet<_>>(),
+            )
+        }
+        None => None,
+    };
+    let mut entries = crate::sql::issue::list_entries(pool, repo).await?;
+    entries.retain(|entry| {
+        filter.includes(entry.is_terminal)
+            && state_name.is_none_or(|state| entry.issue.state == state)
+            && status_type
+                .is_none_or(|status_type| entry.issue.status_type == status_type.to_string())
+            && priority.is_none_or(|priority| entry.issue.priority == priority)
+            && labelled
+                .as_ref()
+                .is_none_or(|set| set.contains(&entry.issue.number))
+            && allowed
+                .as_ref()
+                .is_none_or(|set| set.contains(&entry.issue.number))
+            && project_id.is_none_or(|id| entry.issue.project.as_ref().is_some_and(|p| p.id == id))
+            && milestone_id
+                .is_none_or(|id| entry.issue.milestone.as_ref().is_some_and(|m| m.id == id))
+            && related_numbers
+                .as_ref()
+                .is_none_or(|set| set.contains(&entry.issue.number))
+    });
+    // Preserve the general list API's stable repository/issue-number order.
+    // `state_position` is only a final deterministic tie-breaker for malformed
+    // duplicate projections.
+    entries.sort_by_key(|entry| {
+        (
+            entry.issue.repo.clone(),
+            entry.issue.number,
+            entry.state_position,
+        )
+    });
+    Ok(entries.into_iter().map(|entry| entry.issue).collect())
 }
+
 async fn unblocked_numbers(pool: &SqlitePool, repo: i64) -> Result<HashSet<i64>> {
     let states: HashMap<i64, bool> = crate::sql::issue::state_flags(pool, repo)
         .await?
@@ -93,13 +431,160 @@ async fn unblocked_numbers(pool: &SqlitePool, repo: i64) -> Result<HashSet<i64>>
 
 pub async fn detail(pool: &SqlitePool, repo: i64, number: i64) -> Result<IssueDetail> {
     let issue = require(pool, repo, number).await?;
+    let labels = crate::sql::issue::labels(pool, repo, number).await?;
+    let type_label = labels
+        .iter()
+        .find(|label| matches!(label.as_str(), "impl" | "design" | "research"))
+        .cloned();
     Ok(IssueDetail {
-        labels: crate::sql::issue::labels(pool, repo, number).await?,
+        type_label,
+        labels,
         blocks: crate::sql::issue::blocks(pool, repo, number).await?,
         blocked_by: crate::sql::issue::blocked_by(pool, repo, number).await?,
+        related: crate::sql::issue::related(pool, repo, number).await?,
+        pull_request: crate::sql::issue::linked_prs(pool, repo, number)
+            .await?
+            .into_iter()
+            .next(),
+        parent: crate::sql::issue::parent(pool, repo, number).await?,
+        sub_issues: crate::sql::issue::children(pool, repo, number).await?,
         comments: crate::sql::issue::comments(pool, repo, number).await?,
         issue,
     })
+}
+
+pub async fn add_relation(pool: &SqlitePool, repo: i64, a: i64, b: i64) -> Result<()> {
+    if a == b {
+        bail!("an issue cannot be related to itself");
+    }
+    require(pool, repo, a).await?;
+    require(pool, repo, b).await?;
+    crate::sql::issue::insert_relation(pool, repo, a, b).await
+}
+
+pub async fn remove_relation(pool: &SqlitePool, repo: i64, a: i64, b: i64) -> Result<()> {
+    if a == b {
+        bail!("an issue cannot be related to itself");
+    }
+    crate::sql::issue::remove_relation(pool, repo, a, b).await
+}
+
+pub async fn set_project(pool: &SqlitePool, repo: i64, number: i64, reference: &str) -> Result<()> {
+    let issue = require(pool, repo, number).await?;
+    let project = crate::app::project::resolve(pool, repo, reference).await?;
+    if issue
+        .project
+        .as_ref()
+        .is_some_and(|current| current.id == project.id)
+    {
+        return Ok(());
+    }
+    if let Some(milestone) = &issue.milestone {
+        bail!(
+            "cannot move issue #{number} while milestone {:?} is assigned; clear the milestone first",
+            milestone.name
+        );
+    }
+    if let Some(parent) = crate::sql::issue::parent(pool, repo, number).await? {
+        let parent = require(pool, repo, parent.number).await?;
+        if parent
+            .project
+            .as_ref()
+            .is_some_and(|parent_project| parent_project.id != project.id)
+        {
+            bail!("parent and child issues must belong to the same project");
+        }
+    }
+    for child in crate::sql::issue::children(pool, repo, number).await? {
+        let child = require(pool, repo, child.number).await?;
+        if child
+            .project
+            .as_ref()
+            .is_some_and(|child_project| child_project.id != project.id)
+        {
+            bail!("parent and child issues must belong to the same project");
+        }
+    }
+    crate::sql::issue::set_project(pool, repo, number, project.id).await?;
+    crate::sql::issue::touch(pool, repo, number).await
+}
+
+pub async fn clear_project(pool: &SqlitePool, repo: i64, number: i64) -> Result<()> {
+    let issue = require(pool, repo, number).await?;
+    if let Some(milestone) = &issue.milestone {
+        bail!(
+            "cannot clear issue project while milestone {:?} is assigned; clear the milestone first",
+            milestone.name
+        );
+    }
+    if crate::sql::issue::parent(pool, repo, number)
+        .await?
+        .is_some()
+        || !crate::sql::issue::children(pool, repo, number)
+            .await?
+            .is_empty()
+    {
+        bail!("cannot clear a project while parent/child links require project sameness");
+    }
+    crate::sql::issue::clear_project(pool, repo, number).await?;
+    crate::sql::issue::touch(pool, repo, number).await
+}
+
+pub async fn set_milestone(
+    pool: &SqlitePool,
+    repo: i64,
+    number: i64,
+    reference: &str,
+) -> Result<()> {
+    let issue = require(pool, repo, number).await?;
+    let project = issue
+        .project
+        .ok_or_else(|| anyhow!("issue #{number} needs a project before assigning a milestone"))?;
+    let milestone = crate::app::milestone::resolve(pool, repo, project.id, reference).await?;
+    crate::sql::milestone::set_issue(pool, repo, number, project.id, milestone.id).await?;
+    crate::sql::issue::touch(pool, repo, number).await
+}
+
+pub async fn clear_milestone(pool: &SqlitePool, repo: i64, number: i64) -> Result<()> {
+    require(pool, repo, number).await?;
+    crate::sql::milestone::clear_issue(pool, repo, number).await?;
+    crate::sql::issue::touch(pool, repo, number).await
+}
+
+pub async fn set_parent(pool: &SqlitePool, repo: i64, child: i64, parent: i64) -> Result<()> {
+    if child == parent {
+        bail!("an issue cannot be its own parent");
+    }
+    let child_issue = require(pool, repo, child).await?;
+    let parent_issue = require(pool, repo, parent).await?;
+    if let (Some(child_project), Some(parent_project)) =
+        (&child_issue.project, &parent_issue.project)
+    {
+        if child_project.id != parent_project.id {
+            bail!("parent and child issues must belong to the same project");
+        }
+    }
+    let inherited_project = child_issue
+        .project
+        .is_none()
+        .then(|| parent_issue.project.as_ref().map(|project| project.id))
+        .flatten();
+    crate::sql::issue::set_parent_transactional(pool, repo, child, parent, inherited_project)
+        .await
+        .map_err(|error| {
+            if error.to_string().contains("issue parent cycle") {
+                anyhow!("setting parent would create an issue parent cycle")
+            } else {
+                error
+            }
+        })?;
+    Ok(())
+}
+
+pub async fn clear_parent(pool: &SqlitePool, repo: i64, child: i64) -> Result<()> {
+    require(pool, repo, child).await?;
+    crate::sql::issue::clear_parent(pool, repo, child).await?;
+    crate::sql::issue::touch(pool, repo, child).await
 }
 
 pub async fn comment(pool: &SqlitePool, repo: i64, number: i64, body: &str) -> Result<()> {
@@ -114,6 +599,33 @@ pub async fn set_state(pool: &SqlitePool, repo: i64, number: i64, state: &str) -
         bail!("unknown state {state:?}; add it first with `octa state add`");
     }
     crate::sql::issue::update_state(pool, repo, number, state).await
+}
+
+/// Reconstructed pre-separation composite workflow transition.
+pub async fn transition(
+    pool: &SqlitePool,
+    repo: i64,
+    number: i64,
+    state: &str,
+    completion_note: Option<&str>,
+) -> Result<()> {
+    let target = list_states(pool, repo)
+        .await?
+        .into_iter()
+        .find(|candidate| candidate.name == state)
+        .ok_or_else(|| anyhow!("unknown state {state:?}; add it first with `octa state add`"))?;
+    if target.is_terminal
+        && completion_note
+            .map(str::trim)
+            .filter(|note| !note.is_empty())
+            .is_none()
+    {
+        bail!("terminal transitions require --completion-note");
+    }
+    if let Some(note) = completion_note {
+        comment(pool, repo, number, note).await?;
+    }
+    set_state(pool, repo, number, state).await
 }
 
 pub async fn close(pool: &SqlitePool, repo: i64, number: i64) -> Result<String> {
@@ -134,16 +646,21 @@ pub async fn edit(
     number: i64,
     title: Option<&str>,
     body: Option<&str>,
+    priority: Option<i64>,
 ) -> Result<()> {
     require(pool, repo, number).await?;
-    if title.is_none() && body.is_none() {
-        bail!("nothing to update: pass --title and/or --body");
+    if title.is_none() && body.is_none() && priority.is_none() {
+        bail!("nothing to update: pass --title, --body and/or --priority");
     }
     if let Some(title) = title {
         crate::sql::issue::update_title(pool, repo, number, title).await?;
     }
     if let Some(body) = body {
         crate::sql::issue::update_body(pool, repo, number, body).await?;
+    }
+    if let Some(priority) = priority {
+        crate::sql::issue::update_priority(pool, repo, number, validate_priority(priority)?)
+            .await?;
     }
     crate::sql::issue::touch(pool, repo, number).await
 }
@@ -203,9 +720,163 @@ pub async fn add_state(
     pool: &SqlitePool,
     repo: i64,
     name: &str,
+    status_type: Option<&str>,
     starting: bool,
     terminal: bool,
 ) -> Result<()> {
+    let status_type = match status_type {
+        Some(status_type) => status_type.parse::<StatusType>()?,
+        None if terminal => StatusType::Completed,
+        None => StatusType::Unstarted,
+    };
+    if terminal && !status_type.is_terminal() {
+        bail!("status type {status_type} is non-terminal and cannot use --terminal");
+    }
+    if starting && status_type.is_terminal() {
+        bail!("terminal status type {status_type} cannot use --starting");
+    }
+    let terminal = terminal || status_type.is_terminal();
     let position = crate::sql::issue::next_state_position(pool, repo).await?;
-    crate::sql::issue::insert_state(pool, repo, name, starting, terminal, position).await
+    crate::sql::issue::insert_state(
+        pool,
+        repo,
+        name,
+        &status_type.to_string(),
+        starting,
+        terminal,
+        position,
+    )
+    .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::set_parent;
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    async fn fixture_pool() -> sqlx::SqlitePool {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::raw_sql(include_str!("../../migrations/0001_init.sql"))
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::raw_sql(include_str!(
+            "../../migrations/0002_issue_status_type_priority.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::raw_sql(include_str!(
+            "../../migrations/0003_projects_issue_hierarchy.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::raw_sql(include_str!(
+            "../../migrations/0004_issue_relations_pr_links.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::raw_sql(include_str!("../../migrations/0005_project_milestones.sql"))
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO repos (id, identity_key, name) VALUES (1, 'fixture', 'fixture')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        pool
+    }
+
+    #[tokio::test]
+    async fn failed_parent_cycle_rolls_back_project_inheritance() {
+        let pool = fixture_pool().await;
+        for number in [1_i64, 2] {
+            sqlx::query(
+                "INSERT INTO issues (repo_id, number, title, state) VALUES (1, ?, ?, 'open')",
+            )
+            .bind(number)
+            .bind(format!("issue {number}"))
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        sqlx::query("INSERT INTO projects (repo_id, id, name) VALUES (1, 1, 'parent project')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO issue_projects (repo_id, issue_number, project_id) VALUES (1, 2, 1)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        // Raw fixture deliberately models legacy/inconsistent data: #2 is
+        // already below #1, but only #2 has a project.
+        sqlx::query(
+            "INSERT INTO issue_parents (repo_id, child_number, parent_number) VALUES (1, 2, 1)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let error = set_parent(&pool, 1, 1, 2).await.unwrap_err();
+        assert!(error.to_string().contains("cycle"));
+        let inherited: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM issue_projects WHERE repo_id = 1 AND issue_number = 1",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(inherited, 0, "failed relation leaked inherited project");
+    }
+
+    #[tokio::test]
+    async fn milestone_schema_rejects_cross_project_issue_assignment() {
+        let pool = fixture_pool().await;
+        sqlx::query(
+            "INSERT INTO issues (repo_id, number, title, state) VALUES (1, 1, 'issue', 'open')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        for id in [1_i64, 2] {
+            sqlx::query("INSERT INTO projects (repo_id, id, name) VALUES (1, ?, ?)")
+                .bind(id)
+                .bind(format!("project {id}"))
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        sqlx::query(
+            "INSERT INTO issue_projects (repo_id, issue_number, project_id) VALUES (1, 1, 1)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO project_milestones \
+             (repo_id, project_id, id, position, name) VALUES (1, 2, 1, 0, 'other')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let error = sqlx::query(
+            "INSERT INTO issue_milestones \
+             (repo_id, issue_number, project_id, milestone_id) VALUES (1, 1, 2, 1)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap_err();
+        assert!(
+            error.to_string().contains("FOREIGN KEY constraint failed"),
+            "{error}"
+        );
+    }
 }

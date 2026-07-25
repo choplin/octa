@@ -7,9 +7,10 @@ pub(crate) async fn run(store: &Store, command: PrCommand) -> Result<()> {
             title,
             branch,
             body,
+            issue,
             json,
         } => {
-            let number = store.create_pr(&title, &body, &branch).await?;
+            let number = store.create_pr(&title, &body, &branch, issue).await?;
             if json {
                 println!("{}", serde_json::json!({"number":number}))
             } else {
@@ -82,6 +83,14 @@ pub(crate) async fn run(store: &Store, command: PrCommand) -> Result<()> {
                 .edit_pr(number, title.as_deref(), body.as_deref())
                 .await?;
             println!("updated PR #{number}")
+        }
+        PrCommand::Link { issue, pr } => {
+            store.link_pr(issue, pr).await?;
+            println!("linked issue #{issue} to PR #{pr}")
+        }
+        PrCommand::Unlink { issue, pr } => {
+            store.unlink_pr(issue, pr).await?;
+            println!("unlinked issue #{issue} from PR #{pr}")
         }
     }
     Ok(())

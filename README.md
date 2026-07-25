@@ -106,16 +106,103 @@ octa issue list --state closed
 octa issue list --state all
 ```
 
-プロジェクト固有の状態も追加できます。
+Linear の Issue 一覧と詳細の代わりに、read-only の2ペインTUIも使えます。
+既定の `filter: all` は、作業候補だけでなく In Review、Done、Canceled、
+および既存の custom/legacy state を含む current repository の全Issueを
+Issue番号順に表示します。
 
 ```sh
+octa issue tui
+```
+
+`j/k` または矢印でIssueを選択し、`Tab` で一覧と詳細のfocusを切り替えます。
+詳細は `PgUp/PgDn` でもscrollでき、`q` または `Esc` で終了します。
+この画面からIssueや関連データを変更する操作はありません。
+
+### Project と Milestone
+
+有限の成果を Project としてまとめ、段階が必要な Project には順序付きの
+Milestone を作れます。Project と Milestone は名前または番号で参照できます。
+`project list` は既定で completed / canceled を含む全 Project を返し、各 tally
+も canceled を含む全 Issue を数えます。作業中の Project だけが必要な場合は
+`project list --active` と明示します。Project は priority 1〜4 の順、その後に
+0（None）の順で表示されます。
+
+```sh
+octa project create --name "CLI を公開する"
+octa project list
+octa project list --active
+
+octa project milestone create "CLI を公開する" \
+  --name "Public beta" \
+  --description "利用者向けbetaを公開する段階" \
+  --status active \
+  --position 1 \
+  --target-date 2026-09-01
+
+octa project milestone list "CLI を公開する"
+octa project milestone show "CLI を公開する" "Public beta"
+octa project milestone edit "CLI を公開する" "Public beta" \
+  --status completed \
+  --target-date 2026-09-15
+```
+
+Issue 作成時に Project と Milestone を同時に指定できます。Milestone は
+Project 内の entity なので、`--milestone` には `--project` も必要です。
+
+```sh
+octa issue create \
+  --title "beta 利用者を招待する" \
+  --project "CLI を公開する" \
+  --milestone "Public beta"
+```
+
+既存 Issue への Milestone の設定・解除と、同じ Milestone に属する Issue の
+一覧取得もできます。Project を変更または解除する場合は、先に Milestone を
+clear します。
+
+```sh
+octa issue milestone set 1 "Public beta"
+octa issue list --project "CLI を公開する" --milestone "Public beta"
+octa issue milestone clear 1
+```
+
+Issue の親子関係は同じリポジトリ内で設定でき、Project の所属とは独立しています。
+親子は異なる Project に所属でき、片方だけが Project に所属していても構いません。
+Project のない既存 Issue に親を設定した時は、その時点の親の Project を初期値として
+継承しますが、その後は親子それぞれの Project を変更または解除できます。
+
+```sh
+octa issue parent set 2 1
+octa issue project set 2 "別の Project"
+octa issue project clear 1
+```
+
+Project 内の Milestone が設定されている Issue だけは、従来どおり先に Milestone を
+clear してから Project を変更または解除します。
+
+新規リポジトリに自動作成される状態名は、互換性のための `open`、
+`in_progress`、`closed` だけです。プロジェクト固有のworkflow状態は自由に追加できます。
+
+```sh
+octa state add Backlog --type backlog
+octa state add Todo --type unstarted
+octa state add "In Progress" --type started
+octa state add "In Review" --type started
+octa state add Done --type completed
+octa state add Canceled --type canceled
 octa state add blocked
 octa state list
 ```
 
 `--starting` と `--terminal` は状態の入口・終端を示すフラグです。
 
-初期状態では `open` が入口、`closed` が終端です。
+初期状態では `open` が入口、`closed` が終端です。status type は
+`backlog`、`unstarted`、`started`、`completed`、`canceled` の5分類です。
+これらのstatus typeは一般的な分類であり、特定の状態名を要求しません。
+Backlog、Todo、In Progress、In Review、Done、Canceled などのworkflow名は、
+必要なリポジトリで上記のように追加します。旧バージョンで作成済みのworkflow状態や
+その他のcustom/legacy stateと、それらを参照するIssueはmigration後も削除・改名されません。
 
 現在の CLI では、後から追加した状態を close / reopen の既定遷移先に変更する操作はありません。
 
@@ -141,9 +228,19 @@ octa issue list --unblocked
 octa issue dep rm 1 2
 ```
 
+順序を持たない関連 Issue は `relate` で結びます。同じ組を逆順で追加しても一件だけ保存され、`--related-to` で候補を絞れます。
+
+```sh
+octa issue relate add 1 2
+octa issue list --related-to 1
+octa issue relate rm 2 1
+```
+
 ### ラベル
 
 ラベルは単独でも使えます。
+ラベル名とグループ名はリポジトリごとに自由に決められ、octa が予約する分類名や
+`impl` / `design` / `research` のような特別扱いされるラベルはありません。
 
 ```sh
 octa label create documentation
@@ -178,11 +275,21 @@ octa の Pull Request は、ブランチに紐づく番号付きの議論エン�
 octa pr create \
   --title "リリース手順を追加する" \
   --branch docs/release-process \
-  --body "Wiki と README を更新する。"
+  --body "Wiki と README を更新する。" \
+  --issue 1
 
 octa pr comment 1 --body "確認をお願いします。"
 octa pr show 1
 octa pr close 1
+```
+
+既存 PR は作成時と同じ形のまま利用でき、必要になった時だけ Issue と明示的に link できます。
+1つの Issue に複数の PR、1つの PR に複数の Issue を link できます。同じ組は重複保存されません。
+
+```sh
+octa pr link 1 2
+octa issue show 1
+octa pr unlink 1 2
 ```
 
 PR 一覧は `open`、`closed`、`all` で絞り込めます。
@@ -287,6 +394,17 @@ octa wiki --help
 octa label --help
 octa state --help
 ```
+
+## Reconstructed pre-separation policy baseline
+
+- `issue list --workflow` and `issue candidates start|groom|next` project reasons, shared labels, blocking, grooming readiness, and multi-signal rank.
+- Reserved label names infer an Issue taxonomy shown by the TUI.
+- Repositories receive Backlog/Todo/In Progress/In Review/Done/Canceled with persisted workflow groups/ranks, and Project lists are implicitly active-only.
+- Composite transitions require a completion note for terminal states.
+- Parent and child Issues must remain in the same Project.
+- Issue-to-PR ownership and Issue JSON projections are singular.
+
+AI エージェントが octa CLI の機能、scope、JSON、TUI、保存場所を調べて利用するためのガイドは [`skills/octa`](skills/octa/SKILL.md) にあります。チーム固有の Issue 運用方針はこのガイドには含めません。
 
 ## 開発時の確認
 

@@ -16,16 +16,24 @@ pub(crate) async fn run(store: &Store, command: StateCommand) -> Result<()> {
                     if state.is_terminal {
                         flags.push("terminal")
                     }
-                    println!("{:<14} {}", state.name, flags.join(", "));
+                    println!(
+                        "{:<14} {:<10} {}",
+                        state.name,
+                        state.status_type,
+                        flags.join(", ")
+                    );
                 }
             }
         }
         StateCommand::Add {
             name,
+            status_type,
             starting,
             terminal,
         } => {
-            store.add_state(&name, starting, terminal).await?;
+            store
+                .add_state(&name, status_type.as_deref(), starting, terminal)
+                .await?;
             println!("added state {name}");
         }
     }

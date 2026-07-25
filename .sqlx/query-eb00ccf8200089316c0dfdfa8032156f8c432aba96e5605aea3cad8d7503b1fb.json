@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE projects SET\n               name = COALESCE(?, name),\n               summary = COALESCE(?, summary),\n               description = COALESCE(?, description),\n               priority = COALESCE(?, priority),\n               updated_at = datetime('now')\n           WHERE repo_id = ? AND id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "eb00ccf8200089316c0dfdfa8032156f8c432aba96e5605aea3cad8d7503b1fb"
+}

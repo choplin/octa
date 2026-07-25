@@ -1,0 +1,86 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT\n                r.name AS \"repo!: String\",\n                i.number AS \"number!: i64\",\n                i.title AS \"title!: String\",\n                i.body AS \"body!: String\",\n                i.state AS \"state!: String\",\n                COALESCE(s.status_type, 'unstarted') AS \"status_type!: String\",\n                i.priority AS \"priority!: i64\",\n                i.locked_by AS \"locked_by?: String\",\n                i.created_at AS \"created_at!: String\",\n                i.updated_at AS \"updated_at!: String\",\n                COALESCE(s.is_terminal, 0) AS \"is_terminal!: i64\",\n                COALESCE(s.position, 0) AS \"state_position!: i64\"\n            FROM\n                issues i\n            JOIN\n                repos r ON r.id = i.repo_id\n            LEFT JOIN\n                issue_states s ON s.repo_id = i.repo_id\n                    AND s.name = i.state\n            WHERE\n                i.repo_id = ?\n            ORDER BY\n                i.number\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "repo!: String",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "number!: i64",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "title!: String",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "body!: String",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "state!: String",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "status_type!: String",
+        "ordinal": 5,
+        "type_info": "Null"
+      },
+      {
+        "name": "priority!: i64",
+        "ordinal": 6,
+        "type_info": "Integer"
+      },
+      {
+        "name": "locked_by?: String",
+        "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!: String",
+        "ordinal": 8,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_at!: String",
+        "ordinal": 9,
+        "type_info": "Text"
+      },
+      {
+        "name": "is_terminal!: i64",
+        "ordinal": 10,
+        "type_info": "Null"
+      },
+      {
+        "name": "state_position!: i64",
+        "ordinal": 11,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      null,
+      false,
+      true,
+      false,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "c3371eacc00ac42bdb850a9a83c56f4da81cc6a0d70cfd3e40c4423a9155700b"
+}

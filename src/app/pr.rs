@@ -19,8 +19,32 @@ pub async fn create(
     title: &str,
     body: &str,
     branch: &str,
+    issue: Option<i64>,
 ) -> Result<i64> {
-    crate::sql::pr::insert(pool, repo, title, body, branch).await
+    match issue {
+        Some(issue) => {
+            crate::sql::issue::get(pool, repo, issue)
+                .await?
+                .ok_or_else(|| anyhow!("issue #{issue} not found"))?;
+            crate::sql::pr::insert_linked(pool, repo, title, body, branch, issue).await
+        }
+        None => crate::sql::pr::insert(pool, repo, title, body, branch).await,
+    }
+}
+
+pub async fn link(pool: &SqlitePool, repo: i64, issue: i64, pr: i64) -> Result<()> {
+    crate::sql::issue::get(pool, repo, issue)
+        .await?
+        .ok_or_else(|| anyhow!("issue #{issue} not found"))?;
+    require(pool, repo, pr).await?;
+    crate::sql::pr::link(pool, repo, issue, pr).await
+}
+
+pub async fn unlink(pool: &SqlitePool, repo: i64, issue: i64, pr: i64) -> Result<()> {
+    if !crate::sql::pr::unlink(pool, repo, issue, pr).await? {
+        bail!("issue #{issue} is not linked to PR #{pr}");
+    }
+    Ok(())
 }
 
 pub async fn list(pool: &SqlitePool, repo: Option<i64>, filter: StateFilter) -> Result<Vec<Pr>> {

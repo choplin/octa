@@ -3,7 +3,7 @@
 
 use crate::domain::{pr::Pr, Comment};
 use anyhow::Result;
-use sqlx::SqlitePool;
+use sqlx::{Acquire, SqlitePool};
 
 pub async fn insert(
     pool: &SqlitePool,
@@ -30,6 +30,69 @@ pub async fn insert(
     )
     .fetch_one(pool)
     .await?)
+}
+
+pub async fn insert_linked(
+    pool: &SqlitePool,
+    repo: i64,
+    title: &str,
+    body: &str,
+    branch: &str,
+    issue: i64,
+) -> Result<i64> {
+    let mut connection = pool.acquire().await?;
+    let mut tx = connection.begin().await?;
+    let number: i64 = sqlx::query_scalar(
+        r#"INSERT INTO prs (repo_id, number, title, body, branch)
+           VALUES (
+               ?,
+               (SELECT COALESCE(MAX(number), 0) + 1 FROM prs WHERE repo_id = ?),
+               ?, ?, ?
+           )
+           RETURNING number"#,
+    )
+    .bind(repo)
+    .bind(repo)
+    .bind(title)
+    .bind(body)
+    .bind(branch)
+    .fetch_one(&mut *tx)
+    .await?;
+    sqlx::query("INSERT INTO issue_pr_links (repo_id, issue_number, pr_number) VALUES (?, ?, ?)")
+        .bind(repo)
+        .bind(issue)
+        .bind(number)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(number)
+}
+
+pub async fn link(pool: &SqlitePool, repo: i64, issue: i64, pr: i64) -> Result<()> {
+    sqlx::query(
+        r#"INSERT INTO issue_pr_links (repo_id, issue_number, pr_number)
+           VALUES (?, ?, ?)
+           ON CONFLICT(repo_id, issue_number, pr_number) DO NOTHING"#,
+    )
+    .bind(repo)
+    .bind(issue)
+    .bind(pr)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn unlink(pool: &SqlitePool, repo: i64, issue: i64, pr: i64) -> Result<bool> {
+    Ok(sqlx::query(
+        "DELETE FROM issue_pr_links WHERE repo_id = ? AND issue_number = ? AND pr_number = ?",
+    )
+    .bind(repo)
+    .bind(issue)
+    .bind(pr)
+    .execute(pool)
+    .await?
+    .rows_affected()
+        != 0)
 }
 
 pub async fn get(pool: &SqlitePool, repo: i64, number: i64) -> Result<Option<Pr>> {

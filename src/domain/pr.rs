@@ -20,3 +20,12 @@ pub struct PrDetail {
     pub pr: Pr,
     pub comments: Vec<Comment>,
 }
+
+/// The PR fields needed to resume work from an issue detail view.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct PrRef {
+    pub number: i64,
+    pub title: String,
+    pub branch: String,
+    pub state: String,
+}

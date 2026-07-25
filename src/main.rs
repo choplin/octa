@@ -5,6 +5,7 @@ mod cli;
 mod domain;
 mod sql;
 mod store;
+mod tui;
 
 use clap::Parser;
 

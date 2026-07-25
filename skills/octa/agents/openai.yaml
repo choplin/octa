@@ -1,0 +1,4 @@
+interface:
+  display_name: "Octa CLI Guide"
+  short_description: "Use and inspect octa CLI commands and data"
+  default_prompt: "Use $octa to inspect this repository and run the appropriate octa CLI command."

@@ -11,7 +11,9 @@
 
 mod issue;
 mod label;
+mod milestone;
 mod pr;
+mod project;
 mod wiki;
 
 pub use crate::domain::{issue::LockOutcome, StateFilter};
@@ -154,5 +156,571 @@ impl Store {
 
     async fn repo_by_name(&self, name: &str) -> Result<i64> {
         crate::sql::repo::by_name(&self.pool, name).await
+    }
+}
+
+#[cfg(test)]
+mod migration_tests {
+    use super::{Resolved, Store};
+    use sqlx::sqlite::SqlitePoolOptions;
+    use sqlx::SqlitePool;
+
+    #[derive(Debug, Eq, PartialEq)]
+    struct LogicalSnapshot(Vec<(&'static str, Vec<String>)>);
+
+    async fn logical_snapshot(pool: &SqlitePool) -> LogicalSnapshot {
+        async fn rows(pool: &SqlitePool, query: &str) -> Vec<String> {
+            sqlx::query_scalar::<_, String>(query)
+                .fetch_all(pool)
+                .await
+                .unwrap()
+        }
+
+        LogicalSnapshot(vec![
+            (
+                "repos",
+                rows(pool, "SELECT json_array(id, identity_key, name, created_at) FROM repos ORDER BY id").await,
+            ),
+            (
+                "issue_states",
+                rows(pool, "SELECT json_array(repo_id, name, status_type, is_starting, is_terminal, position) FROM issue_states ORDER BY repo_id, position, name").await,
+            ),
+            (
+                "issues",
+                rows(pool, "SELECT json_array(repo_id, number, title, body, state, priority, locked_by, locked_at, created_at, updated_at) FROM issues ORDER BY repo_id, number").await,
+            ),
+            (
+                "comments",
+                rows(pool, "SELECT json_array(id, repo_id, issue_number, body, created_at) FROM comments ORDER BY id").await,
+            ),
+            (
+                "issue_deps",
+                rows(pool, "SELECT json_array(repo_id, blocker_number, blocked_number, created_at) FROM issue_deps ORDER BY repo_id, blocker_number, blocked_number").await,
+            ),
+            (
+                "prs",
+                rows(pool, "SELECT json_array(repo_id, number, title, body, branch, state, created_at, updated_at) FROM prs ORDER BY repo_id, number").await,
+            ),
+            (
+                "pr_comments",
+                rows(pool, "SELECT json_array(id, repo_id, pr_number, body, created_at) FROM pr_comments ORDER BY id").await,
+            ),
+            (
+                "wiki_pages",
+                rows(pool, "SELECT json_array(repo_id, slug, title, body, created_at, updated_at) FROM wiki_pages ORDER BY repo_id, slug").await,
+            ),
+            (
+                "wiki_links",
+                rows(pool, "SELECT json_array(repo_id, from_slug, to_slug) FROM wiki_links ORDER BY repo_id, from_slug, to_slug").await,
+            ),
+            (
+                "label_groups",
+                rows(pool, "SELECT json_array(repo_id, name, selection) FROM label_groups ORDER BY repo_id, name").await,
+            ),
+            (
+                "labels",
+                rows(pool, "SELECT json_array(repo_id, name, group_name) FROM labels ORDER BY repo_id, name").await,
+            ),
+            (
+                "issue_labels",
+                rows(pool, "SELECT json_array(repo_id, issue_number, label_name) FROM issue_labels ORDER BY repo_id, issue_number, label_name").await,
+            ),
+            (
+                "projects",
+                rows(pool, "SELECT json_array(repo_id, id, name, summary, description, state, status_type, priority, created_at, updated_at) FROM projects ORDER BY repo_id, id").await,
+            ),
+            (
+                "issue_projects",
+                rows(pool, "SELECT json_array(repo_id, issue_number, project_id) FROM issue_projects ORDER BY repo_id, issue_number").await,
+            ),
+            (
+                "issue_parents",
+                rows(pool, "SELECT json_array(repo_id, child_number, parent_number, created_at) FROM issue_parents ORDER BY repo_id, child_number").await,
+            ),
+            (
+                "issue_relations",
+                rows(pool, "SELECT json_array(repo_id, low_number, high_number, created_at) FROM issue_relations ORDER BY repo_id, low_number, high_number").await,
+            ),
+            (
+                "issue_pr_links",
+                rows(pool, "SELECT json_array(repo_id, issue_number, pr_number, created_at) FROM issue_pr_links ORDER BY repo_id, issue_number").await,
+            ),
+        ])
+    }
+
+    #[tokio::test]
+    async fn tui_is_read_only_after_store_initialization() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        let repo = crate::sql::repo::upsert(&pool, "/test/.git", "test")
+            .await
+            .unwrap();
+        let store = Store {
+            pool,
+            scope: Resolved::One(repo),
+        };
+        for (name, status_type) in [
+            ("Todo", "unstarted"),
+            ("In Progress", "started"),
+            ("In Review", "started"),
+            ("Done", "completed"),
+            ("Canceled", "canceled"),
+        ] {
+            store
+                .add_state(name, Some(status_type), false, false)
+                .await
+                .unwrap();
+        }
+        let first = store
+            .create_issue("First", "first body", Some("Todo"), 2, None, None, None)
+            .await
+            .unwrap();
+        let second = store
+            .create_issue(
+                "Second",
+                "second body",
+                Some("In Progress"),
+                1,
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        let review = store
+            .create_issue(
+                "Review",
+                "review body",
+                Some("In Review"),
+                2,
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        let done = store
+            .create_issue("Done", "done body", Some("Done"), 3, None, None, None)
+            .await
+            .unwrap();
+        let canceled = store
+            .create_issue(
+                "Canceled",
+                "canceled body",
+                Some("Canceled"),
+                4,
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        let legacy_closed = store
+            .create_issue(
+                "Legacy closed",
+                "legacy body",
+                Some("closed"),
+                0,
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        store
+            .add_issue_comment(second, "still read-only")
+            .await
+            .unwrap();
+        store.add_dependency(first, second).await.unwrap();
+
+        // Store migrations, repo/state seeding, and fixture writes are complete
+        // before the baseline. WAL/checkpoint bytes are intentionally ignored.
+        let before = logical_snapshot(&store.pool).await;
+        let details = store.list_all_issue_details().await.unwrap();
+        assert_eq!(
+            details
+                .iter()
+                .map(|detail| detail.issue.number)
+                .collect::<Vec<_>>(),
+            vec![first, second, review, done, canceled, legacy_closed]
+        );
+        crate::tui::exercise_view_for_test(details);
+        crate::sql::repo::upsert(&store.pool, "/test/.git", "test")
+            .await
+            .unwrap();
+        let after = logical_snapshot(&store.pool).await;
+
+        assert_eq!(after, before);
+    }
+
+    #[tokio::test]
+    async fn status_priority_migration_preserves_legacy_data() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::raw_sql(include_str!("../../migrations/0001_init.sql"))
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO repos (id, identity_key, name) VALUES (1, '/legacy/.git', 'legacy')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        for (name, starting, terminal, position) in [
+            ("open", 1, 0, 0),
+            ("in_progress", 0, 0, 1),
+            ("closed", 0, 1, 2),
+            ("custom", 0, 0, 3),
+            ("archived", 0, 1, 4),
+            ("Backlog", 0, 0, 5),
+            ("Todo", 0, 0, 6),
+            ("In Progress", 0, 0, 7),
+            ("In Review", 0, 0, 8),
+            ("Done", 0, 1, 9),
+            ("Canceled", 0, 1, 10),
+        ] {
+            sqlx::query("INSERT INTO issue_states (repo_id, name, is_starting, is_terminal, position) VALUES (1, ?, ?, ?, ?)")
+                .bind(name)
+                .bind(starting)
+                .bind(terminal)
+                .bind(position)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        sqlx::query("INSERT INTO issues (repo_id, number, title, body, state) VALUES (1, 7, 'kept title', 'kept body', 'in_progress')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO prs (repo_id, number, title, branch) VALUES (1, 4, 'legacy PR', 'issue-7')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO prs (repo_id, number, title, branch) VALUES (1, 5, 'unlinked legacy PR', 'issue-7')")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        sqlx::raw_sql(include_str!(
+            "../../migrations/0002_issue_status_type_priority.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+        crate::sql::repo::upsert(&pool, "/legacy/.git", "legacy")
+            .await
+            .unwrap();
+
+        let issue: (String, String, String, i64) =
+            sqlx::query_as("SELECT title, body, state, priority FROM issues WHERE number = 7")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            issue,
+            (
+                "kept title".into(),
+                "kept body".into(),
+                "in_progress".into(),
+                0
+            )
+        );
+
+        let states: Vec<(String, String)> =
+            sqlx::query_as("SELECT name, status_type FROM issue_states WHERE repo_id = 1")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        let state_columns: Vec<String> =
+            sqlx::query_scalar("SELECT name FROM pragma_table_info('issue_states') ORDER BY cid")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert!(!state_columns
+            .iter()
+            .any(|name| { name == "workflow_group" || name == "workflow_rank" }));
+        for expected in [
+            ("open", "unstarted"),
+            ("in_progress", "started"),
+            ("closed", "completed"),
+            ("custom", "unstarted"),
+            ("archived", "completed"),
+            ("Backlog", "unstarted"),
+            ("Todo", "unstarted"),
+            ("In Progress", "unstarted"),
+            // A pre-category custom state keeps the migration's generic
+            // unstarted default. Existing stores that already classified it
+            // as started retain that value because upsert is non-destructive.
+            ("In Review", "unstarted"),
+            ("Done", "completed"),
+            ("Canceled", "completed"),
+        ] {
+            assert!(
+                states
+                    .iter()
+                    .any(|state| state.0 == expected.0 && state.1 == expected.1),
+                "missing migrated state {expected:?}: {states:?}"
+            );
+        }
+
+        sqlx::raw_sql(include_str!(
+            "../../migrations/0003_projects_issue_hierarchy.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::raw_sql(include_str!(
+            "../../migrations/0004_issue_relations_pr_links.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO issue_pr_links (repo_id, issue_number, pr_number) VALUES (1, 7, 4)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::raw_sql(include_str!("../../migrations/0005_project_milestones.sql"))
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::raw_sql(include_str!(
+            "../../migrations/0006_many_to_many_issue_pr_links.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+        let legacy_pr: (String, String) =
+            sqlx::query_as("SELECT title, branch FROM prs WHERE repo_id = 1 AND number = 4")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(legacy_pr, ("legacy PR".into(), "issue-7".into()));
+        let preserved_links: Vec<(i64, i64)> = sqlx::query_as(
+            "SELECT issue_number, pr_number FROM issue_pr_links ORDER BY issue_number, pr_number",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            preserved_links,
+            vec![(7, 4)],
+            "upgrade must preserve explicit links without inferring from branch names"
+        );
+
+        for (number, title, state) in [
+            (8, "under review", "In Review"),
+            (9, "active", "In Progress"),
+            (10, "ready", "Todo"),
+            (11, "finished", "Done"),
+        ] {
+            sqlx::query("INSERT INTO issues (repo_id, number, title, state) VALUES (1, ?, ?, ?)")
+                .bind(number)
+                .bind(title)
+                .bind(state)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn repo_upsert_seeds_only_legacy_states_and_preserves_custom_workflow() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        let repo = crate::sql::repo::upsert(&pool, "/seed/.git", "seed")
+            .await
+            .unwrap();
+
+        let initial: Vec<(String, String)> = sqlx::query_as(
+            "SELECT name, status_type FROM issue_states WHERE repo_id = ? ORDER BY position, name",
+        )
+        .bind(repo)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            initial,
+            vec![
+                ("open".into(), "unstarted".into()),
+                ("in_progress".into(), "started".into()),
+                ("closed".into(), "completed".into()),
+            ]
+        );
+
+        for (name, status_type) in [
+            ("Backlog", "backlog"),
+            ("In Review", "started"),
+            ("Canceled", "canceled"),
+            ("Custom", "unstarted"),
+        ] {
+            crate::app::issue::add_state(&pool, repo, name, Some(status_type), false, false)
+                .await
+                .unwrap();
+        }
+        crate::app::issue::create(
+            &pool,
+            repo,
+            "Preserved",
+            "body",
+            Some("In Review"),
+            2,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let states_before: Vec<String> = sqlx::query_scalar(
+            "SELECT json_array(name, status_type, is_starting, is_terminal, position) FROM issue_states WHERE repo_id = ? ORDER BY position, name",
+        )
+        .bind(repo)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        let issues_before: Vec<String> = sqlx::query_scalar(
+            "SELECT json_array(number, title, body, state, priority) FROM issues WHERE repo_id = ? ORDER BY number",
+        )
+        .bind(repo)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+
+        crate::sql::repo::upsert(&pool, "/seed/.git", "seed")
+            .await
+            .unwrap();
+
+        let states_after: Vec<String> = sqlx::query_scalar(
+            "SELECT json_array(name, status_type, is_starting, is_terminal, position) FROM issue_states WHERE repo_id = ? ORDER BY position, name",
+        )
+        .bind(repo)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        let issues_after: Vec<String> = sqlx::query_scalar(
+            "SELECT json_array(number, title, body, state, priority) FROM issues WHERE repo_id = ? ORDER BY number",
+        )
+        .bind(repo)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(states_after, states_before);
+        assert_eq!(issues_after, issues_before);
+    }
+
+    #[tokio::test]
+    async fn relation_and_pr_link_schema_enforce_repo_scope_and_atomicity() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        let first_repo = crate::sql::repo::upsert(&pool, "/first/.git", "first")
+            .await
+            .unwrap();
+        let second_repo = crate::sql::repo::upsert(&pool, "/second/.git", "second")
+            .await
+            .unwrap();
+        crate::app::issue::create(&pool, first_repo, "First", "", None, 0, None, None, None)
+            .await
+            .unwrap();
+        crate::app::issue::create(
+            &pool,
+            first_repo,
+            "First repo second issue",
+            "",
+            None,
+            0,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        crate::app::issue::create(&pool, second_repo, "Second", "", None, 0, None, None, None)
+            .await
+            .unwrap();
+        crate::app::pr::create(&pool, first_repo, "One", "", "one", None)
+            .await
+            .unwrap();
+        crate::app::pr::create(&pool, first_repo, "Two", "", "two", None)
+            .await
+            .unwrap();
+
+        let cross_repo_relation = sqlx::query(
+            "INSERT INTO issue_relations (repo_id, low_number, high_number) VALUES (?, 1, 2)",
+        )
+        .bind(second_repo)
+        .execute(&pool)
+        .await;
+        assert!(cross_repo_relation.is_err());
+
+        let cross_repo_pr = sqlx::query(
+            "INSERT INTO issue_pr_links (repo_id, issue_number, pr_number) VALUES (?, 1, 2)",
+        )
+        .bind(second_repo)
+        .execute(&pool)
+        .await;
+        assert!(cross_repo_pr.is_err());
+
+        for (issue, pr) in [(1, 1), (1, 2), (2, 1)] {
+            crate::app::pr::link(&pool, first_repo, issue, pr)
+                .await
+                .unwrap();
+        }
+        let links: Vec<(i64, i64)> = sqlx::query_as(
+            "SELECT issue_number, pr_number FROM issue_pr_links WHERE repo_id = ? ORDER BY issue_number, pr_number",
+        )
+        .bind(first_repo)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(links, vec![(1, 1), (1, 2), (2, 1)]);
+
+        crate::app::pr::link(&pool, first_repo, 1, 1).await.unwrap();
+        let duplicate_pair = sqlx::query(
+            "INSERT INTO issue_pr_links (repo_id, issue_number, pr_number) VALUES (?, 1, 1)",
+        )
+        .bind(first_repo)
+        .execute(&pool)
+        .await;
+        assert!(duplicate_pair.is_err());
+
+        crate::app::pr::unlink(&pool, first_repo, 1, 1)
+            .await
+            .unwrap();
+        let remaining: Vec<(i64, i64)> = sqlx::query_as(
+            "SELECT issue_number, pr_number FROM issue_pr_links WHERE repo_id = ? ORDER BY issue_number, pr_number",
+        )
+        .bind(first_repo)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(remaining, vec![(1, 2), (2, 1)]);
+
+        let failed =
+            crate::sql::pr::insert_linked(&pool, second_repo, "Orphan", "", "orphan", 999).await;
+        assert!(failed.is_err());
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM prs WHERE repo_id = ?")
+            .bind(second_repo)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 0, "failed linked create left an orphan PR");
     }
 }
