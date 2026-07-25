@@ -1488,15 +1488,3 @@ fn label_errors_and_idempotent_operations_are_preserved() {
     );
     assert!(!env.run(&["issue", "label", "99", "plain"]).status.success());
 }
-
-#[test]
-fn reconstructed_issue_pr_projection_is_singular() {
-    let env = Env::new();
-    env.ok(&["issue", "create", "--title", "Owner"]);
-    env.ok(&[
-        "pr", "create", "--title", "Only", "--branch", "only", "--issue", "1",
-    ]);
-    let issue = json(&env.ok(&["issue", "show", "1", "--json"]));
-    assert_eq!(issue["pull_request"]["number"], 1);
-    assert!(issue.get("pull_requests").is_none());
-}

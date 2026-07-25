@@ -93,7 +93,7 @@ pub struct IssueDetail {
     pub blocks: Vec<i64>,
     pub blocked_by: Vec<i64>,
     pub related: Vec<i64>,
-    pub pull_request: Option<PrRef>,
+    pub pull_requests: Vec<PrRef>,
     pub parent: Option<IssueRef>,
     pub sub_issues: Vec<IssueRef>,
     pub comments: Vec<Comment>,

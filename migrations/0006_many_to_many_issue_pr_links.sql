@@ -24,9 +24,3 @@ ALTER TABLE issue_pr_links_many_to_many RENAME TO issue_pr_links;
 
 CREATE INDEX issue_pr_links_pr_idx
     ON issue_pr_links (repo_id, pr_number, issue_number);
-
--- Reconstructed pre-separation policy kept both cardinalities one-to-one.
-CREATE UNIQUE INDEX issue_pr_links_one_issue_idx
-    ON issue_pr_links (repo_id, issue_number);
-CREATE UNIQUE INDEX issue_pr_links_one_pr_idx
-    ON issue_pr_links (repo_id, pr_number);

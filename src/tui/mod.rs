@@ -351,16 +351,21 @@ fn detail_text(detail: &IssueDetail) -> Text<'static> {
             .collect::<Vec<_>>()
             .join(", ")
     };
-    let pull_requests = detail
-        .pull_request
-        .as_ref()
-        .map(|pr| {
-            format!(
-                "#{} {} · branch: {} · state: {}",
-                pr.number, pr.title, pr.branch, pr.state
-            )
-        })
-        .unwrap_or_else(|| "(none)".to_string());
+    let pull_requests = if detail.pull_requests.is_empty() {
+        "(none)".to_string()
+    } else {
+        detail
+            .pull_requests
+            .iter()
+            .map(|pr| {
+                format!(
+                    "#{} {} · branch: {} · state: {}",
+                    pr.number, pr.title, pr.branch, pr.state
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
     let mut lines = vec![
         Line::styled(
             format!("#{} {}", issue.number, issue.title),
@@ -486,12 +491,12 @@ mod tests {
             blocks: vec![3],
             blocked_by: vec![1],
             related: vec![4],
-            pull_request: Some(PrRef {
+            pull_requests: vec![PrRef {
                 number: 8,
                 title: "Ship the TUI".into(),
                 branch: "feat/tui".into(),
                 state: "open".into(),
-            }),
+            }],
             parent: Some(IssueRef {
                 number: 1,
                 title: "Parent outcome".into(),

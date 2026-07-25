@@ -246,10 +246,7 @@ pub async fn detail(pool: &SqlitePool, repo: i64, number: i64) -> Result<IssueDe
         blocks: crate::sql::issue::blocks(pool, repo, number).await?,
         blocked_by: crate::sql::issue::blocked_by(pool, repo, number).await?,
         related: crate::sql::issue::related(pool, repo, number).await?,
-        pull_request: crate::sql::issue::linked_prs(pool, repo, number)
-            .await?
-            .into_iter()
-            .next(),
+        pull_requests: crate::sql::issue::linked_prs(pool, repo, number).await?,
         parent: crate::sql::issue::parent(pool, repo, number).await?,
         sub_issues: crate::sql::issue::children(pool, repo, number).await?,
         comments: crate::sql::issue::comments(pool, repo, number).await?,

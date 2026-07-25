@@ -152,7 +152,7 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                 if !detail.related.is_empty() {
                     println!("related: {}", join_numbers(&detail.related));
                 }
-                if let Some(pr) = &detail.pull_request {
+                for pr in &detail.pull_requests {
                     println!(
                         "pull request: #{} {} (branch: {}, state: {})",
                         pr.number, pr.title, pr.branch, pr.state
