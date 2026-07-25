@@ -146,13 +146,6 @@ pub(crate) enum IssueCommand {
     },
     /// Set an issue state.
     SetState { number: i64, state: String },
-    /// Move an issue through the composite workflow policy.
-    Transition {
-        number: i64,
-        state: String,
-        #[arg(long)]
-        completion_note: Option<String>,
-    },
     /// Close an issue.
     Close { number: i64 },
     /// Reopen an issue.

@@ -414,33 +414,6 @@ pub async fn set_state(pool: &SqlitePool, repo: i64, number: i64, state: &str) -
     crate::sql::issue::update_state(pool, repo, number, state).await
 }
 
-/// Reconstructed pre-separation composite workflow transition.
-pub async fn transition(
-    pool: &SqlitePool,
-    repo: i64,
-    number: i64,
-    state: &str,
-    completion_note: Option<&str>,
-) -> Result<()> {
-    let target = list_states(pool, repo)
-        .await?
-        .into_iter()
-        .find(|candidate| candidate.name == state)
-        .ok_or_else(|| anyhow!("unknown state {state:?}; add it first with `octa state add`"))?;
-    if target.is_terminal
-        && completion_note
-            .map(str::trim)
-            .filter(|note| !note.is_empty())
-            .is_none()
-    {
-        bail!("terminal transitions require --completion-note");
-    }
-    if let Some(note) = completion_note {
-        comment(pool, repo, number, note).await?;
-    }
-    set_state(pool, repo, number, state).await
-}
-
 pub async fn close(pool: &SqlitePool, repo: i64, number: i64) -> Result<String> {
     let state = terminal(pool, repo).await?;
     set_state(pool, repo, number, &state).await?;

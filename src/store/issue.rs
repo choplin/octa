@@ -128,16 +128,6 @@ impl Store {
         crate::app::issue::set_state(&self.pool, self.repo_id()?, number, state).await
     }
 
-    pub async fn transition_issue(
-        &self,
-        number: i64,
-        state: &str,
-        completion_note: Option<&str>,
-    ) -> Result<()> {
-        crate::app::issue::transition(&self.pool, self.repo_id()?, number, state, completion_note)
-            .await
-    }
-
     pub async fn close_issue(&self, number: i64) -> Result<String> {
         crate::app::issue::close(&self.pool, self.repo_id()?, number).await
     }

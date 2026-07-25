@@ -1490,22 +1490,6 @@ fn label_errors_and_idempotent_operations_are_preserved() {
 }
 
 #[test]
-fn reconstructed_transition_requires_completion_note() {
-    let env = Env::new();
-    env.ok(&["issue", "create", "--title", "Complete"]);
-    let rejected = env.run(&["issue", "transition", "1", "Done"]);
-    assert!(!rejected.status.success());
-    env.ok(&[
-        "issue",
-        "transition",
-        "1",
-        "Done",
-        "--completion-note",
-        "finished",
-    ]);
-}
-
-#[test]
 fn reconstructed_parent_project_sameness_is_enforced() {
     let env = Env::new();
     env.ok(&["project", "create", "--name", "One"]);

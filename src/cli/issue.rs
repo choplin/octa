@@ -181,16 +181,6 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             store.set_issue_state(number, &state).await?;
             println!("issue #{number} -> {state}");
         }
-        IssueCommand::Transition {
-            number,
-            state,
-            completion_note,
-        } => {
-            store
-                .transition_issue(number, &state, completion_note.as_deref())
-                .await?;
-            println!("transitioned issue #{number} -> {state}");
-        }
         IssueCommand::Close { number } => {
             let state = store.close_issue(number).await?;
             println!("closed issue #{number} ({state})");
