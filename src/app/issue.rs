@@ -66,15 +66,6 @@ pub async fn create(
         Some(reference) => Some(crate::app::project::resolve(pool, repo, reference).await?),
         None => None,
     };
-    if let (Some(parent), Some(project)) = (&parent_issue, &explicit_project) {
-        if parent
-            .project
-            .as_ref()
-            .is_some_and(|parent_project| parent_project.id != project.id)
-        {
-            bail!("parent and child issues must belong to the same project");
-        }
-    }
     if milestone.is_some() && explicit_project.is_none() {
         bail!("--milestone requires an explicit --project");
     }
@@ -298,26 +289,6 @@ pub async fn set_project(pool: &SqlitePool, repo: i64, number: i64, reference: &
             milestone.name
         );
     }
-    if let Some(parent) = crate::sql::issue::parent(pool, repo, number).await? {
-        let parent = require(pool, repo, parent.number).await?;
-        if parent
-            .project
-            .as_ref()
-            .is_some_and(|parent_project| parent_project.id != project.id)
-        {
-            bail!("parent and child issues must belong to the same project");
-        }
-    }
-    for child in crate::sql::issue::children(pool, repo, number).await? {
-        let child = require(pool, repo, child.number).await?;
-        if child
-            .project
-            .as_ref()
-            .is_some_and(|child_project| child_project.id != project.id)
-        {
-            bail!("parent and child issues must belong to the same project");
-        }
-    }
     crate::sql::issue::set_project(pool, repo, number, project.id).await?;
     crate::sql::issue::touch(pool, repo, number).await
 }
@@ -329,15 +300,6 @@ pub async fn clear_project(pool: &SqlitePool, repo: i64, number: i64) -> Result<
             "cannot clear issue project while milestone {:?} is assigned; clear the milestone first",
             milestone.name
         );
-    }
-    if crate::sql::issue::parent(pool, repo, number)
-        .await?
-        .is_some()
-        || !crate::sql::issue::children(pool, repo, number)
-            .await?
-            .is_empty()
-    {
-        bail!("cannot clear a project while parent/child links require project sameness");
     }
     crate::sql::issue::clear_project(pool, repo, number).await?;
     crate::sql::issue::touch(pool, repo, number).await
@@ -370,13 +332,6 @@ pub async fn set_parent(pool: &SqlitePool, repo: i64, child: i64, parent: i64) -
     }
     let child_issue = require(pool, repo, child).await?;
     let parent_issue = require(pool, repo, parent).await?;
-    if let (Some(child_project), Some(parent_project)) =
-        (&child_issue.project, &parent_issue.project)
-    {
-        if child_project.id != parent_project.id {
-            bail!("parent and child issues must belong to the same project");
-        }
-    }
     let inherited_project = child_issue
         .project
         .is_none()

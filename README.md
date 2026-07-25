@@ -397,7 +397,6 @@ octa state --help
 
 ## Reconstructed pre-separation policy baseline
 
-- Parent and child Issues must remain in the same Project.
 - Issue-to-PR ownership and Issue JSON projections are singular.
 
 AI エージェントが octa CLI の機能、scope、JSON、TUI、保存場所を調べて利用するためのガイドは [`skills/octa`](skills/octa/SKILL.md) にあります。チーム固有の Issue 運用方針はこのガイドには含めません。

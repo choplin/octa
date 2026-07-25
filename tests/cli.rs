@@ -1490,19 +1490,6 @@ fn label_errors_and_idempotent_operations_are_preserved() {
 }
 
 #[test]
-fn reconstructed_parent_project_sameness_is_enforced() {
-    let env = Env::new();
-    env.ok(&["project", "create", "--name", "One"]);
-    env.ok(&["project", "create", "--name", "Two"]);
-    env.ok(&["issue", "create", "--title", "Parent", "--project", "One"]);
-    env.ok(&["issue", "create", "--title", "Child", "--project", "Two"]);
-    assert!(!env
-        .run(&["issue", "parent", "set", "2", "1"])
-        .status
-        .success());
-}
-
-#[test]
 fn reconstructed_issue_pr_projection_is_singular() {
     let env = Env::new();
     env.ok(&["issue", "create", "--title", "Owner"]);
