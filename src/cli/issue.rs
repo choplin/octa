@@ -1,32 +1,12 @@
 use super::{
-    holder, parse_issue_state, CandidateCommand, DepCommand, IssueCommand, IssueMilestoneCommand,
-    IssueParentCommand, IssueProjectCommand, RelateCommand,
+    holder, parse_issue_state, DepCommand, IssueCommand, IssueMilestoneCommand, IssueParentCommand,
+    IssueProjectCommand, RelateCommand,
 };
 use crate::store::{LockOutcome, Store};
 use anyhow::Result;
 
 pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
     match command {
-        IssueCommand::Candidates { command } => {
-            let (candidates, json) = match command {
-                CandidateCommand::Start { json } => (store.start_candidates().await?, json),
-                CandidateCommand::Groom { json } => (store.groom_candidates().await?, json),
-                CandidateCommand::Next { json } => (store.next_candidates().await?, json),
-            };
-            if json {
-                println!("{}", serde_json::to_string(&candidates)?);
-            } else {
-                for candidate in candidates {
-                    println!(
-                        "#{} rank={} {} [{}]",
-                        candidate.number,
-                        candidate.workflow_rank,
-                        candidate.title,
-                        candidate.reasons.join(", ")
-                    );
-                }
-            }
-        }
         IssueCommand::Tui => {
             // Details are repository-scoped (issue numbers are only unique
             // within a repository), so the TUI deliberately rejects
@@ -73,26 +53,8 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             milestone,
             related_to,
             unblocked,
-            workflow,
             json,
         } => {
-            if workflow {
-                let issues = store.list_workflow().await?;
-                if json {
-                    println!("{}", serde_json::to_string(&issues)?);
-                } else {
-                    for issue in issues {
-                        println!(
-                            "#{:<4} {:<10} {:<4} {}",
-                            issue.issue.number,
-                            issue.workflow_group,
-                            issue.workflow_rank,
-                            issue.issue.title
-                        );
-                    }
-                }
-                return Ok(());
-            }
             let (filter, state_name) = parse_issue_state(&state);
             let issues = store
                 .list_issues(

@@ -101,32 +101,6 @@ pub struct IssueDetail {
     pub comments: Vec<Comment>,
 }
 
-#[derive(Debug, Serialize)]
-pub struct WorkflowIssue {
-    #[serde(flatten)]
-    pub issue: Issue,
-    pub workflow_group: String,
-    pub workflow_rank: i64,
-}
-
-#[derive(Debug, Serialize)]
-pub struct IssueCandidate {
-    pub number: i64,
-    pub title: String,
-    pub state: String,
-    pub status_type: String,
-    pub priority: i64,
-    pub milestone: Option<MilestoneRef>,
-    pub parent: Option<IssueRef>,
-    pub sub_issues: Vec<IssueRef>,
-    pub blocking: Vec<i64>,
-    pub related: Vec<i64>,
-    pub shared_labels: Vec<String>,
-    pub reasons: Vec<String>,
-    pub groomable: bool,
-    pub workflow_rank: i64,
-}
-
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct IssueRef {
     pub number: i64,

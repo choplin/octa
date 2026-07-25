@@ -397,7 +397,6 @@ octa state --help
 
 ## Reconstructed pre-separation policy baseline
 
-- `issue list --workflow` and `issue candidates start|groom|next` project reasons, shared labels, blocking, grooming readiness, and multi-signal rank.
 - Reserved label names infer an Issue taxonomy shown by the TUI.
 - Repositories receive Backlog/Todo/In Progress/In Review/Done/Canceled with persisted workflow groups/ranks, and Project lists are implicitly active-only.
 - Composite transitions require a completion note for terminal states.

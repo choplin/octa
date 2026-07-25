@@ -3,28 +3,12 @@
 
 use super::Store;
 use crate::domain::{
-    issue::{Issue, IssueCandidate, IssueDetail, IssueState, LockOutcome, WorkflowIssue},
+    issue::{Issue, IssueDetail, IssueState, LockOutcome},
     StateFilter,
 };
 use anyhow::Result;
 
 impl Store {
-    pub async fn list_workflow(&self) -> Result<Vec<WorkflowIssue>> {
-        crate::app::issue::list_workflow(&self.pool, self.repo_id()?).await
-    }
-
-    pub async fn start_candidates(&self) -> Result<Vec<IssueCandidate>> {
-        crate::app::issue::start_candidates(&self.pool, self.repo_id()?).await
-    }
-
-    pub async fn groom_candidates(&self) -> Result<Vec<IssueCandidate>> {
-        crate::app::issue::groom_candidates(&self.pool, self.repo_id()?).await
-    }
-
-    pub async fn next_candidates(&self) -> Result<Vec<IssueCandidate>> {
-        crate::app::issue::next_candidates(&self.pool, self.repo_id()?).await
-    }
-
     #[allow(clippy::too_many_arguments)]
     pub async fn create_issue(
         &self,

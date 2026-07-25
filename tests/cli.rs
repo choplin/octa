@@ -1490,56 +1490,6 @@ fn label_errors_and_idempotent_operations_are_preserved() {
 }
 
 #[test]
-fn reconstructed_candidates_are_ranked_by_policy() {
-    let env = Env::new();
-    env.ok(&["label", "create", "common"]);
-    env.ok(&[
-        "issue",
-        "create",
-        "--title",
-        "Low",
-        "--state",
-        "Todo",
-        "--priority",
-        "4",
-    ]);
-    env.ok(&[
-        "issue",
-        "create",
-        "--title",
-        "Urgent",
-        "--state",
-        "Todo",
-        "--priority",
-        "1",
-        "--body",
-        "ready",
-    ]);
-    env.ok(&["issue", "create", "--title", "Rough backlog"]);
-    env.ok(&["issue", "label", "1", "common"]);
-    env.ok(&["issue", "label", "2", "common"]);
-    env.ok(&["issue", "relate", "add", "1", "2"]);
-
-    let workflow = json(&env.ok(&["issue", "list", "--workflow", "--json"]));
-    assert_eq!(workflow[0]["workflow_group"], "backlog");
-    assert!(workflow[0]["workflow_rank"].is_number());
-
-    let start = json(&env.ok(&["issue", "candidates", "start", "--json"]));
-    assert_eq!(start[0]["title"], "Urgent");
-    assert!(start[0]["reasons"].as_array().unwrap().len() >= 2);
-    assert_eq!(start[0]["shared_labels"], serde_json::json!(["common"]));
-    assert!(start[0]["blocking"].is_array());
-
-    let groom = json(&env.ok(&["issue", "candidates", "groom", "--json"]));
-    assert_eq!(groom[0]["title"], "Rough backlog");
-    assert_eq!(groom[0]["groomable"], true);
-
-    let next = json(&env.ok(&["issue", "candidates", "next", "--json"]));
-    assert_eq!(next[0]["title"], "Urgent");
-    assert!(next[0]["related"].is_array());
-}
-
-#[test]
 fn reconstructed_taxonomy_is_inferred_from_reserved_labels() {
     let env = Env::new();
     env.ok(&["issue", "create", "--title", "Typed"]);

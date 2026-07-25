@@ -80,11 +80,6 @@ enum TopCommand {
 
 #[derive(Subcommand)]
 pub(crate) enum IssueCommand {
-    /// Select workflow candidates using the configured policy.
-    Candidates {
-        #[command(subcommand)]
-        command: CandidateCommand,
-    },
     /// Browse issues in a read-only terminal interface.
     Tui,
     /// Create a new issue.
@@ -134,9 +129,6 @@ pub(crate) enum IssueCommand {
         related_to: Option<i64>,
         #[arg(long)]
         unblocked: bool,
-        /// Order and project issues through workflow metadata.
-        #[arg(long)]
-        workflow: bool,
         #[arg(long)]
         json: bool,
     },
@@ -218,25 +210,6 @@ pub(crate) enum IssueCommand {
     Parent {
         #[command(subcommand)]
         command: IssueParentCommand,
-    },
-}
-
-#[derive(Subcommand)]
-pub(crate) enum CandidateCommand {
-    /// Issues ready to begin.
-    Start {
-        #[arg(long)]
-        json: bool,
-    },
-    /// Backlog Issues that need grooming.
-    Groom {
-        #[arg(long)]
-        json: bool,
-    },
-    /// Ranked next work across active workflow states.
-    Next {
-        #[arg(long)]
-        json: bool,
     },
 }
 
