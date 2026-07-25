@@ -397,7 +397,6 @@ octa state --help
 
 ## Reconstructed pre-separation policy baseline
 
-- Reserved label names infer an Issue taxonomy shown by the TUI.
 - Repositories receive Backlog/Todo/In Progress/In Review/Done/Canceled with persisted workflow groups/ranks, and Project lists are implicitly active-only.
 - Composite transitions require a completion note for terminal states.
 - Parent and child Issues must remain in the same Project.

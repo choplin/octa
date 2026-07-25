@@ -89,8 +89,6 @@ pub(crate) struct IssueListEntry {
 pub struct IssueDetail {
     #[serde(flatten)]
     pub issue: Issue,
-    /// Reconstructed pre-separation taxonomy inferred from reserved labels.
-    pub type_label: Option<String>,
     pub labels: Vec<String>,
     pub blocks: Vec<i64>,
     pub blocked_by: Vec<i64>,

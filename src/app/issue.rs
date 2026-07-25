@@ -250,14 +250,8 @@ async fn unblocked_numbers(pool: &SqlitePool, repo: i64) -> Result<HashSet<i64>>
 
 pub async fn detail(pool: &SqlitePool, repo: i64, number: i64) -> Result<IssueDetail> {
     let issue = require(pool, repo, number).await?;
-    let labels = crate::sql::issue::labels(pool, repo, number).await?;
-    let type_label = labels
-        .iter()
-        .find(|label| matches!(label.as_str(), "impl" | "design" | "research"))
-        .cloned();
     Ok(IssueDetail {
-        type_label,
-        labels,
+        labels: crate::sql::issue::labels(pool, repo, number).await?,
         blocks: crate::sql::issue::blocks(pool, repo, number).await?,
         blocked_by: crate::sql::issue::blocked_by(pool, repo, number).await?,
         related: crate::sql::issue::related(pool, repo, number).await?,

@@ -1490,18 +1490,6 @@ fn label_errors_and_idempotent_operations_are_preserved() {
 }
 
 #[test]
-fn reconstructed_taxonomy_is_inferred_from_reserved_labels() {
-    let env = Env::new();
-    env.ok(&["issue", "create", "--title", "Typed"]);
-    env.ok(&["label", "create", "impl"]);
-    env.ok(&["issue", "label", "1", "impl"]);
-    assert_eq!(
-        json(&env.ok(&["issue", "show", "1", "--json"]))["type_label"],
-        "impl"
-    );
-}
-
-#[test]
 fn reconstructed_workflow_and_project_list_policy_is_implicit() {
     let env = Env::new();
     let states = json(&env.ok(&["state", "list", "--json"]));

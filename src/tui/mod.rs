@@ -266,7 +266,6 @@ fn draw_list(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
             .as_ref()
             .map(|milestone| milestone.name.as_str())
             .unwrap_or("No Milestone");
-        let type_label = detail.type_label.as_deref().unwrap_or("untyped");
         ListItem::new(Line::from(vec![
             Span::styled(
                 format!("#{} ", detail.issue.number),
@@ -274,8 +273,8 @@ fn draw_list(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
             ),
             Span::styled(
                 format!(
-                    "{} · {} · P{} · {} · {} ",
-                    type_label, detail.issue.state, detail.issue.priority, project, milestone
+                    "{} · P{} · {} · {} ",
+                    detail.issue.state, detail.issue.priority, project, milestone
                 ),
                 Style::default().fg(Color::DarkGray),
             ),
@@ -483,7 +482,6 @@ mod tests {
                 created_at: "2026-07-24".into(),
                 updated_at: "2026-07-24".into(),
             },
-            type_label: Some("impl".into()),
             labels: vec!["cli".into(), "customer-impact".into()],
             blocks: vec![3],
             blocked_by: vec![1],

@@ -105,10 +105,6 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             } else {
                 let issue = &detail.issue;
                 println!("#{} {} ({})", issue.number, issue.title, issue.state);
-                println!(
-                    "type: {}",
-                    detail.type_label.as_deref().unwrap_or("untyped")
-                );
                 println!("status type: {}", issue.status_type);
                 println!("priority: {}", issue.priority);
                 println!(
