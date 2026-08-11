@@ -107,6 +107,7 @@ octa issue list --state all
 ```
 
 Linear の Issue 一覧と詳細の代わりに、read-only の2ペインTUIも使えます。
+これは現行の初期実装を説明するものであり、将来のTUI更新操作を製品境界から除外するものではありません。
 既定の `filter: all` は、作業候補だけでなく In Review、Done、Canceled、
 および既存の custom/legacy state を含む current repository の全Issueを
 Issue番号順に表示します。
@@ -395,7 +396,7 @@ octa label --help
 octa state --help
 ```
 
-AI エージェントが octa CLI の機能、scope、JSON、TUI、保存場所を調べて利用するためのガイドは [`skills/octa`](skills/octa/SKILL.md) にあります。チーム固有の Issue 運用方針はこのガイドには含めません。
+AI エージェントが octa CLI の機能、scope、JSON、保存場所を調べて利用するためのガイドは [`skills/octa`](skills/octa/SKILL.md) にあります。チーム固有の Issue 運用方針はこのガイドには含めません。
 
 ## 開発時の確認
 

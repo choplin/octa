@@ -12,7 +12,6 @@ issue relate add|rm
 issue project set|clear
 issue milestone set|clear
 issue parent set|clear
-issue tui
 ```
 
 Important constraints:

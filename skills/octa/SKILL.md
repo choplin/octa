@@ -1,6 +1,6 @@
 ---
 name: octa
-description: Use and inspect the octa local collaboration CLI, including repository scope, Issues, Projects, Milestones, Pull Requests, Wiki pages, labels, states, JSON output, the read-only TUI, and local storage. Use when Codex needs to discover octa commands, read octa records, or run octa CLI operations in a Git repository.
+description: Use and inspect the octa local collaboration CLI, including repository scope, Issues, Projects, Milestones, Pull Requests, Wiki pages, labels, states, JSON output, and local storage. Use when Codex needs to discover octa commands, read octa records, or run octa CLI operations in a Git repository.
 ---
 
 # Octa CLI
@@ -26,7 +26,7 @@ Install from this repository with `cargo install --path .`. During development, 
 
 ## Choose a command surface
 
-- Issue: `octa issue ...` for create/list/show/edit/comment/state, locks, labels, Project/Milestone/parent assignment, dependencies, symmetric relations, and `tui`.
+- Issue: `octa issue ...` for create/list/show/edit/comment/state, locks, labels, Project/Milestone/parent assignment, dependencies, and symmetric relations.
 - Project: `octa project ...` for create/list/show/edit/state and nested Milestone operations.
 - Pull Request: `octa pr ...` for branch-associated records, comments, states, and explicit many-to-many Issue links.
 - Wiki: `octa wiki ...` for pages, `[[slug]]` links, and backlinks.
@@ -38,17 +38,6 @@ Issue parent/child relations stay within one repository and do not require match
 Label and label-group names are repository-defined opaque data. Do not infer an Issue type or other built-in taxonomy from particular names; octa reserves no operational label names. A `single` group only enforces mutual exclusion among labels explicitly created in that group.
 
 Read [commands-and-json.md](references/commands-and-json.md) when exact subcommands, constraints, or JSON shapes matter.
-
-## Browse with the TUI
-
-Run `octa issue tui` for a read-only two-pane Issue browser.
-
-- Move selection with `j`/`k` or arrow keys.
-- Switch list/detail focus with `Tab`.
-- Scroll detail with `PgUp`/`PgDn`.
-- Exit with `q` or `Esc`.
-
-The default view includes every Issue in the current repository, including review, terminal, canceled, and custom/legacy states. Its list shows state, priority, Project, and Milestone without deriving a taxonomy column from labels; the detail pane shows all labels generically. The TUI does not mutate records.
 
 ## Handle storage and backup
 
