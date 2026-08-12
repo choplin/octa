@@ -1,7 +1,7 @@
 //! CLI schema and top-level dispatch.
 use crate::store::{RepoScope, StateFilter, Store};
 use anyhow::Result;
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 mod issue;
 mod label;
 mod pr;
@@ -51,11 +51,6 @@ enum TopCommand {
         #[command(subcommand)]
         command: IssueCommand,
     },
-    /// Manage configured issue states.
-    State {
-        #[command(subcommand)]
-        command: StateCommand,
-    },
     /// Manage pull requests.
     Pr {
         #[command(subcommand)]
@@ -66,16 +61,46 @@ enum TopCommand {
         #[command(subcommand)]
         command: WikiCommand,
     },
-    /// Manage labels and label groups.
-    Label {
+    /// Manage repository configuration.
+    Config {
         #[command(subcommand)]
-        command: LabelCommand,
+        command: ConfigCommand,
     },
     /// Manage finite, repository-scoped projects.
     Project {
         #[command(subcommand)]
         command: ProjectCommand,
     },
+    /// Manage Project milestones.
+    Milestone {
+        #[command(subcommand)]
+        command: MilestoneCommand,
+    },
+}
+
+#[derive(Subcommand)]
+pub(crate) enum ConfigCommand {
+    /// Manage configured Issue states.
+    State {
+        #[command(subcommand)]
+        command: StateCommand,
+    },
+    /// Manage labels available to Issues or Projects.
+    Label {
+        #[command(subcommand)]
+        command: LabelCommand,
+    },
+    /// Manage label groups available to Issues or Projects.
+    LabelGroup {
+        #[command(subcommand)]
+        command: LabelGroupCommand,
+    },
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+pub(crate) enum LabelTarget {
+    Issue,
+    Project,
 }
 
 #[derive(Subcommand)]
@@ -146,12 +171,8 @@ pub(crate) enum IssueCommand {
     },
     /// Set an issue state.
     SetState { number: i64, state: String },
-    /// Close an issue.
-    Close { number: i64 },
-    /// Reopen an issue.
-    Reopen { number: i64 },
-    /// Edit an issue.
-    Edit {
+    /// Set scalar Issue properties.
+    Set {
         number: i64,
         #[arg(long)]
         title: Option<String>,
@@ -160,16 +181,52 @@ pub(crate) enum IssueCommand {
         /// Priority: 0=None, 1=Urgent, 2=High, 3=Medium, 4=Low.
         #[arg(long)]
         priority: Option<i64>,
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long)]
+        milestone: Option<String>,
+        #[arg(long)]
+        parent: Option<i64>,
     },
-    /// Manage issue dependencies.
-    Dep {
-        #[command(subcommand)]
-        command: DepCommand,
+    /// Unset optional scalar Issue properties.
+    Unset {
+        number: i64,
+        #[arg(long)]
+        project: bool,
+        #[arg(long)]
+        milestone: bool,
+        #[arg(long)]
+        parent: bool,
     },
-    /// Manage symmetric issue relations.
-    Relate {
-        #[command(subcommand)]
-        command: RelateCommand,
+    /// Add relationships or collection members.
+    Add {
+        number: i64,
+        #[arg(long)]
+        label: Option<String>,
+        /// Add an Issue that blocks this Issue.
+        #[arg(long)]
+        blocker: Option<i64>,
+        /// Add an Issue blocked by this Issue.
+        #[arg(long)]
+        blocks: Option<i64>,
+        #[arg(long)]
+        related: Option<i64>,
+        #[arg(long)]
+        pr: Option<i64>,
+    },
+    /// Remove relationships or collection members.
+    Remove {
+        number: i64,
+        #[arg(long)]
+        label: Option<String>,
+        #[arg(long)]
+        blocker: Option<i64>,
+        #[arg(long)]
+        blocks: Option<i64>,
+        #[arg(long)]
+        related: Option<i64>,
+        #[arg(long)]
+        pr: Option<i64>,
     },
     /// Lock an issue.
     Lock {
@@ -185,52 +242,10 @@ pub(crate) enum IssueCommand {
         #[arg(long)]
         force: bool,
     },
-    /// Attach a label to an issue.
-    Label { number: i64, label: String },
-    /// Remove a label from an issue.
-    Unlabel { number: i64, label: String },
-    /// Set or clear an issue's Project.
-    Project {
-        #[command(subcommand)]
-        command: IssueProjectCommand,
-    },
-    /// Set or clear an issue's Project milestone.
-    Milestone {
-        #[command(subcommand)]
-        command: IssueMilestoneCommand,
-    },
-    /// Set or clear an issue's parent.
-    Parent {
-        #[command(subcommand)]
-        command: IssueParentCommand,
-    },
-}
-
-#[derive(Subcommand)]
-pub(crate) enum IssueProjectCommand {
-    Set { number: i64, project: String },
-    Clear { number: i64 },
-}
-
-#[derive(Subcommand)]
-pub(crate) enum IssueMilestoneCommand {
-    Set { number: i64, milestone: String },
-    Clear { number: i64 },
-}
-
-#[derive(Subcommand)]
-pub(crate) enum IssueParentCommand {
-    Set { number: i64, parent: i64 },
-    Clear { number: i64 },
 }
 
 #[derive(Subcommand)]
 pub(crate) enum ProjectCommand {
-    /// Manage ordered milestones (phases) within a Project.
-    Milestone {
-        #[command(subcommand)]
-        command: ProjectMilestoneCommand,
-    },
     /// Create a Project.
     Create {
         #[arg(long)]
@@ -262,8 +277,8 @@ pub(crate) enum ProjectCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Edit Project metadata.
-    Edit {
+    /// Set Project metadata.
+    Set {
         project: String,
         #[arg(long)]
         name: Option<String>,
@@ -275,6 +290,18 @@ pub(crate) enum ProjectCommand {
         priority: Option<i64>,
         #[arg(long)]
         json: bool,
+    },
+    /// Add relationships or collection members.
+    Add {
+        project: String,
+        #[arg(long)]
+        label: String,
+    },
+    /// Remove relationships or collection members.
+    Remove {
+        project: String,
+        #[arg(long)]
+        label: String,
     },
     /// Set the Project state and its status category.
     SetState {
@@ -288,9 +315,10 @@ pub(crate) enum ProjectCommand {
 }
 
 #[derive(Subcommand)]
-pub(crate) enum ProjectMilestoneCommand {
+pub(crate) enum MilestoneCommand {
     /// Create a milestone in a Project.
     Create {
+        #[arg(long)]
         project: String,
         #[arg(long)]
         name: String,
@@ -309,19 +337,22 @@ pub(crate) enum ProjectMilestoneCommand {
     },
     /// List milestones in stable phase order.
     List {
+        #[arg(long)]
         project: String,
         #[arg(long)]
         json: bool,
     },
     /// Show one milestone.
     Show {
+        #[arg(long)]
         project: String,
         milestone: String,
         #[arg(long)]
         json: bool,
     },
-    /// Edit milestone metadata or phase order.
-    Edit {
+    /// Set milestone metadata or phase order.
+    Set {
+        #[arg(long)]
         project: String,
         milestone: String,
         #[arg(long)]
@@ -337,28 +368,20 @@ pub(crate) enum ProjectMilestoneCommand {
         #[arg(long)]
         target_date: Option<String>,
         #[arg(long)]
-        clear_start_date: bool,
+        json: bool,
+    },
+    /// Unset optional milestone properties.
+    Unset {
+        milestone: String,
         #[arg(long)]
-        clear_target_date: bool,
+        project: String,
+        #[arg(long)]
+        start_date: bool,
+        #[arg(long)]
+        target_date: bool,
         #[arg(long)]
         json: bool,
     },
-}
-
-#[derive(Subcommand)]
-pub(crate) enum DepCommand {
-    /// Add a blocking dependency.
-    Add { blocker: i64, blocked: i64 },
-    /// Remove a blocking dependency.
-    Rm { blocker: i64, blocked: i64 },
-}
-
-#[derive(Subcommand)]
-pub(crate) enum RelateCommand {
-    /// Relate two issues. Repeating the same pair is harmless.
-    Add { first: i64, second: i64 },
-    /// Remove a relation in either argument order.
-    Rm { first: i64, second: i64 },
 }
 
 #[derive(Subcommand)]
@@ -368,8 +391,8 @@ pub(crate) enum StateCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Add a configured issue state.
-    Add {
+    /// Create a configured issue state.
+    Create {
         name: String,
         /// Status type: backlog, unstarted, started, completed, canceled.
         #[arg(long = "type")]
@@ -418,22 +441,26 @@ pub(crate) enum PrCommand {
     },
     /// Set a pull request state.
     SetState { number: i64, state: String },
-    /// Close a pull request.
-    Close { number: i64 },
-    /// Reopen a pull request.
-    Reopen { number: i64 },
-    /// Edit a pull request.
-    Edit {
+    /// Set pull request metadata.
+    Set {
         number: i64,
         #[arg(long)]
         title: Option<String>,
         #[arg(long)]
         body: Option<String>,
     },
-    /// Link an existing issue and PR.
-    Link { issue: i64, pr: i64 },
-    /// Remove an existing issue/PR link.
-    Unlink { issue: i64, pr: i64 },
+    /// Add an Issue relationship.
+    Add {
+        number: i64,
+        #[arg(long)]
+        issue: i64,
+    },
+    /// Remove an Issue relationship.
+    Remove {
+        number: i64,
+        #[arg(long)]
+        issue: i64,
+    },
 }
 
 #[derive(Subcommand)]
@@ -447,8 +474,8 @@ pub(crate) enum WikiCommand {
         #[arg(long, default_value = "")]
         body: String,
     },
-    /// Edit a wiki page.
-    Edit {
+    /// Set wiki page properties.
+    Set {
         slug: String,
         #[arg(long)]
         title: Option<String>,
@@ -470,25 +497,37 @@ pub(crate) enum WikiCommand {
 
 #[derive(Subcommand)]
 pub(crate) enum LabelCommand {
-    /// Create a label group.
-    Group {
-        name: String,
-        #[arg(long)]
-        selection: String,
-    },
     /// Create a label.
     Create {
         name: String,
+        #[arg(long, value_enum)]
+        target: LabelTarget,
         #[arg(long)]
         group: Option<String>,
     },
     /// List labels.
     List {
+        #[arg(long, value_enum)]
+        target: LabelTarget,
         #[arg(long)]
         json: bool,
     },
+}
+
+#[derive(Subcommand)]
+pub(crate) enum LabelGroupCommand {
+    /// Create a label group.
+    Create {
+        name: String,
+        #[arg(long, value_enum)]
+        target: LabelTarget,
+        #[arg(long)]
+        selection: String,
+    },
     /// List label groups.
-    Groups {
+    List {
+        #[arg(long, value_enum)]
+        target: LabelTarget,
         #[arg(long)]
         json: bool,
     },
@@ -519,10 +558,14 @@ pub async fn run(cli: Cli) -> Result<()> {
     let store = Store::open(cli.scope.to_scope()).await?;
     match cli.command {
         TopCommand::Issue { command } => issue::run(&store, command).await,
-        TopCommand::State { command } => state::run(&store, command).await,
         TopCommand::Pr { command } => pr::run(&store, command).await,
         TopCommand::Wiki { command } => wiki::run(&store, command).await,
-        TopCommand::Label { command } => label::run(&store, command).await,
+        TopCommand::Config { command } => match command {
+            ConfigCommand::State { command } => state::run(&store, command).await,
+            ConfigCommand::Label { command } => label::run(&store, command).await,
+            ConfigCommand::LabelGroup { command } => label::run_group(&store, command).await,
+        },
         TopCommand::Project { command } => project::run(&store, command).await,
+        TopCommand::Milestone { command } => project::run_milestone(&store, command).await,
     }
 }

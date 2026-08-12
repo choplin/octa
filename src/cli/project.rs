@@ -1,115 +1,9 @@
-use super::{ProjectCommand, ProjectMilestoneCommand};
+use super::{MilestoneCommand, ProjectCommand};
 use crate::store::Store;
 use anyhow::Result;
 
 pub(crate) async fn run(store: &Store, command: ProjectCommand) -> Result<()> {
     match command {
-        ProjectCommand::Milestone { command } => match command {
-            ProjectMilestoneCommand::Create {
-                project,
-                name,
-                description,
-                status,
-                position,
-                start_date,
-                target_date,
-                json,
-            } => {
-                let id = store
-                    .create_project_milestone(
-                        &project,
-                        &name,
-                        &description,
-                        &status,
-                        position,
-                        start_date.as_deref(),
-                        target_date.as_deref(),
-                    )
-                    .await?;
-                if json {
-                    println!(
-                        "{}",
-                        serde_json::json!({ "project": project, "id": id, "name": name })
-                    );
-                } else {
-                    println!("milestone {id}: {name}");
-                }
-            }
-            ProjectMilestoneCommand::List { project, json } => {
-                let milestones = store.list_project_milestones(&project).await?;
-                if json {
-                    println!("{}", serde_json::to_string(&milestones)?);
-                } else if milestones.is_empty() {
-                    println!("no milestones");
-                } else {
-                    for milestone in milestones {
-                        println!(
-                            "{:<4} {:<4} {:<12} {}",
-                            milestone.id, milestone.position, milestone.status, milestone.name
-                        );
-                    }
-                }
-            }
-            ProjectMilestoneCommand::Show {
-                project,
-                milestone,
-                json,
-            } => {
-                let milestone = store.project_milestone(&project, &milestone).await?;
-                if json {
-                    println!("{}", serde_json::to_string(&milestone)?);
-                } else {
-                    println!(
-                        "{}: {} (position {}, {})",
-                        milestone.id, milestone.name, milestone.position, milestone.status
-                    );
-                    println!(
-                        "dates: {} -> {}",
-                        milestone.start_date.as_deref().unwrap_or("(none)"),
-                        milestone.target_date.as_deref().unwrap_or("(none)")
-                    );
-                    println!();
-                    if milestone.description.is_empty() {
-                        println!("(no description)");
-                    } else {
-                        println!("{}", milestone.description);
-                    }
-                }
-            }
-            ProjectMilestoneCommand::Edit {
-                project,
-                milestone,
-                name,
-                description,
-                status,
-                position,
-                start_date,
-                target_date,
-                clear_start_date,
-                clear_target_date,
-                json,
-            } => {
-                store
-                    .edit_project_milestone(
-                        &project,
-                        &milestone,
-                        name.as_deref(),
-                        description.as_deref(),
-                        status.as_deref(),
-                        position,
-                        start_date.as_deref(),
-                        target_date.as_deref(),
-                        clear_start_date,
-                        clear_target_date,
-                    )
-                    .await?;
-                if json {
-                    println!("{}", serde_json::json!({ "updated": true }));
-                } else {
-                    println!("updated milestone {milestone}");
-                }
-            }
-        },
         ProjectCommand::Create {
             name,
             summary,
@@ -177,6 +71,9 @@ pub(crate) async fn run(store: &Store, command: ProjectCommand) -> Result<()> {
                 println!("status type: {}", detail.project.status_type);
                 println!("priority: {}", detail.project.priority);
                 println!("summary: {}", detail.project.summary);
+                if !detail.labels.is_empty() {
+                    println!("labels: {}", detail.labels.join(", "));
+                }
                 println!(
                     "issues: {} (backlog {}, unstarted {}, started {}, completed {}, canceled {})",
                     detail.tally.total,
@@ -214,7 +111,7 @@ pub(crate) async fn run(store: &Store, command: ProjectCommand) -> Result<()> {
                 }
             }
         }
-        ProjectCommand::Edit {
+        ProjectCommand::Set {
             project,
             name,
             summary,
@@ -237,6 +134,14 @@ pub(crate) async fn run(store: &Store, command: ProjectCommand) -> Result<()> {
                 println!("updated project {project}");
             }
         }
+        ProjectCommand::Add { project, label } => {
+            store.label_project(&project, &label).await?;
+            println!("updated project {project}");
+        }
+        ProjectCommand::Remove { project, label } => {
+            store.unlabel_project(&project, &label).await?;
+            println!("updated project {project}");
+        }
         ProjectCommand::SetState {
             project,
             state,
@@ -253,6 +158,144 @@ pub(crate) async fn run(store: &Store, command: ProjectCommand) -> Result<()> {
                 );
             } else {
                 println!("project {project} -> {state} ({status_type})");
+            }
+        }
+    }
+    Ok(())
+}
+
+pub(crate) async fn run_milestone(store: &Store, command: MilestoneCommand) -> Result<()> {
+    match command {
+        MilestoneCommand::Create {
+            project,
+            name,
+            description,
+            status,
+            position,
+            start_date,
+            target_date,
+            json,
+        } => {
+            let id = store
+                .create_project_milestone(
+                    &project,
+                    &name,
+                    &description,
+                    &status,
+                    position,
+                    start_date.as_deref(),
+                    target_date.as_deref(),
+                )
+                .await?;
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({ "project": project, "id": id, "name": name })
+                );
+            } else {
+                println!("milestone {id}: {name}");
+            }
+        }
+        MilestoneCommand::List { project, json } => {
+            let milestones = store.list_project_milestones(&project).await?;
+            if json {
+                println!("{}", serde_json::to_string(&milestones)?);
+            } else if milestones.is_empty() {
+                println!("no milestones");
+            } else {
+                for milestone in milestones {
+                    println!(
+                        "{:<4} {:<4} {:<12} {}",
+                        milestone.id, milestone.position, milestone.status, milestone.name
+                    );
+                }
+            }
+        }
+        MilestoneCommand::Show {
+            project,
+            milestone,
+            json,
+        } => {
+            let milestone = store.project_milestone(&project, &milestone).await?;
+            if json {
+                println!("{}", serde_json::to_string(&milestone)?);
+            } else {
+                println!(
+                    "{}: {} (position {}, {})",
+                    milestone.id, milestone.name, milestone.position, milestone.status
+                );
+                println!(
+                    "dates: {} -> {}",
+                    milestone.start_date.as_deref().unwrap_or("(none)"),
+                    milestone.target_date.as_deref().unwrap_or("(none)")
+                );
+                println!();
+                if milestone.description.is_empty() {
+                    println!("(no description)");
+                } else {
+                    println!("{}", milestone.description);
+                }
+            }
+        }
+        MilestoneCommand::Set {
+            project,
+            milestone,
+            name,
+            description,
+            status,
+            position,
+            start_date,
+            target_date,
+            json,
+        } => {
+            store
+                .edit_project_milestone(
+                    &project,
+                    &milestone,
+                    name.as_deref(),
+                    description.as_deref(),
+                    status.as_deref(),
+                    position,
+                    start_date.as_deref(),
+                    target_date.as_deref(),
+                    false,
+                    false,
+                )
+                .await?;
+            if json {
+                println!("{}", serde_json::json!({ "updated": true }));
+            } else {
+                println!("updated milestone {milestone}");
+            }
+        }
+        MilestoneCommand::Unset {
+            project,
+            milestone,
+            start_date,
+            target_date,
+            json,
+        } => {
+            if !start_date && !target_date {
+                anyhow::bail!("specify at least one property to unset");
+            }
+            store
+                .edit_project_milestone(
+                    &project,
+                    &milestone,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    start_date,
+                    target_date,
+                )
+                .await?;
+            if json {
+                println!("{}", serde_json::json!({ "updated": true }));
+            } else {
+                println!("updated milestone {milestone}");
             }
         }
     }

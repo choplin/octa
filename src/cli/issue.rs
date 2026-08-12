@@ -1,7 +1,4 @@
-use super::{
-    holder, parse_issue_state, DepCommand, IssueCommand, IssueMilestoneCommand, IssueParentCommand,
-    IssueProjectCommand, RelateCommand,
-};
+use super::{holder, parse_issue_state, IssueCommand};
 use crate::store::{LockOutcome, Store};
 use anyhow::Result;
 
@@ -181,45 +178,126 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             store.set_issue_state(number, &state).await?;
             println!("issue #{number} -> {state}");
         }
-        IssueCommand::Close { number } => {
-            let state = store.close_issue(number).await?;
-            println!("closed issue #{number} ({state})");
-        }
-        IssueCommand::Reopen { number } => {
-            let state = store.reopen_issue(number).await?;
-            println!("reopened issue #{number} ({state})");
-        }
-        IssueCommand::Edit {
+        IssueCommand::Set {
             number,
             title,
             body,
             priority,
+            project,
+            milestone,
+            parent,
         } => {
-            store
-                .edit_issue(number, title.as_deref(), body.as_deref(), priority)
-                .await?;
+            if title.is_none()
+                && body.is_none()
+                && priority.is_none()
+                && project.is_none()
+                && milestone.is_none()
+                && parent.is_none()
+            {
+                anyhow::bail!("specify at least one property to set");
+            }
+            if title.is_some() || body.is_some() || priority.is_some() {
+                store
+                    .edit_issue(number, title.as_deref(), body.as_deref(), priority)
+                    .await?;
+            }
+            if let Some(project) = project {
+                store.set_issue_project(number, &project).await?;
+            }
+            if let Some(milestone) = milestone {
+                store.set_issue_milestone(number, &milestone).await?;
+            }
+            if let Some(parent) = parent {
+                store.set_issue_parent(number, parent).await?;
+            }
             println!("updated issue #{number}");
         }
-        IssueCommand::Dep { command } => match command {
-            DepCommand::Add { blocker, blocked } => {
-                store.add_dependency(blocker, blocked).await?;
-                println!("#{blocker} now blocks #{blocked}");
+        IssueCommand::Unset {
+            number,
+            project,
+            milestone,
+            parent,
+        } => {
+            if !project && !milestone && !parent {
+                anyhow::bail!("specify at least one property to unset");
             }
-            DepCommand::Rm { blocker, blocked } => {
-                store.remove_dependency(blocker, blocked).await?;
-                println!("removed: #{blocker} blocks #{blocked}");
+            if milestone {
+                store.clear_issue_milestone(number).await?;
             }
-        },
-        IssueCommand::Relate { command } => match command {
-            RelateCommand::Add { first, second } => {
-                store.add_issue_relation(first, second).await?;
-                println!("related issues #{first} and #{second}");
+            if project {
+                store.clear_issue_project(number).await?;
             }
-            RelateCommand::Rm { first, second } => {
-                store.remove_issue_relation(first, second).await?;
-                println!("removed relation between #{first} and #{second}");
+            if parent {
+                store.clear_issue_parent(number).await?;
             }
-        },
+            println!("updated issue #{number}");
+        }
+        IssueCommand::Add {
+            number,
+            label,
+            blocker,
+            blocks,
+            related,
+            pr,
+        } => {
+            if label.is_none()
+                && blocker.is_none()
+                && blocks.is_none()
+                && related.is_none()
+                && pr.is_none()
+            {
+                anyhow::bail!("specify at least one relationship to add");
+            }
+            if let Some(label) = label {
+                store.label_issue(number, &label).await?;
+            }
+            if let Some(blocker) = blocker {
+                store.add_dependency(blocker, number).await?;
+            }
+            if let Some(blocked) = blocks {
+                store.add_dependency(number, blocked).await?;
+            }
+            if let Some(other) = related {
+                store.add_issue_relation(number, other).await?;
+            }
+            if let Some(pr) = pr {
+                store.link_pr(number, pr).await?;
+            }
+            println!("updated issue #{number}");
+        }
+        IssueCommand::Remove {
+            number,
+            label,
+            blocker,
+            blocks,
+            related,
+            pr,
+        } => {
+            if label.is_none()
+                && blocker.is_none()
+                && blocks.is_none()
+                && related.is_none()
+                && pr.is_none()
+            {
+                anyhow::bail!("specify at least one relationship to remove");
+            }
+            if let Some(label) = label {
+                store.unlabel_issue(number, &label).await?;
+            }
+            if let Some(blocker) = blocker {
+                store.remove_dependency(blocker, number).await?;
+            }
+            if let Some(blocked) = blocks {
+                store.remove_dependency(number, blocked).await?;
+            }
+            if let Some(other) = related {
+                store.remove_issue_relation(number, other).await?;
+            }
+            if let Some(pr) = pr {
+                store.unlink_pr(number, pr).await?;
+            }
+            println!("updated issue #{number}");
+        }
         IssueCommand::Lock { number, r#as } => {
             let holder = holder(r#as);
             match store.lock_issue(number, &holder).await? {
@@ -243,44 +321,6 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                 );
             }
         }
-        IssueCommand::Label { number, label } => {
-            store.label_issue(number, &label).await?;
-            println!("labelled issue #{number} with {label}");
-        }
-        IssueCommand::Unlabel { number, label } => {
-            store.unlabel_issue(number, &label).await?;
-            println!("removed label {label} from issue #{number}");
-        }
-        IssueCommand::Project { command } => match command {
-            IssueProjectCommand::Set { number, project } => {
-                store.set_issue_project(number, &project).await?;
-                println!("issue #{number} -> project {project}");
-            }
-            IssueProjectCommand::Clear { number } => {
-                store.clear_issue_project(number).await?;
-                println!("cleared project from issue #{number}");
-            }
-        },
-        IssueCommand::Milestone { command } => match command {
-            IssueMilestoneCommand::Set { number, milestone } => {
-                store.set_issue_milestone(number, &milestone).await?;
-                println!("issue #{number} -> milestone {milestone}");
-            }
-            IssueMilestoneCommand::Clear { number } => {
-                store.clear_issue_milestone(number).await?;
-                println!("cleared milestone from issue #{number}");
-            }
-        },
-        IssueCommand::Parent { command } => match command {
-            IssueParentCommand::Set { number, parent } => {
-                store.set_issue_parent(number, parent).await?;
-                println!("issue #{number} -> parent #{parent}");
-            }
-            IssueParentCommand::Clear { number } => {
-                store.clear_issue_parent(number).await?;
-                println!("cleared parent from issue #{number}");
-            }
-        },
     }
     Ok(())
 }

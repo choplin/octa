@@ -577,7 +577,3 @@ pub async fn next_state_position(pool: &SqlitePool, repo: i64) -> Result<i64> {
 pub async fn default_starting_state(pool: &SqlitePool, repo: i64) -> Result<Option<String>> {
     Ok(sqlx::query_scalar!("SELECT name FROM issue_states WHERE repo_id = ? AND is_starting = 1 ORDER BY position LIMIT 1", repo).fetch_optional(pool).await?)
 }
-
-pub async fn default_terminal_state(pool: &SqlitePool, repo: i64) -> Result<Option<String>> {
-    Ok(sqlx::query_scalar!("SELECT name FROM issue_states WHERE repo_id = ? AND is_terminal = 1 ORDER BY position LIMIT 1", repo).fetch_optional(pool).await?)
-}

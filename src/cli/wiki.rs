@@ -9,7 +9,7 @@ pub(crate) async fn run(store: &Store, command: WikiCommand) -> Result<()> {
                 .await?;
             println!("created wiki page {slug}")
         }
-        WikiCommand::Edit { slug, title, body } => {
+        WikiCommand::Set { slug, title, body } => {
             store
                 .edit_wiki(&slug, title.as_deref(), body.as_deref())
                 .await?;

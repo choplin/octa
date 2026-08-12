@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM project_label_links WHERE repo_id = ? AND project_id = ? AND label_name IN (SELECT name FROM project_labels WHERE repo_id = ? AND group_name = ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "94d796cca72fac871fa6e519e45eb8d27c0f71eb9770d96cc5ec5c5c80e54521"
+}

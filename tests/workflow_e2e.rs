@@ -128,14 +128,39 @@ fn repository_local_collaboration_runs_end_to_end_without_losing_context() {
     let env = Env::new();
 
     // Labels and their grouping are repository-local, user-defined data.
-    env.ok(&["label", "group", "Workstream", "--selection", "single"]);
+    env.ok(&[
+        "config",
+        "label-group",
+        "create",
+        "Workstream",
+        "--target",
+        "issue",
+        "--selection",
+        "single",
+    ]);
     for label in ["client", "documentation", "service"] {
-        env.ok(&["label", "create", label, "--group", "Workstream"]);
+        env.ok(&[
+            "config",
+            "label",
+            "create",
+            label,
+            "--target",
+            "issue",
+            "--group",
+            "Workstream",
+        ]);
     }
-    let groups = env.json(&["label", "groups", "--json"]);
+    let groups = env.json(&[
+        "config",
+        "label-group",
+        "list",
+        "--target",
+        "issue",
+        "--json",
+    ]);
     assert_eq!(groups[0]["name"], "Workstream");
     assert_eq!(groups[0]["selection"], "single");
-    let labels = env.json(&["label", "list", "--json"]);
+    let labels = env.json(&["config", "label", "list", "--target", "issue", "--json"]);
     assert_eq!(
         labels
             .as_array()
@@ -165,12 +190,12 @@ fn repository_local_collaboration_runs_end_to_end_without_losing_context() {
         ("In Review", "started"),
         ("Done", "completed"),
     ] {
-        env.ok(&["state", "add", name, "--type", status_type]);
+        env.ok(&["config", "state", "create", name, "--type", status_type]);
     }
     env.ok(&[
-        "project",
         "milestone",
         "create",
+        "--project",
         "Workflow parity",
         "--name",
         "CLI beta",
@@ -240,8 +265,8 @@ fn repository_local_collaboration_runs_end_to_end_without_losing_context() {
         "--priority",
         "1",
     ]);
-    env.ok(&["issue", "dep", "add", "1", "2"]);
-    env.ok(&["issue", "relate", "add", "2", "3"]);
+    env.ok(&["issue", "add", "1", "--blocks", "2"]);
+    env.ok(&["issue", "add", "2", "--related", "3"]);
 
     let unblocked_before = env.json(&[
         "issue",
@@ -281,14 +306,14 @@ Acceptance: list and complete detail are visible; q exits cleanly.\n\
 Constraints: view-only; no mutation keys.";
     env.ok(&[
         "issue",
-        "edit",
+        "set",
         "2",
         "--body",
         groomed_body,
         "--priority",
         "1",
     ]);
-    env.ok(&["issue", "label", "2", "client"]);
+    env.ok(&["issue", "add", "2", "--label", "client"]);
     env.ok(&["issue", "set-state", "2", "Todo"]);
 
     // The generic detail projection retains the complete issue context.
@@ -435,7 +460,7 @@ Constraints: view-only; no mutation keys.";
     init_repo(repo2.path());
     env.ok_in(
         repo2.path(),
-        &["state", "add", "Backlog", "--type", "backlog"],
+        &["config", "state", "create", "Backlog", "--type", "backlog"],
     );
     env.ok_in(
         repo2.path(),

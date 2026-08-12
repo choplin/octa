@@ -18,12 +18,6 @@ async fn starting(pool: &SqlitePool, repo: i64) -> Result<String> {
         .await?
         .ok_or_else(|| anyhow!("no starting state configured for this repo"))
 }
-async fn terminal(pool: &SqlitePool, repo: i64) -> Result<String> {
-    crate::sql::issue::default_terminal_state(pool, repo)
-        .await?
-        .ok_or_else(|| anyhow!("no terminal state configured for this repo"))
-}
-
 pub(crate) struct ListQuery<'a> {
     pub filter: StateFilter,
     pub state_name: Option<&'a str>,
@@ -52,7 +46,7 @@ pub async fn create(
     let state = match state {
         Some(state) => {
             if !crate::sql::issue::state_exists(pool, repo, state).await? {
-                bail!("unknown state {state:?}; add it first with `octa state add`");
+                bail!("unknown state {state:?}; create it first with `octa config state create`");
             }
             state.to_string()
         }
@@ -361,21 +355,9 @@ pub async fn comment(pool: &SqlitePool, repo: i64, number: i64, body: &str) -> R
 pub async fn set_state(pool: &SqlitePool, repo: i64, number: i64, state: &str) -> Result<()> {
     require(pool, repo, number).await?;
     if !crate::sql::issue::state_exists(pool, repo, state).await? {
-        bail!("unknown state {state:?}; add it first with `octa state add`");
+        bail!("unknown state {state:?}; create it first with `octa config state create`");
     }
     crate::sql::issue::update_state(pool, repo, number, state).await
-}
-
-pub async fn close(pool: &SqlitePool, repo: i64, number: i64) -> Result<String> {
-    let state = terminal(pool, repo).await?;
-    set_state(pool, repo, number, &state).await?;
-    Ok(state)
-}
-
-pub async fn reopen(pool: &SqlitePool, repo: i64, number: i64) -> Result<String> {
-    let state = starting(pool, repo).await?;
-    set_state(pool, repo, number, &state).await?;
-    Ok(state)
 }
 
 pub async fn edit(

@@ -66,15 +66,7 @@ pub(crate) async fn run(store: &Store, command: PrCommand) -> Result<()> {
             store.set_pr_state(number, &state).await?;
             println!("PR #{number} -> {state}")
         }
-        PrCommand::Close { number } => {
-            store.set_pr_state(number, "closed").await?;
-            println!("closed PR #{number}")
-        }
-        PrCommand::Reopen { number } => {
-            store.set_pr_state(number, "open").await?;
-            println!("reopened PR #{number}")
-        }
-        PrCommand::Edit {
+        PrCommand::Set {
             number,
             title,
             body,
@@ -84,13 +76,13 @@ pub(crate) async fn run(store: &Store, command: PrCommand) -> Result<()> {
                 .await?;
             println!("updated PR #{number}")
         }
-        PrCommand::Link { issue, pr } => {
-            store.link_pr(issue, pr).await?;
-            println!("linked issue #{issue} to PR #{pr}")
+        PrCommand::Add { number, issue } => {
+            store.link_pr(issue, number).await?;
+            println!("updated PR #{number}")
         }
-        PrCommand::Unlink { issue, pr } => {
-            store.unlink_pr(issue, pr).await?;
-            println!("unlinked issue #{issue} from PR #{pr}")
+        PrCommand::Remove { number, issue } => {
+            store.unlink_pr(issue, number).await?;
+            println!("updated PR #{number}")
         }
     }
     Ok(())

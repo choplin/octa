@@ -81,7 +81,7 @@ octa issue comment 1 --body "着手しました。"
 
 ```sh
 octa issue unlock 1 --as docs-agent
-octa issue close 1
+octa issue set-state 1 closed
 ```
 
 `OCTA_ACTOR` を設定すると、`--as` を省略したときの lock 保持者名に使われます。
@@ -134,16 +134,16 @@ octa project create --name "CLI を公開する"
 octa project list
 octa project list --active
 
-octa project milestone create "CLI を公開する" \
+octa milestone create --project "CLI を公開する" \
   --name "Public beta" \
   --description "利用者向けbetaを公開する段階" \
   --status active \
   --position 1 \
   --target-date 2026-09-01
 
-octa project milestone list "CLI を公開する"
-octa project milestone show "CLI を公開する" "Public beta"
-octa project milestone edit "CLI を公開する" "Public beta" \
+octa milestone list --project "CLI を公開する"
+octa milestone show "Public beta" --project "CLI を公開する"
+octa milestone set "Public beta" --project "CLI を公開する" \
   --status completed \
   --target-date 2026-09-15
 ```
@@ -160,12 +160,12 @@ octa issue create \
 
 既存 Issue への Milestone の設定・解除と、同じ Milestone に属する Issue の
 一覧取得もできます。Project を変更または解除する場合は、先に Milestone を
-clear します。
+unset します。
 
 ```sh
-octa issue milestone set 1 "Public beta"
+octa issue set 1 --milestone "Public beta"
 octa issue list --project "CLI を公開する" --milestone "Public beta"
-octa issue milestone clear 1
+octa issue unset 1 --milestone
 ```
 
 Issue の親子関係は同じリポジトリ内で設定でき、Project の所属とは独立しています。
@@ -174,26 +174,26 @@ Project のない既存 Issue に親を設定した時は、その時点の親�
 継承しますが、その後は親子それぞれの Project を変更または解除できます。
 
 ```sh
-octa issue parent set 2 1
-octa issue project set 2 "別の Project"
-octa issue project clear 1
+octa issue set 2 --parent 1
+octa issue set 2 --project "別の Project"
+octa issue unset 1 --project
 ```
 
 Project 内の Milestone が設定されている Issue だけは、従来どおり先に Milestone を
-clear してから Project を変更または解除します。
+unset してから Project を変更または解除します。
 
 新規リポジトリに自動作成される状態名は、互換性のための `open`、
 `in_progress`、`closed` だけです。プロジェクト固有のworkflow状態は自由に追加できます。
 
 ```sh
-octa state add Backlog --type backlog
-octa state add Todo --type unstarted
-octa state add "In Progress" --type started
-octa state add "In Review" --type started
-octa state add Done --type completed
-octa state add Canceled --type canceled
-octa state add blocked
-octa state list
+octa config state create Backlog --type backlog
+octa config state create Todo --type unstarted
+octa config state create "In Progress" --type started
+octa config state create "In Review" --type started
+octa config state create Done --type completed
+octa config state create Canceled --type canceled
+octa config state create blocked
+octa config state list
 ```
 
 `--starting` と `--terminal` は状態の入口・終端を示すフラグです。
@@ -205,14 +205,14 @@ Backlog、Todo、In Progress、In Review、Done、Canceled などのworkflow名�
 必要なリポジトリで上記のように追加します。旧バージョンで作成済みのworkflow状態や
 その他のcustom/legacy stateと、それらを参照するIssueはmigration後も削除・改名されません。
 
-現在の CLI では、後から追加した状態を close / reopen の既定遷移先に変更する操作はありません。
+Issueの状態は `issue set-state` で明示的に遷移させます。
 
 ### 依存関係
 
 Issue 1 が Issue 2 をブロックする関係を作るには、次を実行します。
 
 ```sh
-octa issue dep add 1 2
+octa issue add 1 --blocks 2
 octa issue show 1
 octa issue show 2
 ```
@@ -223,18 +223,18 @@ octa issue show 2
 octa issue list --unblocked
 ```
 
-依存を削除するには `dep rm` を使います。
+依存を削除するには同じプロパティを `remove` します。
 
 ```sh
-octa issue dep rm 1 2
+octa issue remove 1 --blocks 2
 ```
 
-順序を持たない関連 Issue は `relate` で結びます。同じ組を逆順で追加しても一件だけ保存され、`--related-to` で候補を絞れます。
+順序を持たない関連 Issue は `--related` で結びます。同じ組を逆順で追加しても一件だけ保存され、`--related-to` で候補を絞れます。
 
 ```sh
-octa issue relate add 1 2
+octa issue add 1 --related 2
 octa issue list --related-to 1
-octa issue relate rm 2 1
+octa issue remove 2 --related 1
 ```
 
 ### ラベル
@@ -244,9 +244,9 @@ octa issue relate rm 2 1
 `impl` / `design` / `research` のような特別扱いされるラベルはありません。
 
 ```sh
-octa label create documentation
-octa issue label 1 documentation
-octa issue unlabel 1 documentation
+octa config label create documentation --target issue
+octa issue add 1 --label documentation
+octa issue remove 1 --label documentation
 ```
 
 `single` グループでは、同じグループのラベルを一つだけ付けられます。
@@ -254,16 +254,27 @@ octa issue unlabel 1 documentation
 `multi` グループでは、同じグループのラベルを複数共存させられます。
 
 ```sh
-octa label group priority --selection single
-octa label create high --group priority
-octa label create low --group priority
-octa issue label 1 high
+octa config label-group create priority --target issue --selection single
+octa config label create high --target issue --group priority
+octa config label create low --target issue --group priority
+octa issue add 1 --label high
 
-octa label group area --selection multi
-octa label create cli --group area
-octa label create storage --group area
-octa issue label 1 cli
-octa issue label 1 storage
+octa config label-group create area --target issue --selection multi
+octa config label create cli --target issue --group area
+octa config label create storage --target issue --group area
+octa issue add 1 --label cli
+octa issue add 1 --label storage
+```
+
+Project用のラベル定義はIssue用とは分かれています。同じ名前も別々に定義でき、
+`--target`は必須です。
+
+```sh
+octa config label-group create horizon --target project --selection single
+octa config label create now --target project --group horizon
+octa config label create next --target project --group horizon
+octa project add "CLI を公開する" --label now
+octa project remove "CLI を公開する" --label now
 ```
 
 ## Pull Request の議論を残す
@@ -281,16 +292,16 @@ octa pr create \
 
 octa pr comment 1 --body "確認をお願いします。"
 octa pr show 1
-octa pr close 1
+octa pr set-state 1 closed
 ```
 
 既存 PR は作成時と同じ形のまま利用でき、必要になった時だけ Issue と明示的に link できます。
 1つの Issue に複数の PR、1つの PR に複数の Issue を link できます。同じ組は重複保存されません。
 
 ```sh
-octa pr link 1 2
+octa pr add 2 --issue 1
 octa issue show 1
-octa pr unlink 1 2
+octa pr remove 2 --issue 1
 ```
 
 PR 一覧は `open`、`closed`、`all` で絞り込めます。
@@ -341,7 +352,7 @@ octa issue list --state all --json
 octa issue show 1 --json
 octa pr list --state all --json
 octa wiki show release-process --json
-octa label list --json
+octa config label list --target issue --json
 ```
 
 ## worktree とリポジトリのスコープ
@@ -389,11 +400,13 @@ $XDG_DATA_HOME/octa/octa.db
 ```sh
 octa --help
 octa issue --help
-octa issue dep --help
+octa issue add --help
+octa milestone --help
 octa pr --help
 octa wiki --help
-octa label --help
-octa state --help
+octa config label --help
+octa config label-group --help
+octa config state --help
 ```
 
 AI エージェントが octa CLI の機能、scope、JSON、保存場所を調べて利用するためのガイドは [`skills/octa`](skills/octa/SKILL.md) にあります。チーム固有の Issue 運用方針はこのガイドには含めません。

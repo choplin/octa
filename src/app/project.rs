@@ -64,6 +64,7 @@ pub async fn detail(pool: &SqlitePool, repo: i64, reference: &str) -> Result<Pro
         tally: crate::sql::project::tally(pool, repo, project.id).await?,
         issue_numbers: crate::sql::project::issue_numbers(pool, repo, project.id).await?,
         milestones: crate::sql::milestone::list(pool, repo, project.id).await?,
+        labels: crate::sql::label::labels_for_project(pool, repo, project.id).await?,
         project,
     })
 }

@@ -25,7 +25,7 @@ pub(crate) async fn run(store: &Store, command: StateCommand) -> Result<()> {
                 }
             }
         }
-        StateCommand::Add {
+        StateCommand::Create {
             name,
             status_type,
             starting,
@@ -34,7 +34,7 @@ pub(crate) async fn run(store: &Store, command: StateCommand) -> Result<()> {
             store
                 .add_state(&name, status_type.as_deref(), starting, terminal)
                 .await?;
-            println!("added state {name}");
+            println!("created state {name}");
         }
     }
     Ok(())

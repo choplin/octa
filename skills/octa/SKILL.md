@@ -26,16 +26,16 @@ Install from this repository with `cargo install --path .`. During development, 
 
 ## Choose a command surface
 
-- Issue: `octa issue ...` for create/list/show/edit/comment/state, locks, labels, Project/Milestone/parent assignment, dependencies, and symmetric relations.
-- Project: `octa project ...` for create/list/show/edit/state and nested Milestone operations.
-- Pull Request: `octa pr ...` for branch-associated records, comments, states, and explicit many-to-many Issue links.
+- Issue: `octa issue ...` for create/list/show/set/unset/add/remove, comments, state transitions, and locks.
+- Project: `octa project ...` for create/list/show/set/add/remove and state transitions.
+- Milestone: `octa milestone ...`; every operation requires `--project`.
+- Pull Request: `octa pr ...` for branch-associated records, comments, states, and explicit many-to-many Issue links through `add`/`remove`.
 - Wiki: `octa wiki ...` for pages, `[[slug]]` links, and backlinks.
-- Label: `octa label ...` for labels and `single`/`multi` groups.
-- State: `octa state ...` for configured Issue states and status types.
+- Configuration: `octa config state|label|label-group ...`; label commands require `--target issue|project`.
 
 Issue parent/child relations stay within one repository and do not require matching Project membership. A Project-less child initially inherits its parent's Project when the parent relation is set, but later Project changes and removal are independent.
 
-Label and label-group names are repository-defined opaque data. Do not infer an Issue type or other built-in taxonomy from particular names; octa reserves no operational label names. A `single` group only enforces mutual exclusion among labels explicitly created in that group.
+Issue and Project label definitions are separate repository-defined opaque data. Do not infer an Issue type or other built-in taxonomy from particular names; octa reserves no operational label names. A `single` group only enforces mutual exclusion among labels explicitly created for the same target and group.
 
 Read [commands-and-json.md](references/commands-and-json.md) when exact subcommands, constraints, or JSON shapes matter.
 

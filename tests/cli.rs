@@ -91,7 +91,9 @@ fn issue_help_advertises_tui_without_hiding_existing_commands() {
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8(output.stdout).unwrap();
-    for command in ["tui", "create", "list", "show", "comment", "dep", "relate"] {
+    for command in [
+        "tui", "create", "list", "show", "comment", "set", "unset", "add", "remove",
+    ] {
         assert!(
             stdout
                 .lines()
@@ -158,7 +160,7 @@ fn comment_appears_in_thread() {
 fn close_reopen_and_state_filter() {
     let env = Env::new();
     env.ok(&["issue", "create", "--title", "Bug"]);
-    env.ok(&["issue", "close", "1"]);
+    env.ok(&["issue", "set-state", "1", "closed"]);
 
     let open_list = env.ok(&["issue", "list"]);
     assert!(
@@ -178,7 +180,7 @@ fn close_reopen_and_state_filter() {
         "missing from all list: {all_list}"
     );
 
-    env.ok(&["issue", "reopen", "1"]);
+    env.ok(&["issue", "set-state", "1", "open"]);
     assert!(
         env.ok(&["issue", "list"]).contains("Bug"),
         "reopened issue missing"
@@ -189,7 +191,7 @@ fn close_reopen_and_state_filter() {
 fn edit_updates_title_and_body() {
     let env = Env::new();
     env.ok(&["issue", "create", "--title", "Old", "--body", "old body"]);
-    env.ok(&["issue", "edit", "1", "--title", "New", "--body", "new body"]);
+    env.ok(&["issue", "set", "1", "--title", "New", "--body", "new body"]);
 
     let shown = env.ok(&["issue", "show", "1"]);
     assert!(shown.contains("New"), "edited title missing: {shown}");
@@ -234,7 +236,7 @@ fn status_type_and_priority_filters_preserve_stable_issue_order() {
         ("In Review", "started"),
         ("Done", "completed"),
     ] {
-        env.ok(&["state", "add", name, "--type", status_type]);
+        env.ok(&["config", "state", "create", name, "--type", status_type]);
     }
     env.ok(&[
         "issue",
@@ -324,7 +326,7 @@ fn status_type_and_priority_filters_preserve_stable_issue_order() {
 #[test]
 fn priority_and_status_type_validation_and_edit_roundtrip() {
     let env = Env::new();
-    env.ok(&["state", "add", "Todo", "--type", "unstarted"]);
+    env.ok(&["config", "state", "create", "Todo", "--type", "unstarted"]);
     let created = env.ok(&[
         "issue",
         "create",
@@ -341,7 +343,7 @@ fn priority_and_status_type_validation_and_edit_roundtrip() {
     assert_eq!(show["status_type"], "unstarted");
     assert_eq!(show["priority"], 2);
 
-    env.ok(&["issue", "edit", "1", "--priority", "1"]);
+    env.ok(&["issue", "set", "1", "--priority", "1"]);
     let show = json(&env.ok(&["issue", "show", "1", "--json"]));
     assert_eq!(show["priority"], 1);
 
@@ -354,7 +356,7 @@ fn priority_and_status_type_validation_and_edit_roundtrip() {
         .status
         .success());
     assert!(!env
-        .run(&["state", "add", "Odd", "--type", "unknown"])
+        .run(&["config", "state", "create", "Odd", "--type", "unknown"])
         .status
         .success());
 }
@@ -367,7 +369,7 @@ fn project_lifecycle_tally_and_issue_context_roundtrip() {
         ("In Progress", "started"),
         ("Canceled", "canceled"),
     ] {
-        env.ok(&["state", "add", name, "--type", status_type]);
+        env.ok(&["config", "state", "create", name, "--type", status_type]);
     }
     let created = json(&env.ok(&[
         "project",
@@ -510,12 +512,12 @@ fn parent_self_and_cycles_are_rejected_while_projects_are_independent() {
     env.ok(&["issue", "create", "--title", "A", "--project", "One"]);
     env.ok(&["issue", "create", "--title", "C", "--project", "Two"]);
     assert!(!env
-        .run(&["issue", "parent", "set", "1", "1"])
+        .run(&["issue", "set", "1", "--parent", "1"])
         .status
         .success());
-    env.ok(&["issue", "parent", "set", "2", "1"]);
+    env.ok(&["issue", "set", "2", "--parent", "1"]);
     assert!(!env
-        .run(&["issue", "parent", "set", "1", "2"])
+        .run(&["issue", "set", "1", "--parent", "2"])
         .status
         .success());
 
@@ -535,14 +537,14 @@ fn parent_child_project_mutations_are_independent_and_inheritance_is_initial_onl
     env.ok(&["project", "create", "--name", "Two"]);
     env.ok(&["issue", "create", "--title", "Parent", "--project", "One"]);
     env.ok(&["issue", "create", "--title", "Child"]);
-    env.ok(&["issue", "parent", "set", "2", "1"]);
+    env.ok(&["issue", "set", "2", "--parent", "1"]);
     assert_eq!(
         json(&env.ok(&["issue", "show", "2", "--json"]))["project"]["name"],
         "One",
         "a project-less child should retain initial inheritance"
     );
 
-    env.ok(&["issue", "project", "set", "1", "Two"]);
+    env.ok(&["issue", "set", "1", "--project", "Two"]);
     assert_eq!(
         json(&env.ok(&["issue", "show", "1", "--json"]))["project"]["name"],
         "Two"
@@ -566,9 +568,9 @@ fn parent_child_project_mutations_are_independent_and_inheritance_is_initial_onl
     assert_eq!(different["project"]["name"], "One");
     assert_eq!(different["parent"]["number"], 1);
 
-    env.ok(&["issue", "project", "clear", "1"]);
-    env.ok(&["issue", "project", "set", "2", "Two"]);
-    env.ok(&["issue", "project", "clear", "2"]);
+    env.ok(&["issue", "unset", "1", "--project"]);
+    env.ok(&["issue", "set", "2", "--project", "Two"]);
+    env.ok(&["issue", "unset", "2", "--project"]);
 
     let parent = json(&env.ok(&["issue", "show", "1", "--json"]));
     let child = json(&env.ok(&["issue", "show", "2", "--json"]));
@@ -616,7 +618,7 @@ fn parent_references_are_repository_scoped() {
         &["issue", "create", "--title", "Repo two two"],
     );
 
-    let rejected = env.run(&["issue", "parent", "set", "1", "2"]);
+    let rejected = env.run(&["issue", "set", "1", "--parent", "2"]);
     assert!(!rejected.status.success());
     assert!(
         String::from_utf8_lossy(&rejected.stderr).contains("issue #2 not found"),
@@ -637,7 +639,7 @@ fn project_names_are_unambiguous() {
         .status
         .success());
     assert!(!env
-        .run(&["project", "edit", "Case", "--name", "456"])
+        .run(&["project", "set", "Case", "--name", "456"])
         .status
         .success());
     assert_eq!(
@@ -652,9 +654,9 @@ fn project_milestones_roundtrip_filter_and_reject_inconsistent_project_changes()
     env.ok(&["project", "create", "--name", "Launch"]);
     env.ok(&["project", "create", "--name", "Other"]);
     env.ok(&[
-        "project",
         "milestone",
         "create",
+        "--project",
         "Launch",
         "--name",
         "Beta",
@@ -668,9 +670,9 @@ fn project_milestones_roundtrip_filter_and_reject_inconsistent_project_changes()
         "2026-09-01",
     ]);
     env.ok(&[
-        "project",
         "milestone",
         "create",
+        "--project",
         "Launch",
         "--name",
         "Alpha",
@@ -678,7 +680,7 @@ fn project_milestones_roundtrip_filter_and_reject_inconsistent_project_changes()
         "1",
     ]);
 
-    let milestones = json(&env.ok(&["project", "milestone", "list", "Launch", "--json"]));
+    let milestones = json(&env.ok(&["milestone", "list", "--project", "Launch", "--json"]));
     assert_eq!(milestones[0]["name"], "Alpha");
     assert_eq!(milestones[1]["name"], "Beta");
     assert_eq!(milestones[1]["target_date"], "2026-09-01");
@@ -709,17 +711,17 @@ fn project_milestones_roundtrip_filter_and_reject_inconsistent_project_changes()
     assert!(issue_text.contains("milestone: Beta"));
 
     env.ok(&[
-        "project",
         "milestone",
-        "edit",
-        "Launch",
+        "set",
         "Beta",
+        "--project",
+        "Launch",
         "--status",
         "completed",
         "--target-date",
         "2026-09-15",
     ]);
-    let edited = json(&env.ok(&["project", "milestone", "show", "Launch", "Beta", "--json"]));
+    let edited = json(&env.ok(&["milestone", "show", "Beta", "--project", "Launch", "--json"]));
     assert_eq!(edited["status"], "completed");
     assert_eq!(edited["target_date"], "2026-09-15");
 
@@ -736,8 +738,8 @@ fn project_milestones_roundtrip_filter_and_reject_inconsistent_project_changes()
     assert_eq!(filtered[0]["number"], 1);
 
     for args in [
-        vec!["issue", "project", "set", "1", "Other"],
-        vec!["issue", "project", "clear", "1"],
+        vec!["issue", "set", "1", "--project", "Other"],
+        vec!["issue", "unset", "1", "--project"],
     ] {
         let rejected = env.run(&args);
         assert!(
@@ -750,8 +752,8 @@ fn project_milestones_roundtrip_filter_and_reject_inconsistent_project_changes()
             String::from_utf8_lossy(&rejected.stderr)
         );
     }
-    env.ok(&["issue", "milestone", "clear", "1"]);
-    env.ok(&["issue", "project", "set", "1", "Other"]);
+    env.ok(&["issue", "unset", "1", "--milestone"]);
+    env.ok(&["issue", "set", "1", "--project", "Other"]);
 }
 
 #[test]
@@ -759,11 +761,18 @@ fn milestone_requires_project_context_and_names_are_unambiguous() {
     let env = Env::new();
     env.ok(&["project", "create", "--name", "Launch"]);
     env.ok(&["project", "create", "--name", "Other"]);
-    env.ok(&["project", "milestone", "create", "Launch", "--name", "Beta"]);
     env.ok(&[
-        "project",
         "milestone",
         "create",
+        "--project",
+        "Launch",
+        "--name",
+        "Beta",
+    ]);
+    env.ok(&[
+        "milestone",
+        "create",
+        "--project",
         "Other",
         "--name",
         "Other only",
@@ -781,11 +790,25 @@ fn milestone_requires_project_context_and_names_are_unambiguous() {
         .status
         .success());
     assert!(!env
-        .run(&["project", "milestone", "create", "Launch", "--name", "beta"])
+        .run(&[
+            "milestone",
+            "create",
+            "--project",
+            "Launch",
+            "--name",
+            "beta"
+        ])
         .status
         .success());
     assert!(!env
-        .run(&["project", "milestone", "create", "Launch", "--name", "123"])
+        .run(&[
+            "milestone",
+            "create",
+            "--project",
+            "Launch",
+            "--name",
+            "123"
+        ])
         .status
         .success());
     let wrong_project = env.run(&[
@@ -813,7 +836,7 @@ fn milestone_requires_project_context_and_names_are_unambiguous() {
         "failed create must not leave an issue behind"
     );
     env.ok(&["issue", "create", "--title", "Standalone"]);
-    let rejected = env.run(&["issue", "milestone", "set", "1", "Beta"]);
+    let rejected = env.run(&["issue", "set", "1", "--milestone", "Beta"]);
     assert!(!rejected.status.success());
     assert!(String::from_utf8_lossy(&rejected.stderr).contains("needs a project"));
 }
@@ -826,7 +849,7 @@ fn custom_state_and_set() {
     env.ok(&["issue", "create", "--title", "Task"]);
 
     // Default set is seeded.
-    let states = json(&env.ok(&["state", "list", "--json"]));
+    let states = json(&env.ok(&["config", "state", "list", "--json"]));
     let names: Vec<&str> = states
         .as_array()
         .unwrap()
@@ -845,7 +868,14 @@ fn custom_state_and_set() {
         "new repositories must not receive local workflow defaults"
     );
 
-    env.ok(&["state", "add", "In Review", "--type", "started"]);
+    env.ok(&[
+        "config",
+        "state",
+        "create",
+        "In Review",
+        "--type",
+        "started",
+    ]);
     env.ok(&["issue", "set-state", "1", "In Review"]);
     assert_eq!(
         json(&env.ok(&["issue", "show", "1", "--json"]))["status_type"],
@@ -853,8 +883,9 @@ fn custom_state_and_set() {
     );
 
     env.ok(&[
+        "config",
         "state",
-        "add",
+        "create",
         "blocked",
         "--type",
         "unstarted",
@@ -876,7 +907,7 @@ fn dependencies_and_unblocked_query() {
     let env = Env::new();
     env.ok(&["issue", "create", "--title", "Foundation"]); // #1
     env.ok(&["issue", "create", "--title", "Feature"]); // #2
-    env.ok(&["issue", "dep", "add", "1", "2"]); // #1 blocks #2
+    env.ok(&["issue", "add", "1", "--blocks", "2"]); // #1 blocks #2
 
     // #2 is blocked while #1 is open; only #1 is unblocked.
     let unblocked = json(&env.ok(&["issue", "list", "--unblocked", "--json"]));
@@ -893,7 +924,7 @@ fn dependencies_and_unblocked_query() {
     assert!(!nums.contains(&2), "feature should be blocked: {nums:?}");
 
     // Completing #1 unblocks #2.
-    env.ok(&["issue", "close", "1"]);
+    env.ok(&["issue", "set-state", "1", "closed"]);
     let unblocked = json(&env.ok(&["issue", "list", "--unblocked", "--json"]));
     let nums: Vec<i64> = unblocked
         .as_array()
@@ -933,12 +964,25 @@ fn atomic_lock_prevents_double_acquire() {
 fn single_select_group_is_mutually_exclusive() {
     let env = Env::new();
     env.ok(&["issue", "create", "--title", "Grouped"]);
-    env.ok(&["label", "group", "delivery", "--selection", "single"]);
-    env.ok(&["label", "create", "alpha", "--group", "delivery"]);
-    env.ok(&["label", "create", "beta", "--group", "delivery"]);
+    env.ok(&[
+        "config",
+        "label-group",
+        "create",
+        "delivery",
+        "--target",
+        "issue",
+        "--selection",
+        "single",
+    ]);
+    env.ok(&[
+        "config", "label", "create", "alpha", "--target", "issue", "--group", "delivery",
+    ]);
+    env.ok(&[
+        "config", "label", "create", "beta", "--target", "issue", "--group", "delivery",
+    ]);
 
-    env.ok(&["issue", "label", "1", "alpha"]);
-    env.ok(&["issue", "label", "1", "beta"]); // replaces alpha (single group)
+    env.ok(&["issue", "add", "1", "--label", "alpha"]);
+    env.ok(&["issue", "add", "1", "--label", "beta"]); // replaces alpha (single group)
 
     let show = json(&env.ok(&["issue", "show", "1", "--json"]));
     let labels: Vec<&str> = show["labels"]
@@ -962,11 +1006,29 @@ fn single_select_group_is_mutually_exclusive() {
 fn taxonomy_like_names_are_ordinary_label_data() {
     let env = Env::new();
     env.ok(&["issue", "create", "--title", "Opaque labels"]);
-    env.ok(&["label", "group", "Type", "--selection", "multi"]);
-    env.ok(&["label", "create", "arbitrary", "--group", "Type"]);
+    env.ok(&[
+        "config",
+        "label-group",
+        "create",
+        "Type",
+        "--target",
+        "issue",
+        "--selection",
+        "multi",
+    ]);
+    env.ok(&[
+        "config",
+        "label",
+        "create",
+        "arbitrary",
+        "--target",
+        "issue",
+        "--group",
+        "Type",
+    ]);
     for label in ["impl", "design", "research"] {
-        env.ok(&["label", "create", label]);
-        env.ok(&["issue", "label", "1", label]);
+        env.ok(&["config", "label", "create", label, "--target", "issue"]);
+        env.ok(&["issue", "add", "1", "--label", label]);
     }
 
     let show = json(&env.ok(&["issue", "show", "1", "--json"]));
@@ -974,7 +1036,14 @@ fn taxonomy_like_names_are_ordinary_label_data() {
         show["labels"],
         serde_json::json!(["design", "impl", "research"])
     );
-    let groups = json(&env.ok(&["label", "groups", "--json"]));
+    let groups = json(&env.ok(&[
+        "config",
+        "label-group",
+        "list",
+        "--target",
+        "issue",
+        "--json",
+    ]));
     assert_eq!(groups[0]["name"], "Type");
     assert_eq!(groups[0]["selection"], "multi");
 }
@@ -983,12 +1052,25 @@ fn taxonomy_like_names_are_ordinary_label_data() {
 fn multi_select_group_labels_coexist() {
     let env = Env::new();
     env.ok(&["issue", "create", "--title", "Multi"]);
-    env.ok(&["label", "group", "area", "--selection", "multi"]);
-    env.ok(&["label", "create", "cli", "--group", "area"]);
-    env.ok(&["label", "create", "storage", "--group", "area"]);
+    env.ok(&[
+        "config",
+        "label-group",
+        "create",
+        "area",
+        "--target",
+        "issue",
+        "--selection",
+        "multi",
+    ]);
+    env.ok(&[
+        "config", "label", "create", "cli", "--target", "issue", "--group", "area",
+    ]);
+    env.ok(&[
+        "config", "label", "create", "storage", "--target", "issue", "--group", "area",
+    ]);
 
-    env.ok(&["issue", "label", "1", "cli"]);
-    env.ok(&["issue", "label", "1", "storage"]);
+    env.ok(&["issue", "add", "1", "--label", "cli"]);
+    env.ok(&["issue", "add", "1", "--label", "storage"]);
 
     let show = json(&env.ok(&["issue", "show", "1", "--json"]));
     let mut labels: Vec<&str> = show["labels"]
@@ -1002,14 +1084,48 @@ fn multi_select_group_labels_coexist() {
 }
 
 #[test]
+fn project_labels_are_separate_and_single_select_groups_replace_values() {
+    let env = Env::new();
+    env.ok(&["project", "create", "--name", "Launch"]);
+    env.ok(&[
+        "config",
+        "label-group",
+        "create",
+        "horizon",
+        "--target",
+        "project",
+        "--selection",
+        "single",
+    ]);
+    for label in ["now", "next"] {
+        env.ok(&[
+            "config", "label", "create", label, "--target", "project", "--group", "horizon",
+        ]);
+    }
+    env.ok(&["config", "label", "create", "now", "--target", "issue"]);
+
+    env.ok(&["project", "add", "Launch", "--label", "now"]);
+    env.ok(&["project", "add", "Launch", "--label", "next"]);
+
+    let project = json(&env.ok(&["project", "show", "Launch", "--json"]));
+    assert_eq!(project["labels"], serde_json::json!(["next"]));
+    let labels = json(&env.ok(&["config", "label", "list", "--target", "project", "--json"]));
+    assert_eq!(labels.as_array().unwrap().len(), 2);
+
+    env.ok(&["project", "remove", "Launch", "--label", "next"]);
+    let project = json(&env.ok(&["project", "show", "Launch", "--json"]));
+    assert_eq!(project["labels"], serde_json::json!([]));
+}
+
+#[test]
 fn related_issues_are_symmetric_idempotent_and_filterable() {
     let env = Env::new();
     for title in ["First", "Second", "Third"] {
         env.ok(&["issue", "create", "--title", title]);
     }
 
-    env.ok(&["issue", "relate", "add", "2", "1"]);
-    env.ok(&["issue", "relate", "add", "1", "2"]);
+    env.ok(&["issue", "add", "2", "--related", "1"]);
+    env.ok(&["issue", "add", "1", "--related", "2"]);
 
     let first = json(&env.ok(&["issue", "show", "1", "--json"]));
     let second = json(&env.ok(&["issue", "show", "2", "--json"]));
@@ -1021,11 +1137,11 @@ fn related_issues_are_symmetric_idempotent_and_filterable() {
     assert_eq!(filtered.as_array().unwrap().len(), 1);
     assert_eq!(filtered[0]["number"], 2);
 
-    let self_relation = env.run(&["issue", "relate", "add", "1", "1"]);
+    let self_relation = env.run(&["issue", "add", "1", "--related", "1"]);
     assert!(!self_relation.status.success());
     assert!(String::from_utf8_lossy(&self_relation.stderr).contains("itself"));
 
-    env.ok(&["issue", "relate", "rm", "2", "1"]);
+    env.ok(&["issue", "remove", "2", "--related", "1"]);
     assert_eq!(
         json(&env.ok(&["issue", "show", "1", "--json"]))["related"],
         serde_json::json!([])
@@ -1055,7 +1171,7 @@ fn pr_lifecycle_tracks_branch_and_comments() {
     assert!(text_show.contains("--- comments ---"));
     assert!(text_show.contains("looks good"));
 
-    env.ok(&["pr", "close", "1"]);
+    env.ok(&["pr", "set-state", "1", "closed"]);
     let open = env.ok(&["pr", "list"]);
     assert!(
         !open.contains("Add feature"),
@@ -1099,10 +1215,10 @@ fn issue_pr_links_are_many_to_many_idempotent_and_unlink_exact_pairs() {
         "feat/existing",
     ]);
     assert_eq!(second_pr.trim(), "#2");
-    env.ok(&["pr", "link", "2", "2"]);
-    env.ok(&["pr", "link", "1", "2"]);
-    env.ok(&["pr", "link", "2", "1"]);
-    env.ok(&["pr", "link", "1", "1"]);
+    env.ok(&["pr", "add", "2", "--issue", "2"]);
+    env.ok(&["pr", "add", "2", "--issue", "1"]);
+    env.ok(&["pr", "add", "1", "--issue", "2"]);
+    env.ok(&["pr", "add", "1", "--issue", "1"]);
 
     let first_issue = json(&env.ok(&["issue", "show", "1", "--json"]));
     assert_eq!(
@@ -1127,7 +1243,7 @@ fn issue_pr_links_are_many_to_many_idempotent_and_unlink_exact_pairs() {
 
     // Unlink removes only the requested pair, leaving both other cardinality
     // directions intact.
-    env.ok(&["pr", "unlink", "1", "1"]);
+    env.ok(&["pr", "remove", "1", "--issue", "1"]);
     let first_issue = json(&env.ok(&["issue", "show", "1", "--json"]));
     assert_eq!(first_issue["pull_requests"].as_array().unwrap().len(), 1);
     assert_eq!(first_issue["pull_requests"][0]["number"], 2);
@@ -1136,11 +1252,11 @@ fn issue_pr_links_are_many_to_many_idempotent_and_unlink_exact_pairs() {
         1
     );
 
-    let missing_pair = env.run(&["pr", "unlink", "1", "1"]);
+    let missing_pair = env.run(&["pr", "remove", "1", "--issue", "1"]);
     assert!(!missing_pair.status.success());
     assert!(String::from_utf8_lossy(&missing_pair.stderr).contains("is not linked"));
-    env.ok(&["pr", "link", "1", "1"]);
-    env.ok(&["pr", "link", "1", "1"]);
+    env.ok(&["pr", "add", "1", "--issue", "1"]);
+    env.ok(&["pr", "add", "1", "--issue", "1"]);
     assert_eq!(
         json(&env.ok(&["issue", "show", "1", "--json"]))["pull_requests"]
             .as_array()
@@ -1201,7 +1317,7 @@ fn linked_pr_create_failure_leaves_no_orphan_and_links_are_repo_local() {
             "pr", "create", "--title", "Repo two", "--branch", "repo-two",
         ],
     );
-    let missing_in_repo_one = env.run(&["pr", "link", "1", "3"]);
+    let missing_in_repo_one = env.run(&["pr", "add", "3", "--issue", "1"]);
     assert!(!missing_in_repo_one.status.success());
     assert!(String::from_utf8_lossy(&missing_in_repo_one.stderr).contains("PR #3 not found"));
 }
@@ -1301,7 +1417,7 @@ fn issues_are_shared_across_worktrees() {
 fn all_repos_aggregates_across_repositories() {
     let env = Env::new();
     env.ok(&["issue", "create", "--title", "In first repo"]);
-    env.ok(&["issue", "close", "1"]);
+    env.ok(&["issue", "set-state", "1", "closed"]);
 
     // A second repository sharing the same global store.
     let repo2 = TempDir::new().unwrap();
@@ -1368,7 +1484,14 @@ fn all_repos_aggregates_across_repositories() {
 #[test]
 fn project_overview_aggregates_tallies_across_repositories() {
     let env = Env::new();
-    env.ok(&["state", "add", "In Progress", "--type", "started"]);
+    env.ok(&[
+        "config",
+        "state",
+        "create",
+        "In Progress",
+        "--type",
+        "started",
+    ]);
     env.ok(&["project", "create", "--name", "First outcome"]);
     env.ok(&[
         "issue",
@@ -1427,7 +1550,7 @@ fn pr_state_filter_and_edit_validation_are_preserved() {
     env.ok(&["pr", "set-state", "1", "waiting"]);
     assert!(env.ok(&["pr", "list", "--state", "closed"]).contains("One"));
     assert!(!env.ok(&["pr", "list"]).contains("One"));
-    let out = env.run(&["pr", "edit", "1"]);
+    let out = env.run(&["pr", "set", "1"]);
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("nothing to update"));
 }
@@ -1445,7 +1568,7 @@ fn wiki_body_edit_replaces_links_and_title_edit_preserves_them() {
     ]);
     env.ok(&["wiki", "create", "--title", "Old", "--slug", "old"]);
     env.ok(&["wiki", "create", "--title", "New", "--slug", "new"]);
-    env.ok(&["wiki", "edit", "home", "--body", "[[new]]"]);
+    env.ok(&["wiki", "set", "home", "--body", "[[new]]"]);
     assert_eq!(
         json(&env.ok(&["wiki", "show", "home", "--json"]))["links_to"],
         serde_json::json!(["new"])
@@ -1456,7 +1579,7 @@ fn wiki_body_edit_replaces_links_and_title_edit_preserves_them() {
             .unwrap()
             .is_empty()
     );
-    env.ok(&["wiki", "edit", "home", "--title", "Renamed"]);
+    env.ok(&["wiki", "set", "home", "--title", "Renamed"]);
     assert_eq!(
         json(&env.ok(&["wiki", "show", "home", "--json"]))["links_to"],
         serde_json::json!(["new"])
@@ -1467,18 +1590,27 @@ fn wiki_body_edit_replaces_links_and_title_edit_preserves_them() {
 fn label_errors_and_idempotent_operations_are_preserved() {
     let env = Env::new();
     assert!(!env
-        .run(&["label", "group", "kind", "--selection", "bad"])
+        .run(&[
+            "config",
+            "label-group",
+            "create",
+            "kind",
+            "--target",
+            "issue",
+            "--selection",
+            "bad"
+        ])
         .status
         .success());
     assert!(!env
-        .run(&["label", "create", "x", "--group", "missing"])
+        .run(&["config", "label", "create", "x", "--target", "issue", "--group", "missing"])
         .status
         .success());
     env.ok(&["issue", "create", "--title", "Task"]);
-    env.ok(&["label", "create", "plain"]);
-    env.ok(&["issue", "label", "1", "plain"]);
-    env.ok(&["issue", "label", "1", "plain"]);
-    env.ok(&["issue", "unlabel", "1", "missing"]);
+    env.ok(&["config", "label", "create", "plain", "--target", "issue"]);
+    env.ok(&["issue", "add", "1", "--label", "plain"]);
+    env.ok(&["issue", "add", "1", "--label", "plain"]);
+    env.ok(&["issue", "remove", "1", "--label", "missing"]);
     assert_eq!(
         json(&env.ok(&["issue", "show", "1", "--json"]))["labels"]
             .as_array()
@@ -1486,5 +1618,8 @@ fn label_errors_and_idempotent_operations_are_preserved() {
             .len(),
         1
     );
-    assert!(!env.run(&["issue", "label", "99", "plain"]).status.success());
+    assert!(!env
+        .run(&["issue", "add", "99", "--label", "plain"])
+        .status
+        .success());
 }

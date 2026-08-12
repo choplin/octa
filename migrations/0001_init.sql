@@ -121,6 +121,22 @@ CREATE TABLE issue_labels (
         REFERENCES labels(repo_id, name)
 );
 
+CREATE TABLE project_label_groups (
+    repo_id   INTEGER NOT NULL REFERENCES repos(id),
+    name      TEXT NOT NULL,
+    selection TEXT NOT NULL CHECK (selection IN ('single', 'multi')),
+    PRIMARY KEY (repo_id, name)
+);
+
+CREATE TABLE project_labels (
+    repo_id    INTEGER NOT NULL REFERENCES repos(id),
+    name       TEXT NOT NULL,
+    group_name TEXT,
+    PRIMARY KEY (repo_id, name),
+    FOREIGN KEY (repo_id, group_name)
+        REFERENCES project_label_groups(repo_id, name)
+);
+
 CREATE TABLE projects (
     repo_id      INTEGER NOT NULL,
     id           INTEGER NOT NULL,
@@ -137,6 +153,17 @@ CREATE TABLE projects (
     UNIQUE (repo_id, name),
     FOREIGN KEY (repo_id)
         REFERENCES repos(id)
+);
+
+CREATE TABLE project_label_links (
+    repo_id    INTEGER NOT NULL,
+    project_id INTEGER NOT NULL,
+    label_name TEXT NOT NULL,
+    PRIMARY KEY (repo_id, project_id, label_name),
+    FOREIGN KEY (repo_id, project_id)
+        REFERENCES projects(repo_id, id) ON DELETE CASCADE,
+    FOREIGN KEY (repo_id, label_name)
+        REFERENCES project_labels(repo_id, name)
 );
 
 CREATE TABLE issue_projects (

@@ -226,8 +226,20 @@ mod migration_tests {
                 rows(pool, "SELECT json_array(repo_id, issue_number, label_name) FROM issue_labels ORDER BY repo_id, issue_number, label_name").await,
             ),
             (
+                "project_label_groups",
+                rows(pool, "SELECT json_array(repo_id, name, selection) FROM project_label_groups ORDER BY repo_id, name").await,
+            ),
+            (
+                "project_labels",
+                rows(pool, "SELECT json_array(repo_id, name, group_name) FROM project_labels ORDER BY repo_id, name").await,
+            ),
+            (
                 "projects",
                 rows(pool, "SELECT json_array(repo_id, id, name, summary, description, state, status_type, priority, created_at, updated_at) FROM projects ORDER BY repo_id, id").await,
+            ),
+            (
+                "project_label_links",
+                rows(pool, "SELECT json_array(repo_id, project_id, label_name) FROM project_label_links ORDER BY repo_id, project_id, label_name").await,
             ),
             (
                 "issue_projects",
@@ -398,6 +410,9 @@ mod migration_tests {
             "issue_parents",
             "issue_relations",
             "issue_pr_links",
+            "project_label_groups",
+            "project_labels",
+            "project_label_links",
             "project_milestones",
             "issue_milestones",
         ] {

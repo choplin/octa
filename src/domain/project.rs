@@ -48,4 +48,5 @@ pub struct ProjectDetail {
     pub tally: ProjectTally,
     pub issue_numbers: Vec<i64>,
     pub milestones: Vec<ProjectMilestone>,
+    pub labels: Vec<String>,
 }
