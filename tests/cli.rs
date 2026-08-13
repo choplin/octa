@@ -5,8 +5,9 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 use std::sync::{Arc, Barrier};
 use std::thread;
 use tempfile::TempDir;
@@ -64,6 +65,26 @@ impl Env {
 
     fn run_raw(&self, args: &[&str]) -> Output {
         self.run_raw_in(self.path(), args)
+    }
+
+    fn query_stdin(&self, document: &str, args: &[&str]) -> Output {
+        let mut child = Command::new(bin())
+            .current_dir(self.path())
+            .env("XDG_DATA_HOME", self.xdg.path())
+            .arg("query")
+            .args(args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("failed to spawn octa query");
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(document.as_bytes())
+            .unwrap();
+        child.wait_with_output().unwrap()
     }
 
     fn run_in(&self, dir: &Path, args: &[&str]) -> Output {
@@ -1817,4 +1838,294 @@ fn label_errors_and_idempotent_operations_are_preserved() {
         .run(&["issue", "add", "99", "--label", "plain"])
         .status
         .success());
+}
+
+#[test]
+fn graphql_query_traverses_entities_with_variables_filters_and_pagination() {
+    let env = Env::new();
+    env.ok(&["project", "create", "--name", "Outcome"]);
+    env.ok(&["project", "create", "--name", "Other"]);
+    env.ok(&[
+        "milestone",
+        "create",
+        "--project",
+        "Outcome",
+        "--name",
+        "Phase",
+    ]);
+    env.ok(&[
+        "milestone",
+        "create",
+        "--project",
+        "Other",
+        "--name",
+        "Other phase",
+    ]);
+    env.ok(&["config", "label", "create", "impl", "--target", "issue"]);
+    env.ok(&["config", "label", "create", "docs", "--target", "issue"]);
+    env.ok(&["config", "label", "create", "now", "--target", "project"]);
+    env.ok(&["config", "label", "create", "next", "--target", "project"]);
+    env.ok(&["project", "add", "Outcome", "--label", "now"]);
+    env.ok(&["project", "add", "Other", "--label", "next"]);
+    env.ok(&[
+        "issue",
+        "create",
+        "--title",
+        "Root",
+        "--project",
+        "Outcome",
+        "--milestone",
+        "Phase",
+    ]);
+    env.ok(&["issue", "create", "--title", "Child", "--parent", "1"]);
+    env.ok(&[
+        "issue",
+        "create",
+        "--title",
+        "Third",
+        "--project",
+        "Outcome",
+    ]);
+    env.ok(&["issue", "add", "1", "--label", "impl"]);
+    env.ok(&["issue", "add", "3", "--label", "docs"]);
+    env.ok(&["issue", "add", "1", "--blocks", "2"]);
+    env.ok(&["issue", "add", "1", "--related", "2"]);
+    env.ok(&[
+        "pr", "create", "--title", "Change", "--branch", "change", "--issue", "1",
+    ]);
+    env.ok(&["wiki", "create", "--title", "Home", "--body", "[[guide]]"]);
+    env.ok(&["wiki", "create", "--title", "Guide", "--slug", "guide"]);
+
+    let document = r#"
+          query($number: Int!, $limit: Int!) {
+          issue(number: $number) {
+            number
+            project { name milestones(limit: $limit) { name } }
+            labels { name }
+            blocks(limit: $limit) { number }
+            related(limit: $limit) { number }
+            pullRequests { number }
+          }
+          issues(filter: { projectId: 1, label: "impl" }, limit: $limit) { number }
+          wikiPage(slug: "home") { linksTo { slug backlinks { slug } } }
+        }
+    "#;
+    let out = env.query_stdin(document, &["--variables", r#"{"number":1,"limit":1}"#]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let response = json(&String::from_utf8(out.stdout).unwrap());
+    assert_eq!(response["data"]["issue"]["project"]["name"], "Outcome");
+    assert_eq!(response["data"]["issue"]["blocks"][0]["number"], 2);
+    assert_eq!(response["data"]["issue"]["related"][0]["number"], 2);
+    assert_eq!(response["data"]["issue"]["pullRequests"][0]["number"], 1);
+    assert_eq!(response["data"]["issues"].as_array().unwrap().len(), 1);
+    assert_eq!(response["data"]["wikiPage"]["linksTo"][0]["slug"], "guide");
+    assert!(response["extensions"]["dbAccesses"].as_i64().unwrap() > 0);
+
+    let joined = env.query_stdin(
+        "{ issues(filter: { projectId: 1 }) { number project { name } labels { name } } }",
+        &[],
+    );
+    let joined = json(&String::from_utf8(joined.stdout).unwrap());
+    assert_eq!(joined["data"]["issues"].as_array().unwrap().len(), 3);
+    assert_eq!(joined["extensions"]["dbAccesses"], 1);
+
+    let project_projection = env.query_stdin(
+        "{ projects { id issues { number } milestones { name project { id } } labels { name } } }",
+        &[],
+    );
+    let project_projection = json(&String::from_utf8(project_projection.stdout).unwrap());
+    assert_eq!(
+        project_projection["data"]["projects"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(project_projection["extensions"]["dbAccesses"], 1);
+
+    let relation_projection = env.query_stdin(
+        "{ issues { number milestone { name } blocks { number } blockedBy { number } related { number } parent { number } subIssues { number } pullRequests { number } } }",
+        &[],
+    );
+    let relation_projection = json(&String::from_utf8(relation_projection.stdout).unwrap());
+    assert_eq!(
+        relation_projection["data"]["issues"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
+    assert_eq!(relation_projection["extensions"]["dbAccesses"], 1);
+
+    let label_batch = env.query_stdin(
+        "{ issueLabels: labels(target: ISSUE) { name issues { number } } projectLabels: labels(target: PROJECT) { name projects { id } } }",
+        &[],
+    );
+    let label_batch = json(&String::from_utf8(label_batch.stdout).unwrap());
+    assert_eq!(
+        label_batch["data"]["issueLabels"].as_array().unwrap().len(),
+        2
+    );
+    assert_eq!(
+        label_batch["data"]["projectLabels"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert_eq!(label_batch["extensions"]["dbAccesses"], 2);
+
+    let merged = env.query_stdin(
+        "query { issue(number: 1) { __typename project { id } project { name } ...IssuePart } } fragment IssuePart on IssueObject { project { summary } }",
+        &[],
+    );
+    let merged = json(&String::from_utf8(merged.stdout).unwrap());
+    assert_eq!(merged["data"]["issue"]["__typename"], "IssueObject");
+    assert_eq!(merged["data"]["issue"]["project"]["id"], 1);
+    assert_eq!(merged["data"]["issue"]["project"]["name"], "Outcome");
+    assert!(merged["errors"].is_null());
+
+    let merged_collection = env.query_stdin(
+        "{ project(id: 1) { issues { number } issues { title } } }",
+        &[],
+    );
+    let merged_collection = json(&String::from_utf8(merged_collection.stdout).unwrap());
+    assert_eq!(
+        merged_collection["data"]["project"]["issues"][0]["number"],
+        1
+    );
+    assert_eq!(
+        merged_collection["data"]["project"]["issues"][0]["title"],
+        "Root"
+    );
+    assert!(merged_collection["errors"].is_null());
+
+    let label_page = env.query_stdin("{ issue(number: 1) { labels(limit: 1) { name } } }", &[]);
+    let label_page = json(&String::from_utf8(label_page.stdout).unwrap());
+    assert_eq!(
+        label_page["data"]["issue"]["labels"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    let label_overflow =
+        env.query_stdin("{ issue(number: 1) { labels(limit: 101) { name } } }", &[]);
+    assert!(
+        json(&String::from_utf8(label_overflow.stdout).unwrap())["errors"][0]["message"]
+            .as_str()
+            .unwrap()
+            .contains("limit must be between")
+    );
+
+    let aliases = (0..64)
+        .map(|index| format!("field{index}: number"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let aliases = env.query_stdin(&format!("{{ issue(number: 1) {{ {aliases} }} }}"), &[]);
+    let aliases = json(&String::from_utf8(aliases.stdout).unwrap());
+    assert_eq!(aliases["data"]["issue"]["field63"], 1);
+    assert!(aliases["errors"].is_null());
+
+    let nulls = env.query_stdin(
+        "{ issue(number: 2) { number milestone { id } } milestone(projectId: 1, id: 1) { id startDate targetDate } }",
+        &[],
+    );
+    let nulls = json(&String::from_utf8(nulls.stdout).unwrap());
+    assert!(nulls["data"]["issue"]["milestone"].is_null());
+    assert!(nulls["data"]["milestone"]["startDate"].is_null());
+    assert!(nulls["data"]["milestone"]["targetDate"].is_null());
+    assert!(nulls["errors"].is_null());
+
+    env.ok(&["issue", "set", "1", "--title", "123"]);
+    env.ok(&["project", "set", "Outcome", "--name", "null"]);
+    env.ok(&[
+        "milestone",
+        "set",
+        "Phase",
+        "--project",
+        "null",
+        "--name",
+        "true",
+    ]);
+    let json_like_text = env.query_stdin(
+        "{ issue(number: 1) { title project { name milestones { name } } } }",
+        &[],
+    );
+    let json_like_text = json(&String::from_utf8(json_like_text.stdout).unwrap());
+    assert_eq!(json_like_text["data"]["issue"]["title"], "123");
+    assert_eq!(json_like_text["data"]["issue"]["project"]["name"], "null");
+    assert_eq!(
+        json_like_text["data"]["issue"]["project"]["milestones"][0]["name"],
+        "true"
+    );
+    assert!(json_like_text["errors"].is_null());
+
+    let page = env.query_stdin("{ issues(offset: 1, limit: 1) { number } }", &[]);
+    let page = json(&String::from_utf8(page.stdout).unwrap());
+    assert_eq!(page["data"]["issues"], serde_json::json!([{ "number": 2 }]));
+
+    let negative = env.query_stdin("{ issues(offset: -1, limit: 1) { number } }", &[]);
+    let negative = json(&String::from_utf8(negative.stdout).unwrap());
+    assert!(negative["errors"][0]["message"]
+        .as_str()
+        .unwrap()
+        .contains("offset must be non-negative"));
+}
+
+#[test]
+fn graphql_query_accepts_files_and_enforces_read_only_limits() {
+    let env = Env::new();
+    env.ok(&["issue", "create", "--title", "One"]);
+
+    let mut file = tempfile::NamedTempFile::new().unwrap();
+    write!(file, "{{ issue(number: 1) {{ title }} }}").unwrap();
+    let path = file.path().to_str().unwrap();
+    let response = json(&env.ok(&["query", "--file", path]));
+    assert_eq!(response["data"]["issue"]["title"], "One");
+
+    let invalid = env.query_stdin("{ missingField }", &[]);
+    assert!(invalid.status.success());
+    assert!(!json(&String::from_utf8(invalid.stdout).unwrap())["errors"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+
+    let over_limit = env.query_stdin("{ issues(limit: 101) { number } }", &[]);
+    let over_limit = json(&String::from_utf8(over_limit.stdout).unwrap());
+    assert!(over_limit["errors"][0]["message"]
+        .as_str()
+        .unwrap()
+        .contains("limit must be between"));
+
+    let too_deep = env.query_stdin(
+        "{ issue(number: 1) { parent { parent { parent { parent { parent { parent { parent { parent { number } } } } } } } } } }",
+        &[],
+    );
+    assert!(
+        !json(&String::from_utf8(too_deep.stdout).unwrap())["errors"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+
+    let fields = (0..501)
+        .map(|index| format!("field{index}: issues(limit: 1) {{ number }}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let too_complex = env.query_stdin(&format!("{{ {fields} }}"), &[]);
+    assert!(
+        !json(&String::from_utf8(too_complex.stdout).unwrap())["errors"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+
+    let schema = env.ok(&["query", "--schema"]);
+    assert!(schema.contains("type QueryRoot"));
+    assert!(!schema.contains("type Mutation"));
 }

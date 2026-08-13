@@ -2,6 +2,7 @@
 name = "octa"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.89"
 description = "GitHub-style Issue collaboration, fully local"
 
 [[bin]]
@@ -10,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1"
+async-graphql = { version = "7", default-features = false }
 clap = { version = "4", features = ["derive"] }
 crossterm = "0.28"
 ratatui = { version = "0.29", features = ["unstable-rendered-line-info"] }

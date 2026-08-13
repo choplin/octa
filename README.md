@@ -26,7 +26,7 @@ octa は Git hosting、Web UI、リモート同期、認証、多人数のリア
 ## 前提条件
 
 - Git リポジトリの中で実行すること。
-- Rust と Cargo を使えること。
+- Rust 1.89 以降と Cargo を使えること。
 
 このリポジトリには Nix の開発環境もあります。
 
@@ -341,6 +341,39 @@ octa wiki create \
 本文中の `[[slug]]` はリンクとして記録されます。
 
 `wiki show` は、そのページからのリンクと、そのページへの backlink を表示します。
+
+## GraphQL で必要なデータだけ読む
+
+`octa query` は、現在のリポジトリを既定 scope とする read-only GraphQL schema を提供します。
+document は標準入力か `--file` から渡し、variables は JSON object で指定します。
+
+```sh
+octa query --variables '{"number": 25}' <<'GRAPHQL'
+query IssueContext($number: Int!) {
+  issue(number: $number) {
+    number
+    title
+    project { name }
+    labels { name }
+    blocks(limit: 20) { number title }
+  }
+}
+GRAPHQL
+
+octa query --file query.graphql --variables '{"limit": 20}'
+```
+
+selection setは必要な列とrelationだけを取得するSQLite queryへ変換されます。
+単一relationは相関JOIN、複数relationはJOINを含む集約subqueryになり、選択されて
+いないrelationへはアクセスしません。応答はGraphQL JSON envelopeで、実行した
+query数を`extensions.dbAccesses`に含めます。list fieldの`limit`は既定50・最大100、
+query depthは8、complexityは500が上限です。schemaにmutationはありません。
+
+利用可能な型とfieldはintrospection、またはSDL出力で確認できます。
+
+```sh
+octa query --schema
+```
 
 ## JSON 出力
 

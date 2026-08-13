@@ -1,6 +1,6 @@
 ---
 name: octa
-description: Use and inspect the octa local collaboration CLI, including Issues, Projects, Milestones, Pull Requests, Wiki pages, labels, states, repository scope, and JSON output. Use when Codex needs to discover octa commands, read octa records, or run octa CLI operations in a Git repository.
+description: Use and inspect the octa local collaboration CLI, including its read-only GraphQL query surface, Issues, Projects, Milestones, Pull Requests, Wiki pages, labels, states, repository scope, and JSON output. Use when Codex needs to discover octa commands, read octa records, or run octa CLI operations in a Git repository.
 ---
 
 # Octa CLI
@@ -16,6 +16,7 @@ Use octa as a repository-scoped local collaboration tool that does not require a
 
 ## Choose a command surface
 
+- Query: `octa query` executes a read-only GraphQL document from stdin or `--file`; prefer it when one read needs selected fields across related entity types.
 - Issue: `octa issue ...` for create/list/show/set/unset/add/remove, comments, state transitions, and locks.
 - Project: `octa project ...` for create/list/show/set/add/remove and state transitions.
 - Milestone: `octa milestone ...`; every operation requires `--project`.

@@ -4,6 +4,17 @@ Use `octa <surface> --help` and nested help as the executable source of truth. T
 
 Examples assume an installed `octa` executable. When developing octa itself, build it and use `./target/debug/octa`; install from the source tree with `cargo install --path .` only when installation is explicitly requested.
 
+## Read-only GraphQL query
+
+```text
+query [--file <path>] [--variables <json-object>]
+query --schema
+```
+
+Without `--file`, the GraphQL document is read from stdin. The schema exposes Issue, Project, Milestone, Pull Request, Wiki, and Issue/Project label fields and relations for the selected repository. It has no mutation type. List fields use `offset` and `limit`; the default limit is 50 and the maximum is 100. Query depth is limited to 8 and complexity to 500.
+
+The selection set is compiled into a SQLite query that projects only selected columns and relations. Singular relations use correlated joins; collection relations use aggregate subqueries containing joins. Unselected relations are not queried. The command writes a standard GraphQL JSON response to stdout, with the executed query count in `extensions.dbAccesses`. Use `query --schema` or GraphQL introspection to inspect the available public fields rather than depending on SQLite tables.
+
 ## Issue
 
 ```text

@@ -3,6 +3,7 @@
 mod app;
 mod cli;
 mod domain;
+mod query;
 mod sql;
 mod store;
 mod tui;

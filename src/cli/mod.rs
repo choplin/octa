@@ -2,6 +2,7 @@
 use crate::store::{RepoScope, StateFilter, Store};
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use std::path::PathBuf;
 mod issue;
 mod label;
 mod pr;
@@ -46,6 +47,18 @@ impl ScopeArgs {
 
 #[derive(Subcommand)]
 enum TopCommand {
+    /// Execute a read-only GraphQL query.
+    Query {
+        /// Read the GraphQL document from this file instead of stdin.
+        #[arg(long)]
+        file: Option<PathBuf>,
+        /// Variables as a JSON object.
+        #[arg(long)]
+        variables: Option<String>,
+        /// Print the versioned public schema instead of executing a document.
+        #[arg(long, conflicts_with_all = ["file", "variables"])]
+        schema: bool,
+    },
     /// Manage issues.
     Issue {
         #[command(subcommand)]
@@ -567,6 +580,22 @@ pub(crate) fn parse_pr_state(value: &str) -> Result<StateFilter> {
 pub async fn run(cli: Cli) -> Result<()> {
     let store = Store::open(cli.scope.to_scope()).await?;
     match cli.command {
+        TopCommand::Query {
+            file,
+            variables,
+            schema,
+        } => {
+            if schema {
+                println!("{}", crate::query::schema_sdl(&store)?);
+                Ok(())
+            } else {
+                let document = crate::query::read_document(file.as_deref())?;
+                let response =
+                    crate::query::execute(&store, document, variables.as_deref()).await?;
+                println!("{}", serde_json::to_string(&response)?);
+                Ok(())
+            }
+        }
         TopCommand::Issue { command } => issue::run(&store, command).await,
         TopCommand::Pr { command } => pr::run(&store, command).await,
         TopCommand::Wiki { command } => wiki::run(&store, command).await,
