@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM issue_milestones WHERE repo_id = ? AND issue_number = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "31c58ed44baf89c4d2b260ebeabc30264db973883a8a0a9f947462592574b6a8"
+}

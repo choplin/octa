@@ -3,7 +3,7 @@
 
 use crate::domain::{pr::Pr, Comment};
 use anyhow::Result;
-use sqlx::{Acquire, SqlitePool};
+use sqlx::{Sqlite, SqlitePool, Transaction};
 
 pub async fn insert(
     pool: &SqlitePool,
@@ -39,57 +39,69 @@ pub async fn insert_linked(
     body: &str,
     branch: &str,
     issue: i64,
+    lease: Option<&str>,
 ) -> Result<i64> {
-    let mut connection = pool.acquire().await?;
-    let mut tx = connection.begin().await?;
-    let number: i64 = sqlx::query_scalar(
+    let mut tx = crate::sql::issue::begin_lease_mutation(pool, repo, issue, lease).await?;
+    let number = sqlx::query_scalar!(
         r#"INSERT INTO prs (repo_id, number, title, body, branch)
            VALUES (
                ?,
                (SELECT COALESCE(MAX(number), 0) + 1 FROM prs WHERE repo_id = ?),
                ?, ?, ?
            )
-           RETURNING number"#,
+           RETURNING number AS "number!: i64""#,
+        repo,
+        repo,
+        title,
+        body,
+        branch
     )
-    .bind(repo)
-    .bind(repo)
-    .bind(title)
-    .bind(body)
-    .bind(branch)
     .fetch_one(&mut *tx)
     .await?;
-    sqlx::query("INSERT INTO issue_pr_links (repo_id, issue_number, pr_number) VALUES (?, ?, ?)")
-        .bind(repo)
-        .bind(issue)
-        .bind(number)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query!(
+        "INSERT INTO issue_pr_links (repo_id, issue_number, pr_number) VALUES (?, ?, ?)",
+        repo,
+        issue,
+        number
+    )
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
     Ok(number)
 }
 
-pub async fn link(pool: &SqlitePool, repo: i64, issue: i64, pr: i64) -> Result<()> {
-    sqlx::query(
+pub async fn link_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    repo: i64,
+    issue: i64,
+    pr: i64,
+) -> Result<()> {
+    sqlx::query!(
         r#"INSERT INTO issue_pr_links (repo_id, issue_number, pr_number)
            VALUES (?, ?, ?)
            ON CONFLICT(repo_id, issue_number, pr_number) DO NOTHING"#,
+        repo,
+        issue,
+        pr
     )
-    .bind(repo)
-    .bind(issue)
-    .bind(pr)
-    .execute(pool)
+    .execute(&mut **tx)
     .await?;
     Ok(())
 }
 
-pub async fn unlink(pool: &SqlitePool, repo: i64, issue: i64, pr: i64) -> Result<bool> {
-    Ok(sqlx::query(
+pub async fn unlink_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    repo: i64,
+    issue: i64,
+    pr: i64,
+) -> Result<bool> {
+    Ok(sqlx::query!(
         "DELETE FROM issue_pr_links WHERE repo_id = ? AND issue_number = ? AND pr_number = ?",
+        repo,
+        issue,
+        pr
     )
-    .bind(repo)
-    .bind(issue)
-    .bind(pr)
-    .execute(pool)
+    .execute(&mut **tx)
     .await?
     .rows_affected()
         != 0)

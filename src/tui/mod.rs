@@ -335,7 +335,7 @@ fn detail_text(detail: &IssueDetail) -> Text<'static> {
         .as_ref()
         .map(|milestone| milestone.name.as_str())
         .unwrap_or("No Milestone");
-    let locked_by = issue.locked_by.as_deref().unwrap_or("(unlocked)");
+    let lease = if issue.leased { "active" } else { "none" };
     let parent = detail
         .parent
         .as_ref()
@@ -379,7 +379,7 @@ fn detail_text(detail: &IssueDetail) -> Text<'static> {
         Line::from(format!("Priority: {}", issue.priority)),
         Line::from(format!("Project: {project}")),
         Line::from(format!("Milestone: {milestone}")),
-        Line::from(format!("Locked by: {locked_by}")),
+        Line::from(format!("Lease: {lease}")),
         Line::from(format!("Parent: {parent}")),
         Line::from(format!("Sub-issues: {sub_issues}")),
         Line::from(format!("Labels: {labels}")),
@@ -483,7 +483,7 @@ mod tests {
                     id: 2,
                     name: "Public beta".into(),
                 }),
-                locked_by: Some("agent-a".into()),
+                leased: true,
                 created_at: "2026-07-24".into(),
                 updated_at: "2026-07-24".into(),
             },
@@ -542,7 +542,7 @@ mod tests {
             "Priority: 2",
             "Project: CLI launch",
             "Milestone: Public beta",
-            "Locked by: agent-a",
+            "Lease: active",
             "Parent: #1 Parent outcome",
             "Sub-issues: #3 Child slice",
             "Labels: cli, customer-impact",

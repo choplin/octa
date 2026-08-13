@@ -71,8 +71,7 @@ pub struct Issue {
     pub priority: i64,
     pub project: Option<ProjectRef>,
     pub milestone: Option<MilestoneRef>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub locked_by: Option<String>,
+    pub leased: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -124,7 +123,7 @@ impl StateFilter {
     }
 }
 
-pub enum LockOutcome {
-    Acquired,
-    AlreadyHeld(String),
+pub enum LeaseOutcome {
+    Acquired(String),
+    AlreadyLeased,
 }

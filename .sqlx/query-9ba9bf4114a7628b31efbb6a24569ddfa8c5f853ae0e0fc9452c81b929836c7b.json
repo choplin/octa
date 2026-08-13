@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM issue_relations WHERE repo_id = ? AND low_number = ? AND high_number = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "9ba9bf4114a7628b31efbb6a24569ddfa8c5f853ae0e0fc9452c81b929836c7b"
+}

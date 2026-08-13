@@ -3,8 +3,12 @@
 //! These exercise every primitive plus the worktree-sharing guarantee that is
 //! octa's reason to exist.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::{Arc, Barrier};
+use std::thread;
 use tempfile::TempDir;
 
 fn bin() -> &'static str {
@@ -24,6 +28,7 @@ fn git(dir: &Path, args: &[&str]) {
 struct Env {
     repo: TempDir,
     xdg: TempDir,
+    leases: RefCell<HashMap<(PathBuf, String), String>>,
 }
 
 impl Env {
@@ -39,6 +44,7 @@ impl Env {
         Env {
             repo,
             xdg: TempDir::new().unwrap(),
+            leases: RefCell::new(HashMap::new()),
         }
     }
 
@@ -47,13 +53,46 @@ impl Env {
     }
 
     /// Run octa in `dir`, pointing its global store at this env's XDG dir.
-    fn run_in(&self, dir: &Path, args: &[&str]) -> Output {
+    fn run_raw_in(&self, dir: &Path, args: &[&str]) -> Output {
         Command::new(bin())
             .current_dir(dir)
             .env("XDG_DATA_HOME", self.xdg.path())
             .args(args)
             .output()
             .expect("failed to spawn octa")
+    }
+
+    fn run_raw(&self, args: &[&str]) -> Output {
+        self.run_raw_in(self.path(), args)
+    }
+
+    fn run_in(&self, dir: &Path, args: &[&str]) -> Output {
+        let Some(number) = protected_issue_number(args) else {
+            return self.run_raw_in(dir, args);
+        };
+        if args.contains(&"--lease") {
+            return self.run_raw_in(dir, args);
+        }
+        let key = (dir.to_path_buf(), number.to_string());
+        let existing = self.leases.borrow().get(&key).cloned();
+        let lease = match existing {
+            Some(lease) => lease,
+            None => {
+                let acquired = self.run_raw_in(dir, &["issue", "lock", number]);
+                if !acquired.status.success() {
+                    return acquired;
+                }
+                let lease = String::from_utf8(acquired.stdout)
+                    .unwrap()
+                    .trim()
+                    .to_string();
+                self.leases.borrow_mut().insert(key, lease.clone());
+                lease
+            }
+        };
+        let mut leased_args = args.to_vec();
+        leased_args.extend(["--lease", lease.as_str()]);
+        self.run_raw_in(dir, &leased_args)
     }
 
     fn run(&self, args: &[&str]) -> Output {
@@ -72,6 +111,48 @@ impl Env {
             String::from_utf8_lossy(&out.stderr)
         );
         String::from_utf8(out.stdout).unwrap()
+    }
+
+    fn lease(&self, number: &str) -> String {
+        let lease = String::from_utf8(self.run_raw(&["issue", "lock", number]).stdout)
+            .unwrap()
+            .trim()
+            .to_string();
+        self.leases.borrow_mut().insert(
+            (self.path().to_path_buf(), number.to_string()),
+            lease.clone(),
+        );
+        lease
+    }
+
+    fn run_with_lease(&self, args: &[&str], lease: &str) -> Output {
+        let mut leased_args = args.to_vec();
+        leased_args.extend(["--lease", lease]);
+        self.run(&leased_args)
+    }
+
+    fn ok_with_lease(&self, args: &[&str], lease: &str) -> String {
+        let output = self.run_with_lease(args, lease);
+        assert!(
+            output.status.success(),
+            "octa {args:?} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).unwrap()
+    }
+}
+
+fn protected_issue_number<'a>(args: &'a [&str]) -> Option<&'a str> {
+    match args {
+        ["issue", command @ ("set-state" | "set" | "unset" | "add" | "remove"), number, ..]
+            if !command.is_empty() =>
+        {
+            Some(number)
+        }
+        ["pr", "create", rest @ ..] | ["pr", "add" | "remove", rest @ ..] => rest
+            .windows(2)
+            .find_map(|pair| (pair[0] == "--issue").then_some(pair[1])),
+        _ => None,
     }
 }
 
@@ -160,7 +241,8 @@ fn comment_appears_in_thread() {
 fn close_reopen_and_state_filter() {
     let env = Env::new();
     env.ok(&["issue", "create", "--title", "Bug"]);
-    env.ok(&["issue", "set-state", "1", "closed"]);
+    let lease = env.lease("1");
+    env.ok_with_lease(&["issue", "set-state", "1", "closed"], &lease);
 
     let open_list = env.ok(&["issue", "list"]);
     assert!(
@@ -180,7 +262,7 @@ fn close_reopen_and_state_filter() {
         "missing from all list: {all_list}"
     );
 
-    env.ok(&["issue", "set-state", "1", "open"]);
+    env.ok_with_lease(&["issue", "set-state", "1", "open"], &lease);
     assert!(
         env.ok(&["issue", "list"]).contains("Bug"),
         "reopened issue missing"
@@ -191,7 +273,11 @@ fn close_reopen_and_state_filter() {
 fn edit_updates_title_and_body() {
     let env = Env::new();
     env.ok(&["issue", "create", "--title", "Old", "--body", "old body"]);
-    env.ok(&["issue", "set", "1", "--title", "New", "--body", "new body"]);
+    let lease = env.lease("1");
+    env.ok_with_lease(
+        &["issue", "set", "1", "--title", "New", "--body", "new body"],
+        &lease,
+    );
 
     let shown = env.ok(&["issue", "show", "1"]);
     assert!(shown.contains("New"), "edited title missing: {shown}");
@@ -943,19 +1029,128 @@ fn dependencies_and_unblocked_query() {
 }
 
 #[test]
-fn atomic_lock_prevents_double_acquire() {
+fn lease_guards_mutations_and_force_unlock_invalidates_the_old_token() {
     let env = Env::new();
     env.ok(&["issue", "create", "--title", "Contended"]);
 
-    env.ok(&["issue", "lock", "1", "--as", "agent-a"]);
-    // A second holder cannot acquire it.
-    let out = env.run(&["issue", "lock", "1", "--as", "agent-b"]);
-    assert!(!out.status.success(), "second lock unexpectedly succeeded");
-    assert!(String::from_utf8_lossy(&out.stderr).contains("agent-a"));
+    let lease = env.lease("1");
+    assert_eq!(lease.len(), 64);
+    assert!(lease.chars().all(|character| character.is_ascii_hexdigit()));
 
-    // The holder can release, then another may take it.
-    env.ok(&["issue", "unlock", "1", "--as", "agent-a"]);
-    env.ok(&["issue", "lock", "1", "--as", "agent-b"]);
+    let shown = json(&env.ok(&["issue", "show", "1", "--json"]));
+    assert_eq!(shown["leased"], true);
+    assert!(!shown.to_string().contains(&lease));
+    let listed = env.ok(&["issue", "list", "--state", "all", "--json"]);
+    assert!(!listed.contains(&lease));
+
+    let out = env.run(&["issue", "lock", "1"]);
+    assert!(!out.status.success(), "second lock unexpectedly succeeded");
+    assert!(String::from_utf8_lossy(&out.stderr).contains("already leased"));
+
+    let missing = env.run_raw(&["issue", "set-state", "1", "closed"]);
+    assert!(!missing.status.success());
+    let mismatch = env.run_with_lease(&["issue", "set-state", "1", "closed"], "incorrect-lease");
+    assert!(!mismatch.status.success());
+    env.ok_with_lease(&["issue", "set-state", "1", "closed"], &lease);
+
+    env.ok(&["issue", "unlock", "1", "--force"]);
+    let stale = env.run_with_lease(&["issue", "set-state", "1", "open"], &lease);
+    assert!(!stale.status.success(), "force unlock left old lease valid");
+
+    let replacement = env.lease("1");
+    assert_ne!(replacement, lease);
+    env.ok(&["issue", "unlock", "1", "--lease", &replacement]);
+}
+
+#[test]
+fn every_issue_mutation_surface_rejects_missing_and_mismatched_leases() {
+    let env = Env::new();
+    env.ok(&["issue", "create", "--title", "Guarded"]);
+    env.ok(&["issue", "create", "--title", "Peer"]);
+    env.ok(&["config", "label", "create", "guarded", "--target", "issue"]);
+    env.ok(&[
+        "pr",
+        "create",
+        "--title",
+        "Implementation",
+        "--branch",
+        "guarded",
+    ]);
+    let lease = env.lease("1");
+
+    let commands = [
+        vec!["issue", "set-state", "1", "closed"],
+        vec!["issue", "set", "1", "--title", "Changed"],
+        vec!["issue", "unset", "1", "--parent"],
+        vec!["issue", "add", "1", "--label", "guarded"],
+        vec!["issue", "remove", "1", "--label", "guarded"],
+        vec!["issue", "add", "1", "--pr", "1"],
+        vec!["issue", "remove", "1", "--pr", "1"],
+        vec!["pr", "add", "1", "--issue", "1"],
+        vec!["pr", "remove", "1", "--issue", "1"],
+        vec![
+            "pr", "create", "--title", "Linked", "--branch", "linked", "--issue", "1",
+        ],
+    ];
+    for command in commands {
+        let missing = env.run_raw(&command);
+        assert!(
+            !missing.status.success(),
+            "missing lease unexpectedly accepted for {command:?}"
+        );
+        let mismatch = env.run_with_lease(&command, "incorrect-lease");
+        assert!(
+            !mismatch.status.success(),
+            "mismatched lease unexpectedly accepted for {command:?}"
+        );
+    }
+
+    env.ok_with_lease(&["issue", "set", "1", "--title", "Changed"], &lease);
+    assert_eq!(
+        json(&env.ok(&["issue", "show", "1", "--json"]))["title"],
+        "Changed"
+    );
+}
+
+#[test]
+fn concurrent_lease_acquisition_has_exactly_one_winner() {
+    let env = Env::new();
+    env.ok(&["issue", "create", "--title", "Contended"]);
+    let barrier = Arc::new(Barrier::new(3));
+    let mut workers = Vec::new();
+    for _ in 0..2 {
+        let barrier = Arc::clone(&barrier);
+        let repo = env.path().to_path_buf();
+        let xdg = env.xdg.path().to_path_buf();
+        workers.push(thread::spawn(move || {
+            barrier.wait();
+            Command::new(bin())
+                .current_dir(repo)
+                .env("XDG_DATA_HOME", xdg)
+                .args(["issue", "lock", "1"])
+                .output()
+                .unwrap()
+        }));
+    }
+    barrier.wait();
+    let outputs = workers
+        .into_iter()
+        .map(|worker| worker.join().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        outputs
+            .iter()
+            .filter(|output| output.status.success())
+            .count(),
+        1
+    );
+    assert_eq!(
+        outputs
+            .iter()
+            .filter(|output| !output.status.success())
+            .count(),
+        1
+    );
 }
 
 // --- Labels -----------------------------------------------------------------

@@ -1,5 +1,5 @@
-use super::{holder, parse_issue_state, IssueCommand};
-use crate::store::{LockOutcome, Store};
+use super::{parse_issue_state, IssueCommand};
+use crate::store::{LeaseOutcome, Store};
 use anyhow::Result;
 
 pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
@@ -72,11 +72,7 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                 println!("no issues");
             } else {
                 for issue in &issues {
-                    let lock = issue
-                        .locked_by
-                        .as_ref()
-                        .map(|holder| format!(" [locked: {holder}]"))
-                        .unwrap_or_default();
+                    let lease = if issue.leased { " [leased]" } else { "" };
                     println!(
                         "#{:<4} {:<12} {:<10} P{} {}{}",
                         issue.number,
@@ -84,7 +80,7 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                         issue.status_type,
                         issue.priority,
                         issue.title,
-                        lock
+                        lease
                     );
                     if let Some(project) = &issue.project {
                         println!("      project: {}", project.name);
@@ -134,8 +130,8 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                             .join(", ")
                     );
                 }
-                if let Some(holder) = &issue.locked_by {
-                    println!("locked by: {holder}");
+                if issue.leased {
+                    println!("leased: yes");
                 }
                 if !detail.labels.is_empty() {
                     println!("labels: {}", detail.labels.join(", "));
@@ -174,8 +170,14 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             store.add_issue_comment(number, &body).await?;
             println!("commented on issue #{number}");
         }
-        IssueCommand::SetState { number, state } => {
-            store.set_issue_state(number, &state).await?;
+        IssueCommand::SetState {
+            number,
+            state,
+            lease,
+        } => {
+            store
+                .set_issue_state(number, &state, lease.as_deref())
+                .await?;
             println!("issue #{number} -> {state}");
         }
         IssueCommand::Set {
@@ -186,6 +188,7 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             project,
             milestone,
             parent,
+            lease,
         } => {
             if title.is_none()
                 && body.is_none()
@@ -198,17 +201,29 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             }
             if title.is_some() || body.is_some() || priority.is_some() {
                 store
-                    .edit_issue(number, title.as_deref(), body.as_deref(), priority)
+                    .edit_issue(
+                        number,
+                        title.as_deref(),
+                        body.as_deref(),
+                        priority,
+                        lease.as_deref(),
+                    )
                     .await?;
             }
             if let Some(project) = project {
-                store.set_issue_project(number, &project).await?;
+                store
+                    .set_issue_project(number, &project, lease.as_deref())
+                    .await?;
             }
             if let Some(milestone) = milestone {
-                store.set_issue_milestone(number, &milestone).await?;
+                store
+                    .set_issue_milestone(number, &milestone, lease.as_deref())
+                    .await?;
             }
             if let Some(parent) = parent {
-                store.set_issue_parent(number, parent).await?;
+                store
+                    .set_issue_parent(number, parent, lease.as_deref())
+                    .await?;
             }
             println!("updated issue #{number}");
         }
@@ -217,18 +232,21 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             project,
             milestone,
             parent,
+            lease,
         } => {
             if !project && !milestone && !parent {
                 anyhow::bail!("specify at least one property to unset");
             }
             if milestone {
-                store.clear_issue_milestone(number).await?;
+                store
+                    .clear_issue_milestone(number, lease.as_deref())
+                    .await?;
             }
             if project {
-                store.clear_issue_project(number).await?;
+                store.clear_issue_project(number, lease.as_deref()).await?;
             }
             if parent {
-                store.clear_issue_parent(number).await?;
+                store.clear_issue_parent(number, lease.as_deref()).await?;
             }
             println!("updated issue #{number}");
         }
@@ -239,6 +257,7 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             blocks,
             related,
             pr,
+            lease,
         } => {
             if label.is_none()
                 && blocker.is_none()
@@ -249,19 +268,25 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                 anyhow::bail!("specify at least one relationship to add");
             }
             if let Some(label) = label {
-                store.label_issue(number, &label).await?;
+                store.label_issue(number, &label, lease.as_deref()).await?;
             }
             if let Some(blocker) = blocker {
-                store.add_dependency(blocker, number).await?;
+                store
+                    .add_dependency(number, blocker, number, lease.as_deref())
+                    .await?;
             }
             if let Some(blocked) = blocks {
-                store.add_dependency(number, blocked).await?;
+                store
+                    .add_dependency(number, number, blocked, lease.as_deref())
+                    .await?;
             }
             if let Some(other) = related {
-                store.add_issue_relation(number, other).await?;
+                store
+                    .add_issue_relation(number, other, lease.as_deref())
+                    .await?;
             }
             if let Some(pr) = pr {
-                store.link_pr(number, pr).await?;
+                store.link_pr(number, pr, lease.as_deref()).await?;
             }
             println!("updated issue #{number}");
         }
@@ -272,6 +297,7 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             blocks,
             related,
             pr,
+            lease,
         } => {
             if label.is_none()
                 && blocker.is_none()
@@ -282,43 +308,45 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                 anyhow::bail!("specify at least one relationship to remove");
             }
             if let Some(label) = label {
-                store.unlabel_issue(number, &label).await?;
+                store
+                    .unlabel_issue(number, &label, lease.as_deref())
+                    .await?;
             }
             if let Some(blocker) = blocker {
-                store.remove_dependency(blocker, number).await?;
+                store
+                    .remove_dependency(number, blocker, number, lease.as_deref())
+                    .await?;
             }
             if let Some(blocked) = blocks {
-                store.remove_dependency(number, blocked).await?;
+                store
+                    .remove_dependency(number, number, blocked, lease.as_deref())
+                    .await?;
             }
             if let Some(other) = related {
-                store.remove_issue_relation(number, other).await?;
+                store
+                    .remove_issue_relation(number, other, lease.as_deref())
+                    .await?;
             }
             if let Some(pr) = pr {
-                store.unlink_pr(number, pr).await?;
+                store.unlink_pr(number, pr, lease.as_deref()).await?;
             }
             println!("updated issue #{number}");
         }
-        IssueCommand::Lock { number, r#as } => {
-            let holder = holder(r#as);
-            match store.lock_issue(number, &holder).await? {
-                LockOutcome::Acquired => println!("locked issue #{number} as {holder}"),
-                LockOutcome::AlreadyHeld(holder) => {
-                    anyhow::bail!("issue #{number} is already locked by {holder}")
-                }
+        IssueCommand::Lock { number } => match store.lock_issue(number).await? {
+            LeaseOutcome::Acquired(lease) => println!("{lease}"),
+            LeaseOutcome::AlreadyLeased => {
+                anyhow::bail!("issue #{number} is already leased")
             }
-        }
+        },
         IssueCommand::Unlock {
             number,
-            r#as,
+            lease,
             force,
         } => {
-            let holder = holder(r#as);
-            if store.unlock_issue(number, &holder, force).await? {
+            if store.unlock_issue(number, lease.as_deref(), force).await? {
                 println!("unlocked issue #{number}");
             } else {
-                anyhow::bail!(
-                    "issue #{number} was not locked by {holder} (use --force to override)"
-                );
+                anyhow::bail!("valid lease required for issue #{number} (use --force to override)");
             }
         }
     }

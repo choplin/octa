@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT p.number AS \"number!: i64\",\n                  p.title AS \"title!: String\",\n                  p.branch AS \"branch!: String\",\n                  p.state AS \"state!: String\"\n           FROM issue_pr_links l\n           JOIN prs p ON p.repo_id = l.repo_id AND p.number = l.pr_number\n           WHERE l.repo_id = ? AND l.issue_number = ?\n           ORDER BY p.number",
+  "describe": {
+    "columns": [
+      {
+        "name": "number!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "title!: String",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "branch!: String",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "state!: String",
+        "ordinal": 3,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "15d9dd17ca7a6db0848d4448f2f2df5346e1e2850f087169925152dfa8a9d23b"
+}

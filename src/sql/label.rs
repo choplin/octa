@@ -76,21 +76,6 @@ pub async fn list_groups(pool: &SqlitePool, repo: i64) -> Result<Vec<LabelGroup>
     .await?)
 }
 
-pub async fn issue_exists_tx(
-    tx: &mut Transaction<'_, Sqlite>,
-    repo: i64,
-    number: i64,
-) -> Result<bool> {
-    Ok(sqlx::query_scalar!(
-        "SELECT COUNT(*) FROM issues WHERE repo_id = ? AND number = ?",
-        repo,
-        number
-    )
-    .fetch_one(&mut **tx)
-    .await?
-        != 0)
-}
-
 pub async fn label_group_tx(
     tx: &mut Transaction<'_, Sqlite>,
     repo: i64,
@@ -164,14 +149,19 @@ pub async fn attach(
     Ok(())
 }
 
-pub async fn detach(pool: &SqlitePool, repo: i64, number: i64, label: &str) -> Result<()> {
+pub async fn detach(
+    tx: &mut Transaction<'_, Sqlite>,
+    repo: i64,
+    number: i64,
+    label: &str,
+) -> Result<()> {
     sqlx::query!(
         "DELETE FROM issue_labels WHERE repo_id = ? AND issue_number = ? AND label_name = ?",
         repo,
         number,
         label
     )
-    .execute(pool)
+    .execute(&mut **tx)
     .await?;
     Ok(())
 }

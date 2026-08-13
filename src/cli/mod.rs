@@ -170,7 +170,12 @@ pub(crate) enum IssueCommand {
         body: String,
     },
     /// Set an issue state.
-    SetState { number: i64, state: String },
+    SetState {
+        number: i64,
+        state: String,
+        #[arg(long)]
+        lease: Option<String>,
+    },
     /// Set scalar Issue properties.
     Set {
         number: i64,
@@ -187,6 +192,8 @@ pub(crate) enum IssueCommand {
         milestone: Option<String>,
         #[arg(long)]
         parent: Option<i64>,
+        #[arg(long)]
+        lease: Option<String>,
     },
     /// Unset optional scalar Issue properties.
     Unset {
@@ -197,6 +204,8 @@ pub(crate) enum IssueCommand {
         milestone: bool,
         #[arg(long)]
         parent: bool,
+        #[arg(long)]
+        lease: Option<String>,
     },
     /// Add relationships or collection members.
     Add {
@@ -213,6 +222,8 @@ pub(crate) enum IssueCommand {
         related: Option<i64>,
         #[arg(long)]
         pr: Option<i64>,
+        #[arg(long)]
+        lease: Option<String>,
     },
     /// Remove relationships or collection members.
     Remove {
@@ -227,19 +238,17 @@ pub(crate) enum IssueCommand {
         related: Option<i64>,
         #[arg(long)]
         pr: Option<i64>,
+        #[arg(long)]
+        lease: Option<String>,
     },
     /// Lock an issue.
-    Lock {
-        number: i64,
-        #[arg(long)]
-        r#as: Option<String>,
-    },
+    Lock { number: i64 },
     /// Unlock an issue.
     Unlock {
         number: i64,
-        #[arg(long)]
-        r#as: Option<String>,
-        #[arg(long)]
+        #[arg(long, required_unless_present = "force", conflicts_with = "force")]
+        lease: Option<String>,
+        #[arg(long, conflicts_with = "lease")]
         force: bool,
     },
 }
@@ -417,6 +426,8 @@ pub(crate) enum PrCommand {
         /// Link the new PR to an issue atomically.
         #[arg(long)]
         issue: Option<i64>,
+        #[arg(long, requires = "issue")]
+        lease: Option<String>,
         #[arg(long)]
         json: bool,
     },
@@ -454,12 +465,16 @@ pub(crate) enum PrCommand {
         number: i64,
         #[arg(long)]
         issue: i64,
+        #[arg(long)]
+        lease: Option<String>,
     },
     /// Remove an Issue relationship.
     Remove {
         number: i64,
         #[arg(long)]
         issue: i64,
+        #[arg(long)]
+        lease: Option<String>,
     },
 }
 
@@ -531,11 +546,6 @@ pub(crate) enum LabelGroupCommand {
         #[arg(long)]
         json: bool,
     },
-}
-pub(crate) fn holder(value: Option<String>) -> String {
-    value
-        .or_else(|| std::env::var("OCTA_ACTOR").ok())
-        .unwrap_or_else(|| "local".to_string())
 }
 pub(crate) fn parse_issue_state(value: &str) -> (StateFilter, Option<String>) {
     match value {

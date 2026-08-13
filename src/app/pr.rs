@@ -20,30 +20,52 @@ pub async fn create(
     body: &str,
     branch: &str,
     issue: Option<i64>,
+    lease: Option<&str>,
 ) -> Result<i64> {
     match issue {
         Some(issue) => {
             crate::sql::issue::get(pool, repo, issue)
                 .await?
                 .ok_or_else(|| anyhow!("issue #{issue} not found"))?;
-            crate::sql::pr::insert_linked(pool, repo, title, body, branch, issue).await
+            crate::sql::pr::insert_linked(pool, repo, title, body, branch, issue, lease).await
         }
         None => crate::sql::pr::insert(pool, repo, title, body, branch).await,
     }
 }
 
-pub async fn link(pool: &SqlitePool, repo: i64, issue: i64, pr: i64) -> Result<()> {
+pub async fn link(
+    pool: &SqlitePool,
+    repo: i64,
+    issue: i64,
+    pr: i64,
+    lease: Option<&str>,
+) -> Result<()> {
     crate::sql::issue::get(pool, repo, issue)
         .await?
         .ok_or_else(|| anyhow!("issue #{issue} not found"))?;
     require(pool, repo, pr).await?;
-    crate::sql::pr::link(pool, repo, issue, pr).await
+    let mut tx = crate::sql::issue::begin_lease_mutation(pool, repo, issue, lease).await?;
+    crate::sql::pr::link_tx(&mut tx, repo, issue, pr).await?;
+    tx.commit().await?;
+    Ok(())
 }
 
-pub async fn unlink(pool: &SqlitePool, repo: i64, issue: i64, pr: i64) -> Result<()> {
-    if !crate::sql::pr::unlink(pool, repo, issue, pr).await? {
+pub async fn unlink(
+    pool: &SqlitePool,
+    repo: i64,
+    issue: i64,
+    pr: i64,
+    lease: Option<&str>,
+) -> Result<()> {
+    crate::sql::issue::get(pool, repo, issue)
+        .await?
+        .ok_or_else(|| anyhow!("issue #{issue} not found"))?;
+    require(pool, repo, pr).await?;
+    let mut tx = crate::sql::issue::begin_lease_mutation(pool, repo, issue, lease).await?;
+    if !crate::sql::pr::unlink_tx(&mut tx, repo, issue, pr).await? {
         bail!("issue #{issue} is not linked to PR #{pr}");
     }
+    tx.commit().await?;
     Ok(())
 }
 

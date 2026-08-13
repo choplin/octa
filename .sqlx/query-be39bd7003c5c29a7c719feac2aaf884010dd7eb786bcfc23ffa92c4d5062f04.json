@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT issue_number AS \"issue_number!: i64\", pr_number AS \"pr_number!: i64\"\n               FROM issue_pr_links WHERE repo_id = ? ORDER BY issue_number, pr_number",
+  "describe": {
+    "columns": [
+      {
+        "name": "issue_number!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "pr_number!: i64",
+        "ordinal": 1,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "be39bd7003c5c29a7c719feac2aaf884010dd7eb786bcfc23ffa92c4d5062f04"
+}

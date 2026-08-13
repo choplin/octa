@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT name AS \"name!: String\", status_type AS \"status_type!: String\"\n               FROM issue_states WHERE repo_id = ? ORDER BY position, name",
+  "describe": {
+    "columns": [
+      {
+        "name": "name!: String",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "status_type!: String",
+        "ordinal": 1,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "a4daa9df6acd4a8cdf977c3d8728c2b2d022bc244f1db36d3f833cd3dc612c58"
+}

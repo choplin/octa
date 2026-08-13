@@ -15,8 +15,18 @@ impl Store {
         body: &str,
         branch: &str,
         issue: Option<i64>,
+        lease: Option<&str>,
     ) -> Result<i64> {
-        crate::app::pr::create(&self.pool, self.repo_id()?, title, body, branch, issue).await
+        crate::app::pr::create(
+            &self.pool,
+            self.repo_id()?,
+            title,
+            body,
+            branch,
+            issue,
+            lease,
+        )
+        .await
     }
     pub async fn list_prs(&self, filter: StateFilter) -> Result<Vec<Pr>> {
         crate::app::pr::list(
@@ -44,11 +54,11 @@ impl Store {
         crate::app::pr::edit(&self.pool, self.repo_id()?, number, title, body).await
     }
 
-    pub async fn link_pr(&self, issue: i64, pr: i64) -> Result<()> {
-        crate::app::pr::link(&self.pool, self.repo_id()?, issue, pr).await
+    pub async fn link_pr(&self, issue: i64, pr: i64, lease: Option<&str>) -> Result<()> {
+        crate::app::pr::link(&self.pool, self.repo_id()?, issue, pr, lease).await
     }
 
-    pub async fn unlink_pr(&self, issue: i64, pr: i64) -> Result<()> {
-        crate::app::pr::unlink(&self.pool, self.repo_id()?, issue, pr).await
+    pub async fn unlink_pr(&self, issue: i64, pr: i64, lease: Option<&str>) -> Result<()> {
+        crate::app::pr::unlink(&self.pool, self.repo_id()?, issue, pr, lease).await
     }
 }

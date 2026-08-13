@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "PRAGMA table_info('issues')",
+  "describe": {
+    "columns": [
+      {
+        "name": "cid",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "name",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "type",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "notnull",
+        "ordinal": 3,
+        "type_info": "Integer"
+      },
+      {
+        "name": "dflt_value",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "pk",
+        "ordinal": 5,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "6d0c3952d05f0fc4ece2084192023bdc50cae816c987613f59593c7790707dc1"
+}

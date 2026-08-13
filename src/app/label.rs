@@ -25,11 +25,17 @@ pub async fn list_groups(pool: &SqlitePool, repo: i64) -> Result<Vec<LabelGroup>
     crate::sql::label::list_groups(pool, repo).await
 }
 
-pub async fn attach(pool: &SqlitePool, repo: i64, number: i64, label: &str) -> Result<()> {
-    let mut tx = pool.begin().await?;
-    if !crate::sql::label::issue_exists_tx(&mut tx, repo, number).await? {
+pub async fn attach(
+    pool: &SqlitePool,
+    repo: i64,
+    number: i64,
+    label: &str,
+    lease: Option<&str>,
+) -> Result<()> {
+    if crate::sql::issue::get(pool, repo, number).await?.is_none() {
         bail!("issue #{number} not found");
     }
+    let mut tx = crate::sql::issue::begin_lease_mutation(pool, repo, number, lease).await?;
     let group = crate::sql::label::label_group_tx(&mut tx, repo, label)
         .await?
         .ok_or_else(|| {
@@ -45,8 +51,20 @@ pub async fn attach(pool: &SqlitePool, repo: i64, number: i64, label: &str) -> R
     Ok(())
 }
 
-pub async fn detach(pool: &SqlitePool, repo: i64, number: i64, label: &str) -> Result<()> {
-    crate::sql::label::detach(pool, repo, number, label).await
+pub async fn detach(
+    pool: &SqlitePool,
+    repo: i64,
+    number: i64,
+    label: &str,
+    lease: Option<&str>,
+) -> Result<()> {
+    if crate::sql::issue::get(pool, repo, number).await?.is_none() {
+        bail!("issue #{number} not found");
+    }
+    let mut tx = crate::sql::issue::begin_lease_mutation(pool, repo, number, lease).await?;
+    crate::sql::label::detach(&mut tx, repo, number, label).await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 pub async fn create_project_group(

@@ -7,7 +7,8 @@
 //! Repo identity is the canonicalized git common directory path (works without
 //! a remote; every worktree of a repo shares it). Concurrency rides on SQLite
 //! WAL plus a busy timeout; per-repo issue/PR numbers are assigned atomically by
-//! a single `INSERT ... RETURNING`, and the issue lock is a compare-and-set.
+//! a single `INSERT ... RETURNING`, and issue leases are acquired with a
+//! compare-and-set.
 
 mod issue;
 mod label;
@@ -16,7 +17,7 @@ mod pr;
 mod project;
 mod wiki;
 
-pub use crate::domain::{issue::LockOutcome, StateFilter};
+pub use crate::domain::{issue::LeaseOutcome, StateFilter};
 
 use anyhow::{bail, Context, Result};
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqlitePoolOptions};
@@ -169,93 +170,138 @@ mod migration_tests {
     struct LogicalSnapshot(Vec<(&'static str, Vec<String>)>);
 
     async fn logical_snapshot(pool: &SqlitePool) -> LogicalSnapshot {
-        async fn rows(pool: &SqlitePool, query: &str) -> Vec<String> {
-            sqlx::query_scalar::<_, String>(query)
-                .fetch_all(pool)
-                .await
-                .unwrap()
+        macro_rules! rows {
+            ($query:literal) => {
+                sqlx::query_scalar!($query).fetch_all(pool).await.unwrap()
+            };
         }
 
         LogicalSnapshot(vec![
             (
                 "repos",
-                rows(pool, "SELECT json_array(id, identity_key, name, created_at) FROM repos ORDER BY id").await,
+                rows!(
+                    r#"SELECT json_array(id, identity_key, name, created_at) AS "row!: String" FROM repos ORDER BY id"#
+                ),
             ),
             (
                 "issue_states",
-                rows(pool, "SELECT json_array(repo_id, name, status_type, is_starting, is_terminal, position) FROM issue_states ORDER BY repo_id, position, name").await,
+                rows!(
+                    r#"SELECT json_array(repo_id, name, status_type, is_starting, is_terminal, position) AS "row!: String" FROM issue_states ORDER BY repo_id, position, name"#
+                ),
             ),
             (
                 "issues",
-                rows(pool, "SELECT json_array(repo_id, number, title, body, state, priority, locked_by, locked_at, created_at, updated_at) FROM issues ORDER BY repo_id, number").await,
+                rows!(
+                    r#"SELECT json_array(repo_id, number, title, body, state, priority, created_at, updated_at) AS "row!: String" FROM issues ORDER BY repo_id, number"#
+                ),
+            ),
+            (
+                "issue_leases",
+                rows!(
+                    r#"SELECT json_array(repo_id, issue_number, lease_id, acquired_at) AS "row!: String" FROM issue_leases ORDER BY repo_id, issue_number"#
+                ),
             ),
             (
                 "comments",
-                rows(pool, "SELECT json_array(id, repo_id, issue_number, body, created_at) FROM comments ORDER BY id").await,
+                rows!(
+                    r#"SELECT json_array(id, repo_id, issue_number, body, created_at) AS "row!: String" FROM comments ORDER BY id"#
+                ),
             ),
             (
                 "issue_deps",
-                rows(pool, "SELECT json_array(repo_id, blocker_number, blocked_number, created_at) FROM issue_deps ORDER BY repo_id, blocker_number, blocked_number").await,
+                rows!(
+                    r#"SELECT json_array(repo_id, blocker_number, blocked_number, created_at) AS "row!: String" FROM issue_deps ORDER BY repo_id, blocker_number, blocked_number"#
+                ),
             ),
             (
                 "prs",
-                rows(pool, "SELECT json_array(repo_id, number, title, body, branch, state, created_at, updated_at) FROM prs ORDER BY repo_id, number").await,
+                rows!(
+                    r#"SELECT json_array(repo_id, number, title, body, branch, state, created_at, updated_at) AS "row!: String" FROM prs ORDER BY repo_id, number"#
+                ),
             ),
             (
                 "pr_comments",
-                rows(pool, "SELECT json_array(id, repo_id, pr_number, body, created_at) FROM pr_comments ORDER BY id").await,
+                rows!(
+                    r#"SELECT json_array(id, repo_id, pr_number, body, created_at) AS "row!: String" FROM pr_comments ORDER BY id"#
+                ),
             ),
             (
                 "wiki_pages",
-                rows(pool, "SELECT json_array(repo_id, slug, title, body, created_at, updated_at) FROM wiki_pages ORDER BY repo_id, slug").await,
+                rows!(
+                    r#"SELECT json_array(repo_id, slug, title, body, created_at, updated_at) AS "row!: String" FROM wiki_pages ORDER BY repo_id, slug"#
+                ),
             ),
             (
                 "wiki_links",
-                rows(pool, "SELECT json_array(repo_id, from_slug, to_slug) FROM wiki_links ORDER BY repo_id, from_slug, to_slug").await,
+                rows!(
+                    r#"SELECT json_array(repo_id, from_slug, to_slug) AS "row!: String" FROM wiki_links ORDER BY repo_id, from_slug, to_slug"#
+                ),
             ),
             (
                 "label_groups",
-                rows(pool, "SELECT json_array(repo_id, name, selection) FROM label_groups ORDER BY repo_id, name").await,
+                rows!(
+                    r#"SELECT json_array(repo_id, name, selection) AS "row!: String" FROM label_groups ORDER BY repo_id, name"#
+                ),
             ),
             (
                 "labels",
-                rows(pool, "SELECT json_array(repo_id, name, group_name) FROM labels ORDER BY repo_id, name").await,
+                rows!(
+                    r#"SELECT json_array(repo_id, name, group_name) AS "row!: String" FROM labels ORDER BY repo_id, name"#
+                ),
             ),
             (
                 "issue_labels",
-                rows(pool, "SELECT json_array(repo_id, issue_number, label_name) FROM issue_labels ORDER BY repo_id, issue_number, label_name").await,
+                rows!(
+                    r#"SELECT json_array(repo_id, issue_number, label_name) AS "row!: String" FROM issue_labels ORDER BY repo_id, issue_number, label_name"#
+                ),
             ),
             (
                 "project_label_groups",
-                rows(pool, "SELECT json_array(repo_id, name, selection) FROM project_label_groups ORDER BY repo_id, name").await,
+                rows!(
+                    r#"SELECT json_array(repo_id, name, selection) AS "row!: String" FROM project_label_groups ORDER BY repo_id, name"#
+                ),
             ),
             (
                 "project_labels",
-                rows(pool, "SELECT json_array(repo_id, name, group_name) FROM project_labels ORDER BY repo_id, name").await,
+                rows!(
+                    r#"SELECT json_array(repo_id, name, group_name) AS "row!: String" FROM project_labels ORDER BY repo_id, name"#
+                ),
             ),
             (
                 "projects",
-                rows(pool, "SELECT json_array(repo_id, id, name, summary, description, state, status_type, priority, created_at, updated_at) FROM projects ORDER BY repo_id, id").await,
+                rows!(
+                    r#"SELECT json_array(repo_id, id, name, summary, description, state, status_type, priority, created_at, updated_at) AS "row!: String" FROM projects ORDER BY repo_id, id"#
+                ),
             ),
             (
                 "project_label_links",
-                rows(pool, "SELECT json_array(repo_id, project_id, label_name) FROM project_label_links ORDER BY repo_id, project_id, label_name").await,
+                rows!(
+                    r#"SELECT json_array(repo_id, project_id, label_name) AS "row!: String" FROM project_label_links ORDER BY repo_id, project_id, label_name"#
+                ),
             ),
             (
                 "issue_projects",
-                rows(pool, "SELECT json_array(repo_id, issue_number, project_id) FROM issue_projects ORDER BY repo_id, issue_number").await,
+                rows!(
+                    r#"SELECT json_array(repo_id, issue_number, project_id) AS "row!: String" FROM issue_projects ORDER BY repo_id, issue_number"#
+                ),
             ),
             (
                 "issue_parents",
-                rows(pool, "SELECT json_array(repo_id, child_number, parent_number, created_at) FROM issue_parents ORDER BY repo_id, child_number").await,
+                rows!(
+                    r#"SELECT json_array(repo_id, child_number, parent_number, created_at) AS "row!: String" FROM issue_parents ORDER BY repo_id, child_number"#
+                ),
             ),
             (
                 "issue_relations",
-                rows(pool, "SELECT json_array(repo_id, low_number, high_number, created_at) FROM issue_relations ORDER BY repo_id, low_number, high_number").await,
+                rows!(
+                    r#"SELECT json_array(repo_id, low_number, high_number, created_at) AS "row!: String" FROM issue_relations ORDER BY repo_id, low_number, high_number"#
+                ),
             ),
             (
                 "issue_pr_links",
-                rows(pool, "SELECT json_array(repo_id, issue_number, pr_number, created_at) FROM issue_pr_links ORDER BY repo_id, issue_number").await,
+                rows!(
+                    r#"SELECT json_array(repo_id, issue_number, pr_number, created_at) AS "row!: String" FROM issue_pr_links ORDER BY repo_id, issue_number"#
+                ),
             ),
         ])
     }
@@ -347,7 +393,18 @@ mod migration_tests {
             .add_issue_comment(second, "still read-only")
             .await
             .unwrap();
-        store.add_dependency(first, second).await.unwrap();
+        let lease = match store.lock_issue(first).await.unwrap() {
+            crate::domain::issue::LeaseOutcome::Acquired(lease) => lease,
+            crate::domain::issue::LeaseOutcome::AlreadyLeased => panic!("unexpected lease"),
+        };
+        store
+            .add_dependency(first, first, second, Some(&lease))
+            .await
+            .unwrap();
+        store
+            .unlock_issue(first, Some(&lease), false)
+            .await
+            .unwrap();
 
         // Store migrations, repo/state seeding, and fixture writes are complete
         // before the baseline. WAL/checkpoint bytes are intentionally ignored.
@@ -380,11 +437,13 @@ mod migration_tests {
         assert_eq!(migrator.migrations.len(), 1);
         migrator.run(&pool).await.unwrap();
 
-        let state_columns: Vec<String> =
-            sqlx::query_scalar("SELECT name FROM pragma_table_info('issue_states') ORDER BY cid")
-                .fetch_all(&pool)
-                .await
-                .unwrap();
+        let state_columns: Vec<String> = sqlx::query!("PRAGMA table_info('issue_states')")
+            .fetch_all(&pool)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|row| row.name)
+            .collect();
         assert_eq!(
             state_columns,
             [
@@ -397,14 +456,19 @@ mod migration_tests {
             ]
         );
 
-        let issue_columns: Vec<String> =
-            sqlx::query_scalar("SELECT name FROM pragma_table_info('issues') ORDER BY cid")
-                .fetch_all(&pool)
-                .await
-                .unwrap();
+        let issue_columns: Vec<String> = sqlx::query!("PRAGMA table_info('issues')")
+            .fetch_all(&pool)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|row| row.name)
+            .collect();
         assert!(issue_columns.iter().any(|name| name == "priority"));
+        assert!(!issue_columns.iter().any(|name| name == "lease_id"));
+        assert!(!issue_columns.iter().any(|name| name == "acquired_at"));
 
         for table in [
+            "issue_leases",
             "projects",
             "issue_projects",
             "issue_parents",
@@ -416,10 +480,12 @@ mod migration_tests {
             "project_milestones",
             "issue_milestones",
         ] {
-            let exists: bool = sqlx::query_scalar(
-                "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?)",
+            let exists = sqlx::query_scalar!(
+                r#"SELECT EXISTS(
+                       SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?
+                   ) AS "exists!: bool""#,
+                table
             )
-            .bind(table)
             .fetch_one(&pool)
             .await
             .unwrap();
@@ -439,13 +505,17 @@ mod migration_tests {
             .await
             .unwrap();
 
-        let initial: Vec<(String, String)> = sqlx::query_as(
-            "SELECT name, status_type FROM issue_states WHERE repo_id = ? ORDER BY position, name",
+        let initial: Vec<(String, String)> = sqlx::query!(
+            r#"SELECT name AS "name!: String", status_type AS "status_type!: String"
+               FROM issue_states WHERE repo_id = ? ORDER BY position, name"#,
+            repo
         )
-        .bind(repo)
         .fetch_all(&pool)
         .await
-        .unwrap();
+        .unwrap()
+        .into_iter()
+        .map(|row| (row.name, row.status_type))
+        .collect();
         assert_eq!(
             initial,
             vec![
@@ -479,17 +549,19 @@ mod migration_tests {
         .await
         .unwrap();
 
-        let states_before: Vec<String> = sqlx::query_scalar(
-            "SELECT json_array(name, status_type, is_starting, is_terminal, position) FROM issue_states WHERE repo_id = ? ORDER BY position, name",
+        let states_before: Vec<String> = sqlx::query_scalar!(
+            r#"SELECT json_array(name, status_type, is_starting, is_terminal, position) AS "state!: String"
+               FROM issue_states WHERE repo_id = ? ORDER BY position, name"#,
+            repo
         )
-        .bind(repo)
         .fetch_all(&pool)
         .await
         .unwrap();
-        let issues_before: Vec<String> = sqlx::query_scalar(
-            "SELECT json_array(number, title, body, state, priority) FROM issues WHERE repo_id = ? ORDER BY number",
+        let issues_before: Vec<String> = sqlx::query_scalar!(
+            r#"SELECT json_array(number, title, body, state, priority) AS "issue!: String"
+               FROM issues WHERE repo_id = ? ORDER BY number"#,
+            repo
         )
-        .bind(repo)
         .fetch_all(&pool)
         .await
         .unwrap();
@@ -498,17 +570,19 @@ mod migration_tests {
             .await
             .unwrap();
 
-        let states_after: Vec<String> = sqlx::query_scalar(
-            "SELECT json_array(name, status_type, is_starting, is_terminal, position) FROM issue_states WHERE repo_id = ? ORDER BY position, name",
+        let states_after: Vec<String> = sqlx::query_scalar!(
+            r#"SELECT json_array(name, status_type, is_starting, is_terminal, position) AS "state!: String"
+               FROM issue_states WHERE repo_id = ? ORDER BY position, name"#,
+            repo
         )
-        .bind(repo)
         .fetch_all(&pool)
         .await
         .unwrap();
-        let issues_after: Vec<String> = sqlx::query_scalar(
-            "SELECT json_array(number, title, body, state, priority) FROM issues WHERE repo_id = ? ORDER BY number",
+        let issues_after: Vec<String> = sqlx::query_scalar!(
+            r#"SELECT json_array(number, title, body, state, priority) AS "issue!: String"
+               FROM issues WHERE repo_id = ? ORDER BY number"#,
+            repo
         )
-        .bind(repo)
         .fetch_all(&pool)
         .await
         .unwrap();
@@ -549,69 +623,91 @@ mod migration_tests {
         crate::app::issue::create(&pool, second_repo, "Second", "", None, 0, None, None, None)
             .await
             .unwrap();
-        crate::app::pr::create(&pool, first_repo, "One", "", "one", None)
+        crate::app::pr::create(&pool, first_repo, "One", "", "one", None, None)
             .await
             .unwrap();
-        crate::app::pr::create(&pool, first_repo, "Two", "", "two", None)
+        crate::app::pr::create(&pool, first_repo, "Two", "", "two", None, None)
             .await
             .unwrap();
 
-        let cross_repo_relation = sqlx::query(
+        let cross_repo_relation = sqlx::query!(
             "INSERT INTO issue_relations (repo_id, low_number, high_number) VALUES (?, 1, 2)",
+            second_repo
         )
-        .bind(second_repo)
         .execute(&pool)
         .await;
         assert!(cross_repo_relation.is_err());
 
-        let cross_repo_pr = sqlx::query(
+        let cross_repo_pr = sqlx::query!(
             "INSERT INTO issue_pr_links (repo_id, issue_number, pr_number) VALUES (?, 1, 2)",
+            second_repo
         )
-        .bind(second_repo)
         .execute(&pool)
         .await;
         assert!(cross_repo_pr.is_err());
 
-        for (issue, pr) in [(1, 1), (1, 2), (2, 1)] {
-            crate::app::pr::link(&pool, first_repo, issue, pr)
+        let first_lease = crate::sql::issue::acquire_lease(&pool, first_repo, 1)
+            .await
+            .unwrap()
+            .unwrap();
+        let second_lease = crate::sql::issue::acquire_lease(&pool, first_repo, 2)
+            .await
+            .unwrap()
+            .unwrap();
+        for (issue, pr, lease) in [
+            (1, 1, first_lease.as_str()),
+            (1, 2, first_lease.as_str()),
+            (2, 1, second_lease.as_str()),
+        ] {
+            crate::app::pr::link(&pool, first_repo, issue, pr, Some(lease))
                 .await
                 .unwrap();
         }
-        let links: Vec<(i64, i64)> = sqlx::query_as(
-            "SELECT issue_number, pr_number FROM issue_pr_links WHERE repo_id = ? ORDER BY issue_number, pr_number",
+        let links: Vec<(i64, i64)> = sqlx::query!(
+            r#"SELECT issue_number AS "issue_number!: i64", pr_number AS "pr_number!: i64"
+               FROM issue_pr_links WHERE repo_id = ? ORDER BY issue_number, pr_number"#,
+            first_repo
         )
-        .bind(first_repo)
         .fetch_all(&pool)
         .await
-        .unwrap();
+        .unwrap()
+        .into_iter()
+        .map(|row| (row.issue_number, row.pr_number))
+        .collect();
         assert_eq!(links, vec![(1, 1), (1, 2), (2, 1)]);
 
-        crate::app::pr::link(&pool, first_repo, 1, 1).await.unwrap();
-        let duplicate_pair = sqlx::query(
+        crate::app::pr::link(&pool, first_repo, 1, 1, Some(&first_lease))
+            .await
+            .unwrap();
+        let duplicate_pair = sqlx::query!(
             "INSERT INTO issue_pr_links (repo_id, issue_number, pr_number) VALUES (?, 1, 1)",
+            first_repo
         )
-        .bind(first_repo)
         .execute(&pool)
         .await;
         assert!(duplicate_pair.is_err());
 
-        crate::app::pr::unlink(&pool, first_repo, 1, 1)
+        crate::app::pr::unlink(&pool, first_repo, 1, 1, Some(&first_lease))
             .await
             .unwrap();
-        let remaining: Vec<(i64, i64)> = sqlx::query_as(
-            "SELECT issue_number, pr_number FROM issue_pr_links WHERE repo_id = ? ORDER BY issue_number, pr_number",
+        let remaining: Vec<(i64, i64)> = sqlx::query!(
+            r#"SELECT issue_number AS "issue_number!: i64", pr_number AS "pr_number!: i64"
+               FROM issue_pr_links WHERE repo_id = ? ORDER BY issue_number, pr_number"#,
+            first_repo
         )
-        .bind(first_repo)
         .fetch_all(&pool)
         .await
-        .unwrap();
+        .unwrap()
+        .into_iter()
+        .map(|row| (row.issue_number, row.pr_number))
+        .collect();
         assert_eq!(remaining, vec![(1, 2), (2, 1)]);
 
         let failed =
-            crate::sql::pr::insert_linked(&pool, second_repo, "Orphan", "", "orphan", 999).await;
+            crate::sql::pr::insert_linked(&pool, second_repo, "Orphan", "", "orphan", 999, None)
+                .await;
         assert!(failed.is_err());
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM prs WHERE repo_id = ?")
-            .bind(second_repo)
+        let count = sqlx::query_scalar!("SELECT COUNT(*) FROM prs WHERE repo_id = ?", second_repo)
             .fetch_one(&pool)
             .await
             .unwrap();

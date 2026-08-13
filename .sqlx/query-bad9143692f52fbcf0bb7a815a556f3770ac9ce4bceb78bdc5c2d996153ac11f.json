@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT COUNT(*) FROM issues WHERE repo_id = ? AND number = ?",
+  "query": "SELECT COUNT(*) FROM prs WHERE repo_id = ?",
   "describe": {
     "columns": [
       {
@@ -10,11 +10,11 @@
       }
     ],
     "parameters": {
-      "Right": 2
+      "Right": 1
     },
     "nullable": [
       false
     ]
   },
-  "hash": "f7e4fd7cd28f381b8dae645b9f5e947cc58b3ea733cd89a653eca7022f916211"
+  "hash": "bad9143692f52fbcf0bb7a815a556f3770ac9ce4bceb78bdc5c2d996153ac11f"
 }

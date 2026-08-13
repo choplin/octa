@@ -93,6 +93,12 @@ impl Env {
     fn json(&self, args: &[&str]) -> Value {
         serde_json::from_str(self.ok(args).trim()).unwrap()
     }
+
+    fn ok_with_lease(&self, args: &[&str], lease: &str) -> String {
+        let mut leased_args = args.to_vec();
+        leased_args.extend(["--lease", lease]);
+        self.ok(&leased_args)
+    }
 }
 
 fn numbers_at(value: &Value, path: &[&str]) -> Vec<i64> {
@@ -265,8 +271,10 @@ fn repository_local_collaboration_runs_end_to_end_without_losing_context() {
         "--priority",
         "1",
     ]);
-    env.ok(&["issue", "add", "1", "--blocks", "2"]);
-    env.ok(&["issue", "add", "2", "--related", "3"]);
+    let foundation_lease = env.ok(&["issue", "lock", "1"]).trim().to_string();
+    let target_lease = env.ok(&["issue", "lock", "2"]).trim().to_string();
+    env.ok_with_lease(&["issue", "add", "1", "--blocks", "2"], &foundation_lease);
+    env.ok_with_lease(&["issue", "add", "2", "--related", "3"], &target_lease);
 
     let unblocked_before = env.json(&[
         "issue",
@@ -287,7 +295,7 @@ fn repository_local_collaboration_runs_end_to_end_without_losing_context() {
         "--body",
         "Foundation shipped as planned.",
     ]);
-    env.ok(&["issue", "set-state", "1", "Done"]);
+    env.ok_with_lease(&["issue", "set-state", "1", "Done"], &foundation_lease);
     let unblocked_after = env.json(&[
         "issue",
         "list",
@@ -304,17 +312,20 @@ fn repository_local_collaboration_runs_end_to_end_without_losing_context() {
 Where: src/tui and issue CLI entry point.\n\
 Acceptance: list and complete detail are visible; q exits cleanly.\n\
 Constraints: view-only; no mutation keys.";
-    env.ok(&[
-        "issue",
-        "set",
-        "2",
-        "--body",
-        groomed_body,
-        "--priority",
-        "1",
-    ]);
-    env.ok(&["issue", "add", "2", "--label", "client"]);
-    env.ok(&["issue", "set-state", "2", "Todo"]);
+    env.ok_with_lease(
+        &[
+            "issue",
+            "set",
+            "2",
+            "--body",
+            groomed_body,
+            "--priority",
+            "1",
+        ],
+        &target_lease,
+    );
+    env.ok_with_lease(&["issue", "add", "2", "--label", "client"], &target_lease);
+    env.ok_with_lease(&["issue", "set-state", "2", "Todo"], &target_lease);
 
     // The generic detail projection retains the complete issue context.
     let target = env.json(&["issue", "show", "2", "--json"]);
@@ -324,11 +335,10 @@ Constraints: view-only; no mutation keys.";
     assert_eq!(target["milestone"]["name"], "CLI beta");
     assert_eq!(target["blocked_by"], serde_json::json!([1]));
 
-    env.ok(&["issue", "lock", "2", "--as", "agent-a"]);
-    let contended = env.run(&["issue", "lock", "2", "--as", "agent-b"]);
+    let contended = env.run(&["issue", "lock", "2"]);
     assert!(!contended.status.success());
-    assert!(String::from_utf8_lossy(&contended.stderr).contains("agent-a"));
-    env.ok(&["issue", "set-state", "2", "In Progress"]);
+    assert!(String::from_utf8_lossy(&contended.stderr).contains("already leased"));
+    env.ok_with_lease(&["issue", "set-state", "2", "In Progress"], &target_lease);
 
     // A handoff is append-only and must not change the active state or lock.
     env.ok(&[
@@ -340,7 +350,7 @@ Constraints: view-only; no mutation keys.";
     ]);
     let handed_off = env.json(&["issue", "show", "2", "--json"]);
     assert_eq!(handed_off["state"], "In Progress");
-    assert_eq!(handed_off["locked_by"], "agent-a");
+    assert_eq!(handed_off["leased"], true);
     assert_eq!(
         handed_off["comments"][0]["body"],
         "Handoff: rendering is wired; next run the PTY smoke test."
@@ -366,33 +376,39 @@ Constraints: view-only; no mutation keys.";
     )
     .unwrap();
     assert_eq!(worktree_view["state"], "In Progress");
-    assert_eq!(worktree_view["locked_by"], "agent-a");
+    assert_eq!(worktree_view["leased"], true);
     assert_eq!(worktree_view["comments"], handed_off["comments"]);
 
     // PR creation and link are one transaction, and an Issue may carry
     // multiple implementation PRs without replacing an earlier link.
-    env.ok(&[
-        "pr",
-        "create",
-        "--title",
-        "Read-only issue browser",
-        "--branch",
-        "feat/issue-browser",
-        "--body",
-        "Implements the groomed deliverable.",
-        "--issue",
-        "2",
-    ]);
-    env.ok(&[
-        "pr",
-        "create",
-        "--title",
-        "Follow-up issue browser fixes",
-        "--branch",
-        "feat/issue-browser-follow-up",
-        "--issue",
-        "2",
-    ]);
+    env.ok_with_lease(
+        &[
+            "pr",
+            "create",
+            "--title",
+            "Read-only issue browser",
+            "--branch",
+            "feat/issue-browser",
+            "--body",
+            "Implements the groomed deliverable.",
+            "--issue",
+            "2",
+        ],
+        &target_lease,
+    );
+    env.ok_with_lease(
+        &[
+            "pr",
+            "create",
+            "--title",
+            "Follow-up issue browser fixes",
+            "--branch",
+            "feat/issue-browser-follow-up",
+            "--issue",
+            "2",
+        ],
+        &target_lease,
+    );
     let prs = env.json(&["pr", "list", "--state", "all", "--json"]);
     assert_eq!(prs.as_array().unwrap().len(), 2);
     assert_eq!(prs[0]["branch"], "feat/issue-browser");
@@ -412,11 +428,11 @@ Constraints: view-only; no mutation keys.";
         "feat/issue-browser-follow-up"
     );
     assert_eq!(detail_json["comments"].as_array().unwrap().len(), 1);
-    assert_eq!(detail_json["locked_by"], "agent-a");
+    assert_eq!(detail_json["leased"], true);
     let detail_text = env.ok(&["issue", "show", "2"]);
     for expected in [
         "milestone: CLI beta",
-        "locked by: agent-a",
+        "leased: yes",
         "labels: client",
         "blocked by: #1",
         "related: #3",
@@ -439,20 +455,20 @@ Constraints: view-only; no mutation keys.";
         "--body",
         "Completion: followed the groomed plan without deviation; PR is ready.",
     ]);
-    env.ok(&["issue", "set-state", "2", "In Review"]);
+    env.ok_with_lease(&["issue", "set-state", "2", "In Review"], &target_lease);
     let reviewing = env.json(&["issue", "show", "2", "--json"]);
     assert_eq!(reviewing["state"], "In Review");
     assert_eq!(reviewing["comments"].as_array().unwrap().len(), 2);
     env.ok(&["issue", "comment", "2", "--body", "Merged and shipped."]);
-    env.ok(&["issue", "set-state", "2", "Done"]);
+    env.ok_with_lease(&["issue", "set-state", "2", "Done"], &target_lease);
 
     let project = env.json(&["project", "show", "Workflow parity", "--json"]);
     assert_eq!(project["tally"]["completed"], 2);
     assert_eq!(project["tally"]["unstarted"], 1);
     assert_eq!(project["tally"]["total"], 3);
 
-    env.ok(&["issue", "unlock", "2", "--as", "agent-a"]);
-    assert!(env.json(&["issue", "show", "2", "--json"])["locked_by"].is_null());
+    env.ok(&["issue", "unlock", "2", "--lease", &target_lease]);
+    assert_eq!(env.json(&["issue", "show", "2", "--json"])["leased"], false);
 
     // A different git repository may use the same local issue number and the
     // same Project name without leaking either object across repository scope.

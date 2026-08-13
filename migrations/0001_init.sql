@@ -26,11 +26,19 @@ CREATE TABLE issues (
     body       TEXT NOT NULL DEFAULT '',
     state      TEXT NOT NULL,
     priority   INTEGER NOT NULL DEFAULT 0 CHECK (priority BETWEEN 0 AND 4),
-    locked_by  TEXT,
-    locked_at  TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (repo_id, number)
+);
+
+CREATE TABLE issue_leases (
+    repo_id      INTEGER NOT NULL,
+    issue_number INTEGER NOT NULL,
+    lease_id     TEXT NOT NULL UNIQUE,
+    acquired_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (repo_id, issue_number),
+    FOREIGN KEY (repo_id, issue_number)
+        REFERENCES issues(repo_id, number) ON DELETE CASCADE
 );
 
 CREATE TABLE comments (

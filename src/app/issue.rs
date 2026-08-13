@@ -1,7 +1,7 @@
 //! Issue workflows: validation, policy, and composition of the SQL repository.
 
 use crate::domain::{
-    issue::{validate_priority, Issue, IssueDetail, IssueState, LockOutcome, StatusType},
+    issue::{validate_priority, Issue, IssueDetail, IssueState, LeaseOutcome, StatusType},
     StateFilter,
 };
 use anyhow::{anyhow, bail, Result};
@@ -248,30 +248,56 @@ pub async fn detail(pool: &SqlitePool, repo: i64, number: i64) -> Result<IssueDe
     })
 }
 
-pub async fn add_relation(pool: &SqlitePool, repo: i64, a: i64, b: i64) -> Result<()> {
+pub async fn add_relation(
+    pool: &SqlitePool,
+    repo: i64,
+    a: i64,
+    b: i64,
+    lease: Option<&str>,
+) -> Result<()> {
     if a == b {
         bail!("an issue cannot be related to itself");
     }
     require(pool, repo, a).await?;
     require(pool, repo, b).await?;
-    crate::sql::issue::insert_relation(pool, repo, a, b).await
+    let mut tx = crate::sql::issue::begin_lease_mutation(pool, repo, a, lease).await?;
+    crate::sql::issue::insert_relation(&mut tx, repo, a, b).await?;
+    tx.commit().await?;
+    Ok(())
 }
 
-pub async fn remove_relation(pool: &SqlitePool, repo: i64, a: i64, b: i64) -> Result<()> {
+pub async fn remove_relation(
+    pool: &SqlitePool,
+    repo: i64,
+    a: i64,
+    b: i64,
+    lease: Option<&str>,
+) -> Result<()> {
     if a == b {
         bail!("an issue cannot be related to itself");
     }
-    crate::sql::issue::remove_relation(pool, repo, a, b).await
+    let mut tx = crate::sql::issue::begin_lease_mutation(pool, repo, a, lease).await?;
+    crate::sql::issue::remove_relation(&mut tx, repo, a, b).await?;
+    tx.commit().await?;
+    Ok(())
 }
 
-pub async fn set_project(pool: &SqlitePool, repo: i64, number: i64, reference: &str) -> Result<()> {
+pub async fn set_project(
+    pool: &SqlitePool,
+    repo: i64,
+    number: i64,
+    reference: &str,
+    lease: Option<&str>,
+) -> Result<()> {
     let issue = require(pool, repo, number).await?;
     let project = crate::app::project::resolve(pool, repo, reference).await?;
+    let mut tx = crate::sql::issue::begin_lease_mutation(pool, repo, number, lease).await?;
     if issue
         .project
         .as_ref()
         .is_some_and(|current| current.id == project.id)
     {
+        tx.commit().await?;
         return Ok(());
     }
     if let Some(milestone) = &issue.milestone {
@@ -280,11 +306,17 @@ pub async fn set_project(pool: &SqlitePool, repo: i64, number: i64, reference: &
             milestone.name
         );
     }
-    crate::sql::issue::set_project(pool, repo, number, project.id).await?;
-    crate::sql::issue::touch(pool, repo, number).await
+    crate::sql::issue::set_project_tx(&mut tx, repo, number, project.id).await?;
+    tx.commit().await?;
+    Ok(())
 }
 
-pub async fn clear_project(pool: &SqlitePool, repo: i64, number: i64) -> Result<()> {
+pub async fn clear_project(
+    pool: &SqlitePool,
+    repo: i64,
+    number: i64,
+    lease: Option<&str>,
+) -> Result<()> {
     let issue = require(pool, repo, number).await?;
     if let Some(milestone) = &issue.milestone {
         bail!(
@@ -292,8 +324,10 @@ pub async fn clear_project(pool: &SqlitePool, repo: i64, number: i64) -> Result<
             milestone.name
         );
     }
-    crate::sql::issue::clear_project(pool, repo, number).await?;
-    crate::sql::issue::touch(pool, repo, number).await
+    let mut tx = crate::sql::issue::begin_lease_mutation(pool, repo, number, lease).await?;
+    crate::sql::issue::clear_project_tx(&mut tx, repo, number).await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 pub async fn set_milestone(
@@ -301,23 +335,41 @@ pub async fn set_milestone(
     repo: i64,
     number: i64,
     reference: &str,
+    lease: Option<&str>,
 ) -> Result<()> {
     let issue = require(pool, repo, number).await?;
     let project = issue
         .project
         .ok_or_else(|| anyhow!("issue #{number} needs a project before assigning a milestone"))?;
     let milestone = crate::app::milestone::resolve(pool, repo, project.id, reference).await?;
-    crate::sql::milestone::set_issue(pool, repo, number, project.id, milestone.id).await?;
-    crate::sql::issue::touch(pool, repo, number).await
+    let mut tx = crate::sql::issue::begin_lease_mutation(pool, repo, number, lease).await?;
+    crate::sql::milestone::set_issue_tx(&mut tx, repo, number, project.id, milestone.id).await?;
+    crate::sql::issue::touch_tx(&mut tx, repo, number).await?;
+    tx.commit().await?;
+    Ok(())
 }
 
-pub async fn clear_milestone(pool: &SqlitePool, repo: i64, number: i64) -> Result<()> {
+pub async fn clear_milestone(
+    pool: &SqlitePool,
+    repo: i64,
+    number: i64,
+    lease: Option<&str>,
+) -> Result<()> {
     require(pool, repo, number).await?;
-    crate::sql::milestone::clear_issue(pool, repo, number).await?;
-    crate::sql::issue::touch(pool, repo, number).await
+    let mut tx = crate::sql::issue::begin_lease_mutation(pool, repo, number, lease).await?;
+    crate::sql::milestone::clear_issue_tx(&mut tx, repo, number).await?;
+    crate::sql::issue::touch_tx(&mut tx, repo, number).await?;
+    tx.commit().await?;
+    Ok(())
 }
 
-pub async fn set_parent(pool: &SqlitePool, repo: i64, child: i64, parent: i64) -> Result<()> {
+pub async fn set_parent(
+    pool: &SqlitePool,
+    repo: i64,
+    child: i64,
+    parent: i64,
+    lease: Option<&str>,
+) -> Result<()> {
     if child == parent {
         bail!("an issue cannot be its own parent");
     }
@@ -328,22 +380,36 @@ pub async fn set_parent(pool: &SqlitePool, repo: i64, child: i64, parent: i64) -
         .is_none()
         .then(|| parent_issue.project.as_ref().map(|project| project.id))
         .flatten();
-    crate::sql::issue::set_parent_transactional(pool, repo, child, parent, inherited_project)
-        .await
-        .map_err(|error| {
-            if error.to_string().contains("issue parent cycle") {
-                anyhow!("setting parent would create an issue parent cycle")
-            } else {
-                error
-            }
-        })?;
+    crate::sql::issue::set_parent_transactional(
+        pool,
+        repo,
+        child,
+        parent,
+        inherited_project,
+        lease,
+    )
+    .await
+    .map_err(|error| {
+        if error.to_string().contains("issue parent cycle") {
+            anyhow!("setting parent would create an issue parent cycle")
+        } else {
+            error
+        }
+    })?;
     Ok(())
 }
 
-pub async fn clear_parent(pool: &SqlitePool, repo: i64, child: i64) -> Result<()> {
+pub async fn clear_parent(
+    pool: &SqlitePool,
+    repo: i64,
+    child: i64,
+    lease: Option<&str>,
+) -> Result<()> {
     require(pool, repo, child).await?;
-    crate::sql::issue::clear_parent(pool, repo, child).await?;
-    crate::sql::issue::touch(pool, repo, child).await
+    let mut tx = crate::sql::issue::begin_lease_mutation(pool, repo, child, lease).await?;
+    crate::sql::issue::clear_parent_tx(&mut tx, repo, child).await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 pub async fn comment(pool: &SqlitePool, repo: i64, number: i64, body: &str) -> Result<()> {
@@ -352,12 +418,21 @@ pub async fn comment(pool: &SqlitePool, repo: i64, number: i64, body: &str) -> R
     crate::sql::issue::touch(pool, repo, number).await
 }
 
-pub async fn set_state(pool: &SqlitePool, repo: i64, number: i64, state: &str) -> Result<()> {
+pub async fn set_state(
+    pool: &SqlitePool,
+    repo: i64,
+    number: i64,
+    state: &str,
+    lease: Option<&str>,
+) -> Result<()> {
     require(pool, repo, number).await?;
     if !crate::sql::issue::state_exists(pool, repo, state).await? {
         bail!("unknown state {state:?}; create it first with `octa config state create`");
     }
-    crate::sql::issue::update_state(pool, repo, number, state).await
+    let mut tx = crate::sql::issue::begin_lease_mutation(pool, repo, number, lease).await?;
+    crate::sql::issue::update_state(&mut tx, repo, number, state).await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 pub async fn edit(
@@ -367,57 +442,59 @@ pub async fn edit(
     title: Option<&str>,
     body: Option<&str>,
     priority: Option<i64>,
+    lease: Option<&str>,
 ) -> Result<()> {
     require(pool, repo, number).await?;
     if title.is_none() && body.is_none() && priority.is_none() {
         bail!("nothing to update: pass --title, --body and/or --priority");
     }
-    if let Some(title) = title {
-        crate::sql::issue::update_title(pool, repo, number, title).await?;
-    }
-    if let Some(body) = body {
-        crate::sql::issue::update_body(pool, repo, number, body).await?;
-    }
-    if let Some(priority) = priority {
-        crate::sql::issue::update_priority(pool, repo, number, validate_priority(priority)?)
-            .await?;
-    }
-    crate::sql::issue::touch(pool, repo, number).await
+    let priority = priority.map(validate_priority).transpose()?;
+    let mut tx = crate::sql::issue::begin_lease_mutation(pool, repo, number, lease).await?;
+    crate::sql::issue::edit(&mut tx, repo, number, title, body, priority).await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 pub async fn add_dependency(
     pool: &SqlitePool,
     repo: i64,
+    leased_issue: i64,
     blocker: i64,
     blocked: i64,
+    lease: Option<&str>,
 ) -> Result<()> {
     if blocker == blocked {
         bail!("an issue cannot block itself");
     }
     require(pool, repo, blocker).await?;
     require(pool, repo, blocked).await?;
-    crate::sql::issue::insert_dependency(pool, repo, blocker, blocked).await
+    let mut tx = crate::sql::issue::begin_lease_mutation(pool, repo, leased_issue, lease).await?;
+    crate::sql::issue::insert_dependency(&mut tx, repo, blocker, blocked).await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 pub async fn remove_dependency(
     pool: &SqlitePool,
     repo: i64,
+    leased_issue: i64,
     blocker: i64,
     blocked: i64,
+    lease: Option<&str>,
 ) -> Result<()> {
-    crate::sql::issue::remove_dependency(pool, repo, blocker, blocked).await
+    require(pool, repo, blocker).await?;
+    require(pool, repo, blocked).await?;
+    let mut tx = crate::sql::issue::begin_lease_mutation(pool, repo, leased_issue, lease).await?;
+    crate::sql::issue::remove_dependency(&mut tx, repo, blocker, blocked).await?;
+    tx.commit().await?;
+    Ok(())
 }
 
-pub async fn lock(pool: &SqlitePool, repo: i64, number: i64, holder: &str) -> Result<LockOutcome> {
+pub async fn lock(pool: &SqlitePool, repo: i64, number: i64) -> Result<LeaseOutcome> {
     require(pool, repo, number).await?;
-    if crate::sql::issue::try_lock(pool, repo, number, holder).await? {
-        Ok(LockOutcome::Acquired)
-    } else {
-        Ok(LockOutcome::AlreadyHeld(
-            crate::sql::issue::locked_by(pool, repo, number)
-                .await?
-                .unwrap_or_else(|| "unknown".to_string()),
-        ))
+    match crate::sql::issue::acquire_lease(pool, repo, number).await? {
+        Some(lease) => Ok(LeaseOutcome::Acquired(lease)),
+        None => Ok(LeaseOutcome::AlreadyLeased),
     }
 }
 
@@ -425,11 +502,11 @@ pub async fn unlock(
     pool: &SqlitePool,
     repo: i64,
     number: i64,
-    holder: &str,
+    lease: Option<&str>,
     force: bool,
 ) -> Result<bool> {
     require(pool, repo, number).await?;
-    crate::sql::issue::release_lock(pool, repo, number, (!force).then_some(holder)).await
+    crate::sql::issue::release_lease(pool, repo, number, lease, force).await
 }
 
 pub async fn list_states(pool: &SqlitePool, repo: i64) -> Result<Vec<IssueState>> {
@@ -484,7 +561,7 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
-        sqlx::query("INSERT INTO repos (id, identity_key, name) VALUES (1, 'fixture', 'fixture')")
+        sqlx::query!("INSERT INTO repos (id, identity_key, name) VALUES (1, 'fixture', 'fixture')")
             .execute(&pool)
             .await
             .unwrap();
@@ -495,20 +572,21 @@ mod tests {
     async fn failed_parent_cycle_rolls_back_project_inheritance() {
         let pool = fixture_pool().await;
         for number in [1_i64, 2] {
-            sqlx::query(
+            let title = format!("issue {number}");
+            sqlx::query!(
                 "INSERT INTO issues (repo_id, number, title, state) VALUES (1, ?, ?, 'open')",
+                number,
+                title
             )
-            .bind(number)
-            .bind(format!("issue {number}"))
             .execute(&pool)
             .await
             .unwrap();
         }
-        sqlx::query("INSERT INTO projects (repo_id, id, name) VALUES (1, 1, 'parent project')")
+        sqlx::query!("INSERT INTO projects (repo_id, id, name) VALUES (1, 1, 'parent project')")
             .execute(&pool)
             .await
             .unwrap();
-        sqlx::query(
+        sqlx::query!(
             "INSERT INTO issue_projects (repo_id, issue_number, project_id) VALUES (1, 2, 1)",
         )
         .execute(&pool)
@@ -516,17 +594,21 @@ mod tests {
         .unwrap();
         // Raw fixture deliberately models legacy/inconsistent data: #2 is
         // already below #1, but only #2 has a project.
-        sqlx::query(
+        sqlx::query!(
             "INSERT INTO issue_parents (repo_id, child_number, parent_number) VALUES (1, 2, 1)",
         )
         .execute(&pool)
         .await
         .unwrap();
 
-        let error = set_parent(&pool, 1, 1, 2).await.unwrap_err();
+        let lease = crate::sql::issue::acquire_lease(&pool, 1, 1)
+            .await
+            .unwrap()
+            .unwrap();
+        let error = set_parent(&pool, 1, 1, 2, Some(&lease)).await.unwrap_err();
         assert!(error.to_string().contains("cycle"));
-        let inherited: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM issue_projects WHERE repo_id = 1 AND issue_number = 1",
+        let inherited = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM issue_projects WHERE repo_id = 1 AND issue_number = 1"
         )
         .fetch_one(&pool)
         .await
@@ -537,27 +619,30 @@ mod tests {
     #[tokio::test]
     async fn milestone_schema_rejects_cross_project_issue_assignment() {
         let pool = fixture_pool().await;
-        sqlx::query(
+        sqlx::query!(
             "INSERT INTO issues (repo_id, number, title, state) VALUES (1, 1, 'issue', 'open')",
         )
         .execute(&pool)
         .await
         .unwrap();
         for id in [1_i64, 2] {
-            sqlx::query("INSERT INTO projects (repo_id, id, name) VALUES (1, ?, ?)")
-                .bind(id)
-                .bind(format!("project {id}"))
-                .execute(&pool)
-                .await
-                .unwrap();
+            let name = format!("project {id}");
+            sqlx::query!(
+                "INSERT INTO projects (repo_id, id, name) VALUES (1, ?, ?)",
+                id,
+                name
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
         }
-        sqlx::query(
+        sqlx::query!(
             "INSERT INTO issue_projects (repo_id, issue_number, project_id) VALUES (1, 1, 1)",
         )
         .execute(&pool)
         .await
         .unwrap();
-        sqlx::query(
+        sqlx::query!(
             "INSERT INTO project_milestones \
              (repo_id, project_id, id, position, name) VALUES (1, 2, 1, 0, 'other')",
         )
@@ -565,7 +650,7 @@ mod tests {
         .await
         .unwrap();
 
-        let error = sqlx::query(
+        let error = sqlx::query!(
             "INSERT INTO issue_milestones \
              (repo_id, issue_number, project_id, milestone_id) VALUES (1, 1, 2, 1)",
         )

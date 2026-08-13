@@ -6,10 +6,9 @@ use crate::domain::milestone::MilestoneRef;
 use crate::domain::Comment;
 use crate::domain::{pr::PrRef, project::ProjectRef};
 use anyhow::Result;
-use sqlx::{Acquire, FromRow, SqlitePool};
+use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::collections::HashSet;
 
-#[derive(FromRow)]
 struct IssueListRow {
     repo: String,
     number: i64,
@@ -22,7 +21,7 @@ struct IssueListRow {
     project_name: Option<String>,
     milestone_id: Option<i64>,
     milestone_name: Option<String>,
-    locked_by: Option<String>,
+    leased: i64,
     created_at: String,
     updated_at: String,
     is_terminal: i64,
@@ -53,18 +52,24 @@ pub async fn insert(
 }
 
 pub async fn get(pool: &SqlitePool, repo: i64, number: i64) -> Result<Option<Issue>> {
-    let row = sqlx::query_as::<_, IssueListRow>(
+    let row = sqlx::query_as!(
+        IssueListRow,
         r#"
         SELECT
-            r.name AS repo,
-            i.number, i.title, i.body, i.state,
-            COALESCE(s.status_type, 'unstarted') AS status_type,
-            i.priority,
-            p.id AS project_id, p.name AS project_name,
-            m.id AS milestone_id, m.name AS milestone_name,
-            i.locked_by, i.created_at, i.updated_at,
-            COALESCE(s.is_terminal, 0) AS is_terminal,
-            COALESCE(s.position, 0) AS state_position
+            r.name AS "repo!: String",
+            i.number AS "number!: i64", i.title AS "title!: String",
+            i.body AS "body!: String", i.state AS "state!: String",
+            COALESCE(s.status_type, 'unstarted') AS "status_type!: String",
+            i.priority AS "priority!: i64",
+            p.id AS "project_id?: i64", p.name AS "project_name?: String",
+            m.id AS "milestone_id?: i64", m.name AS "milestone_name?: String",
+            EXISTS (
+                SELECT 1 FROM issue_leases l
+                WHERE l.repo_id = i.repo_id AND l.issue_number = i.number
+            ) AS "leased!: i64",
+            i.created_at AS "created_at!: String", i.updated_at AS "updated_at!: String",
+            COALESCE(s.is_terminal, 0) AS "is_terminal!: i64",
+            COALESCE(s.position, 0) AS "state_position!: i64"
         FROM
             issues i
         JOIN
@@ -86,9 +91,9 @@ pub async fn get(pool: &SqlitePool, repo: i64, number: i64) -> Result<Option<Iss
         AND
             i.number = ?
     "#,
+        repo,
+        number
     )
-    .bind(repo)
-    .bind(number)
     .fetch_optional(pool)
     .await?;
     Ok(row.map(|row| into_entry(row).issue))
@@ -97,18 +102,24 @@ pub async fn get(pool: &SqlitePool, repo: i64, number: i64) -> Result<Option<Iss
 pub async fn list_entries(pool: &SqlitePool, repo: Option<i64>) -> Result<Vec<IssueListEntry>> {
     let rows: Vec<IssueListRow> = match repo {
         Some(repo) => {
-            sqlx::query_as::<_, IssueListRow>(
+            sqlx::query_as!(
+                IssueListRow,
                 r#"
             SELECT
-                r.name AS repo,
-                i.number, i.title, i.body, i.state,
-                COALESCE(s.status_type, 'unstarted') AS status_type,
-                i.priority,
-                p.id AS project_id, p.name AS project_name,
-                m.id AS milestone_id, m.name AS milestone_name,
-                i.locked_by, i.created_at, i.updated_at,
-                COALESCE(s.is_terminal, 0) AS is_terminal,
-                COALESCE(s.position, 0) AS state_position
+                r.name AS "repo!: String",
+                i.number AS "number!: i64", i.title AS "title!: String",
+                i.body AS "body!: String", i.state AS "state!: String",
+                COALESCE(s.status_type, 'unstarted') AS "status_type!: String",
+                i.priority AS "priority!: i64",
+                p.id AS "project_id?: i64", p.name AS "project_name?: String",
+                m.id AS "milestone_id?: i64", m.name AS "milestone_name?: String",
+                EXISTS (
+                    SELECT 1 FROM issue_leases l
+                    WHERE l.repo_id = i.repo_id AND l.issue_number = i.number
+                ) AS "leased!: i64",
+                i.created_at AS "created_at!: String", i.updated_at AS "updated_at!: String",
+                COALESCE(s.is_terminal, 0) AS "is_terminal!: i64",
+                COALESCE(s.position, 0) AS "state_position!: i64"
             FROM
                 issues i
             JOIN
@@ -130,24 +141,30 @@ pub async fn list_entries(pool: &SqlitePool, repo: Option<i64>) -> Result<Vec<Is
             ORDER BY
                 i.number
         "#,
+                repo
             )
-            .bind(repo)
             .fetch_all(pool)
             .await?
         }
         None => {
-            sqlx::query_as::<_, IssueListRow>(
+            sqlx::query_as!(
+                IssueListRow,
                 r#"
             SELECT
-                r.name AS repo,
-                i.number, i.title, i.body, i.state,
-                COALESCE(s.status_type, 'unstarted') AS status_type,
-                i.priority,
-                p.id AS project_id, p.name AS project_name,
-                m.id AS milestone_id, m.name AS milestone_name,
-                i.locked_by, i.created_at, i.updated_at,
-                COALESCE(s.is_terminal, 0) AS is_terminal,
-                COALESCE(s.position, 0) AS state_position
+                r.name AS "repo!: String",
+                i.number AS "number!: i64", i.title AS "title!: String",
+                i.body AS "body!: String", i.state AS "state!: String",
+                COALESCE(s.status_type, 'unstarted') AS "status_type!: String",
+                i.priority AS "priority!: i64",
+                p.id AS "project_id?: i64", p.name AS "project_name?: String",
+                m.id AS "milestone_id?: i64", m.name AS "milestone_name?: String",
+                EXISTS (
+                    SELECT 1 FROM issue_leases l
+                    WHERE l.repo_id = i.repo_id AND l.issue_number = i.number
+                ) AS "leased!: i64",
+                i.created_at AS "created_at!: String", i.updated_at AS "updated_at!: String",
+                COALESCE(s.is_terminal, 0) AS "is_terminal!: i64",
+                COALESCE(s.position, 0) AS "state_position!: i64"
             FROM
                 issues i
             JOIN
@@ -193,7 +210,7 @@ fn into_entry(row: IssueListRow) -> IssueListEntry {
                 .milestone_id
                 .zip(row.milestone_name)
                 .map(|(id, name)| MilestoneRef { id, name }),
-            locked_by: row.locked_by,
+            leased: row.leased != 0,
             created_at: row.created_at,
             updated_at: row.updated_at,
         },
@@ -231,69 +248,82 @@ pub async fn blocked_by(pool: &SqlitePool, repo: i64, number: i64) -> Result<Vec
 }
 
 pub async fn related(pool: &SqlitePool, repo: i64, number: i64) -> Result<Vec<i64>> {
-    Ok(sqlx::query_scalar::<_, i64>(
+    Ok(sqlx::query_scalar!(
         r#"SELECT CASE
                WHEN low_number = ? THEN high_number
                ELSE low_number
-           END
+           END AS "number!: i64"
            FROM issue_relations
            WHERE repo_id = ? AND (low_number = ? OR high_number = ?)
            ORDER BY 1"#,
+        number,
+        repo,
+        number,
+        number
     )
-    .bind(number)
-    .bind(repo)
-    .bind(number)
-    .bind(number)
     .fetch_all(pool)
     .await?)
 }
 
 pub async fn linked_prs(pool: &SqlitePool, repo: i64, number: i64) -> Result<Vec<PrRef>> {
-    Ok(sqlx::query_as::<_, (i64, String, String, String)>(
-        r#"SELECT p.number, p.title, p.branch, p.state
+    Ok(sqlx::query!(
+        r#"SELECT p.number AS "number!: i64",
+                  p.title AS "title!: String",
+                  p.branch AS "branch!: String",
+                  p.state AS "state!: String"
            FROM issue_pr_links l
            JOIN prs p ON p.repo_id = l.repo_id AND p.number = l.pr_number
            WHERE l.repo_id = ? AND l.issue_number = ?
            ORDER BY p.number"#,
+        repo,
+        number
     )
-    .bind(repo)
-    .bind(number)
     .fetch_all(pool)
     .await?
     .into_iter()
-    .map(|(number, title, branch, state)| PrRef {
-        number,
-        title,
-        branch,
-        state,
+    .map(|row| PrRef {
+        number: row.number,
+        title: row.title,
+        branch: row.branch,
+        state: row.state,
     })
     .collect())
 }
 
-pub async fn insert_relation(pool: &SqlitePool, repo: i64, a: i64, b: i64) -> Result<()> {
+pub async fn insert_relation(
+    tx: &mut Transaction<'_, Sqlite>,
+    repo: i64,
+    a: i64,
+    b: i64,
+) -> Result<()> {
     let (low, high) = if a < b { (a, b) } else { (b, a) };
-    sqlx::query(
+    sqlx::query!(
         r#"INSERT INTO issue_relations (repo_id, low_number, high_number)
            VALUES (?, ?, ?)
            ON CONFLICT(repo_id, low_number, high_number) DO NOTHING"#,
+        repo,
+        low,
+        high
     )
-    .bind(repo)
-    .bind(low)
-    .bind(high)
-    .execute(pool)
+    .execute(&mut **tx)
     .await?;
     Ok(())
 }
 
-pub async fn remove_relation(pool: &SqlitePool, repo: i64, a: i64, b: i64) -> Result<()> {
+pub async fn remove_relation(
+    tx: &mut Transaction<'_, Sqlite>,
+    repo: i64,
+    a: i64,
+    b: i64,
+) -> Result<()> {
     let (low, high) = if a < b { (a, b) } else { (b, a) };
-    sqlx::query(
+    sqlx::query!(
         "DELETE FROM issue_relations WHERE repo_id = ? AND low_number = ? AND high_number = ?",
+        repo,
+        low,
+        high
     )
-    .bind(repo)
-    .bind(low)
-    .bind(high)
-    .execute(pool)
+    .execute(&mut **tx)
     .await?;
     Ok(())
 }
@@ -341,15 +371,38 @@ pub async fn set_project(pool: &SqlitePool, repo: i64, number: i64, project_id: 
     Ok(())
 }
 
-pub async fn clear_project(pool: &SqlitePool, repo: i64, number: i64) -> Result<()> {
+pub async fn set_project_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    repo: i64,
+    number: i64,
+    project_id: i64,
+) -> Result<()> {
+    sqlx::query!(
+        r#"INSERT INTO issue_projects (repo_id, issue_number, project_id)
+           VALUES (?, ?, ?)
+           ON CONFLICT(repo_id, issue_number) DO UPDATE SET project_id = excluded.project_id"#,
+        repo,
+        number,
+        project_id
+    )
+    .execute(&mut **tx)
+    .await?;
+    touch_tx(tx, repo, number).await
+}
+
+pub async fn clear_project_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    repo: i64,
+    number: i64,
+) -> Result<()> {
     sqlx::query!(
         "DELETE FROM issue_projects WHERE repo_id = ? AND issue_number = ?",
         repo,
         number
     )
-    .execute(pool)
+    .execute(&mut **tx)
     .await?;
-    Ok(())
+    touch_tx(tx, repo, number).await
 }
 
 pub async fn set_parent(pool: &SqlitePool, repo: i64, child: i64, parent: i64) -> Result<()> {
@@ -375,49 +428,55 @@ pub async fn set_parent_transactional(
     child: i64,
     parent: i64,
     inherited_project: Option<i64>,
+    lease: Option<&str>,
 ) -> Result<()> {
-    let mut connection = pool.acquire().await?;
-    let mut tx = connection.begin().await?;
+    let mut tx = begin_lease_mutation(pool, repo, child, lease).await?;
     if let Some(project_id) = inherited_project {
-        sqlx::query(
+        sqlx::query!(
             r#"INSERT INTO issue_projects (repo_id, issue_number, project_id)
                VALUES (?, ?, ?)
                ON CONFLICT(repo_id, issue_number) DO UPDATE SET project_id = excluded.project_id"#,
+            repo,
+            child,
+            project_id
         )
-        .bind(repo)
-        .bind(child)
-        .bind(project_id)
         .execute(&mut *tx)
         .await?;
     }
-    sqlx::query(
+    sqlx::query!(
         r#"INSERT INTO issue_parents (repo_id, child_number, parent_number)
            VALUES (?, ?, ?)
            ON CONFLICT(repo_id, child_number) DO UPDATE SET parent_number = excluded.parent_number"#,
+        repo,
+        child,
+        parent
     )
-    .bind(repo)
-    .bind(child)
-    .bind(parent)
     .execute(&mut *tx)
     .await?;
-    sqlx::query("UPDATE issues SET updated_at = datetime('now') WHERE repo_id = ? AND number = ?")
-        .bind(repo)
-        .bind(child)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query!(
+        "UPDATE issues SET updated_at = datetime('now') WHERE repo_id = ? AND number = ?",
+        repo,
+        child
+    )
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
     Ok(())
 }
 
-pub async fn clear_parent(pool: &SqlitePool, repo: i64, child: i64) -> Result<()> {
+pub async fn clear_parent_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    repo: i64,
+    child: i64,
+) -> Result<()> {
     sqlx::query!(
         "DELETE FROM issue_parents WHERE repo_id = ? AND child_number = ?",
         repo,
         child
     )
-    .execute(pool)
+    .execute(&mut **tx)
     .await?;
-    Ok(())
+    touch_tx(tx, repo, child).await
 }
 
 pub async fn insert_comment(pool: &SqlitePool, repo: i64, number: i64, body: &str) -> Result<()> {
@@ -443,50 +502,62 @@ pub async fn state_exists(pool: &SqlitePool, repo: i64, state: &str) -> Result<b
         != 0)
 }
 
-pub async fn update_state(pool: &SqlitePool, repo: i64, number: i64, state: &str) -> Result<()> {
-    sqlx::query!("UPDATE issues SET state = ?, updated_at = datetime('now') WHERE repo_id = ? AND number = ?", state, repo, number).execute(pool).await?;
-    Ok(())
-}
-
-pub async fn update_title(pool: &SqlitePool, repo: i64, number: i64, title: &str) -> Result<()> {
-    sqlx::query!(
-        "UPDATE issues SET title = ? WHERE repo_id = ? AND number = ?",
-        title,
-        repo,
-        number
-    )
-    .execute(pool)
-    .await?;
-    Ok(())
-}
-
-pub async fn update_body(pool: &SqlitePool, repo: i64, number: i64, body: &str) -> Result<()> {
-    sqlx::query!(
-        "UPDATE issues SET body = ? WHERE repo_id = ? AND number = ?",
-        body,
-        repo,
-        number
-    )
-    .execute(pool)
-    .await?;
-    Ok(())
-}
-
-pub async fn update_priority(
-    pool: &SqlitePool,
+pub async fn update_state(
+    tx: &mut Transaction<'_, Sqlite>,
     repo: i64,
     number: i64,
-    priority: i64,
+    state: &str,
 ) -> Result<()> {
     sqlx::query!(
-        "UPDATE issues SET priority = ? WHERE repo_id = ? AND number = ?",
-        priority,
+        "UPDATE issues SET state = ?, updated_at = datetime('now') WHERE repo_id = ? AND number = ?",
+        state,
         repo,
         number
     )
-    .execute(pool)
-    .await?;
+        .execute(&mut **tx)
+        .await?;
     Ok(())
+}
+
+pub async fn edit(
+    tx: &mut Transaction<'_, Sqlite>,
+    repo: i64,
+    number: i64,
+    title: Option<&str>,
+    body: Option<&str>,
+    priority: Option<i64>,
+) -> Result<()> {
+    if let Some(title) = title {
+        sqlx::query!(
+            "UPDATE issues SET title = ? WHERE repo_id = ? AND number = ?",
+            title,
+            repo,
+            number
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
+    if let Some(body) = body {
+        sqlx::query!(
+            "UPDATE issues SET body = ? WHERE repo_id = ? AND number = ?",
+            body,
+            repo,
+            number
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
+    if let Some(priority) = priority {
+        sqlx::query!(
+            "UPDATE issues SET priority = ? WHERE repo_id = ? AND number = ?",
+            priority,
+            repo,
+            number
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
+    touch_tx(tx, repo, number).await
 }
 
 pub async fn touch(pool: &SqlitePool, repo: i64, number: i64) -> Result<()> {
@@ -500,18 +571,36 @@ pub async fn touch(pool: &SqlitePool, repo: i64, number: i64) -> Result<()> {
     Ok(())
 }
 
+pub async fn touch_tx(tx: &mut Transaction<'_, Sqlite>, repo: i64, number: i64) -> Result<()> {
+    sqlx::query!(
+        "UPDATE issues SET updated_at = datetime('now') WHERE repo_id = ? AND number = ?",
+        repo,
+        number
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
 pub async fn insert_dependency(
-    pool: &SqlitePool,
+    tx: &mut Transaction<'_, Sqlite>,
     repo: i64,
     blocker: i64,
     blocked: i64,
 ) -> Result<()> {
-    sqlx::query!("INSERT OR IGNORE INTO issue_deps (repo_id, blocker_number, blocked_number) VALUES (?, ?, ?)", repo, blocker, blocked).execute(pool).await?;
+    sqlx::query!(
+        "INSERT OR IGNORE INTO issue_deps (repo_id, blocker_number, blocked_number) VALUES (?, ?, ?)",
+        repo,
+        blocker,
+        blocked
+    )
+        .execute(&mut **tx)
+        .await?;
     Ok(())
 }
 
 pub async fn remove_dependency(
-    pool: &SqlitePool,
+    tx: &mut Transaction<'_, Sqlite>,
     repo: i64,
     blocker: i64,
     blocked: i64,
@@ -522,32 +611,88 @@ pub async fn remove_dependency(
         blocker,
         blocked
     )
-    .execute(pool)
+    .execute(&mut **tx)
     .await?;
     Ok(())
 }
 
-pub async fn try_lock(pool: &SqlitePool, repo: i64, number: i64, holder: &str) -> Result<bool> {
-    Ok(sqlx::query!("UPDATE issues SET locked_by = ?, locked_at = datetime('now') WHERE repo_id = ? AND number = ? AND locked_by IS NULL", holder, repo, number).execute(pool).await?.rows_affected() == 1)
-}
-
-pub async fn locked_by(pool: &SqlitePool, repo: i64, number: i64) -> Result<Option<String>> {
+pub async fn acquire_lease(pool: &SqlitePool, repo: i64, number: i64) -> Result<Option<String>> {
     Ok(sqlx::query_scalar!(
-        r#"SELECT locked_by AS "locked_by?: String" FROM issues WHERE repo_id = ? AND number = ?"#,
+        r#"INSERT INTO issue_leases (repo_id, issue_number, lease_id)
+           SELECT ?, ?, lower(hex(randomblob(32)))
+           WHERE EXISTS (
+               SELECT 1 FROM issues WHERE repo_id = ? AND number = ?
+           )
+           ON CONFLICT(repo_id, issue_number) DO NOTHING
+           RETURNING lease_id AS "lease_id!: String""#,
+        repo,
+        number,
         repo,
         number
     )
-    .fetch_one(pool)
+    .fetch_optional(pool)
     .await?)
 }
 
-pub async fn release_lock(
+/// Start a protected Issue mutation. The no-op UPDATE both validates the lease
+/// and obtains SQLite's write lock, so a concurrent force unlock cannot land
+/// between validation and the mutation committed by the returned transaction.
+pub async fn begin_lease_mutation<'a>(
+    pool: &'a SqlitePool,
+    repo: i64,
+    number: i64,
+    lease: Option<&str>,
+) -> Result<Transaction<'a, Sqlite>> {
+    let lease = lease.ok_or_else(|| {
+        anyhow::anyhow!(
+            "valid lease required for issue #{number}; acquire one with `octa issue lock {number}`"
+        )
+    })?;
+    let mut tx = pool.begin().await?;
+    let matched = sqlx::query!(
+        r#"UPDATE issue_leases SET lease_id = lease_id
+           WHERE repo_id = ? AND issue_number = ? AND lease_id = ?"#,
+        repo,
+        number,
+        lease
+    )
+    .execute(&mut *tx)
+    .await?
+    .rows_affected()
+        == 1;
+    if !matched {
+        anyhow::bail!("valid lease required for issue #{number}");
+    }
+    Ok(tx)
+}
+
+pub async fn release_lease(
     pool: &SqlitePool,
     repo: i64,
     number: i64,
-    holder: Option<&str>,
+    lease: Option<&str>,
+    force: bool,
 ) -> Result<bool> {
-    let result = match holder { Some(holder) => sqlx::query!("UPDATE issues SET locked_by = NULL, locked_at = NULL WHERE repo_id = ? AND number = ? AND locked_by = ?", repo, number, holder).execute(pool).await?, None => sqlx::query!("UPDATE issues SET locked_by = NULL, locked_at = NULL WHERE repo_id = ? AND number = ?", repo, number).execute(pool).await?, };
+    let result = if force {
+        sqlx::query!(
+            "DELETE FROM issue_leases WHERE repo_id = ? AND issue_number = ?",
+            repo,
+            number
+        )
+        .execute(pool)
+        .await?
+    } else {
+        let lease = lease.ok_or_else(|| anyhow::anyhow!("--lease is required without --force"))?;
+        sqlx::query!(
+            r#"DELETE FROM issue_leases
+               WHERE repo_id = ? AND issue_number = ? AND lease_id = ?"#,
+            repo,
+            number,
+            lease
+        )
+        .execute(pool)
+        .await?
+    };
     Ok(result.rows_affected() == 1)
 }
 

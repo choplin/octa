@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO issue_leases (repo_id, issue_number, lease_id)\n           SELECT ?, ?, lower(hex(randomblob(32)))\n           WHERE EXISTS (\n               SELECT 1 FROM issues WHERE repo_id = ? AND number = ?\n           )\n           ON CONFLICT(repo_id, issue_number) DO NOTHING\n           RETURNING lease_id AS \"lease_id!: String\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "lease_id!: String",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "057c3928b3ff950ed66b4ba8a24158007b15277d5528243b8583db159b0f483f"
+}

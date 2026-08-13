@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT json_array(repo_id, number, title, body, branch, state, created_at, updated_at) AS \"row!: String\" FROM prs ORDER BY repo_id, number",
+  "describe": {
+    "columns": [
+      {
+        "name": "row!: String",
+        "ordinal": 0,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "bf1ac918285322e7fedf7db59a974e200433b3a31dafb663c460ff17fc76a103"
+}

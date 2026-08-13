@@ -14,11 +14,11 @@ impl Store {
     pub async fn list_label_groups(&self) -> Result<Vec<LabelGroup>> {
         crate::app::label::list_groups(&self.pool, self.repo_id()?).await
     }
-    pub async fn label_issue(&self, number: i64, label: &str) -> Result<()> {
-        crate::app::label::attach(&self.pool, self.repo_id()?, number, label).await
+    pub async fn label_issue(&self, number: i64, label: &str, lease: Option<&str>) -> Result<()> {
+        crate::app::label::attach(&self.pool, self.repo_id()?, number, label, lease).await
     }
-    pub async fn unlabel_issue(&self, number: i64, label: &str) -> Result<()> {
-        crate::app::label::detach(&self.pool, self.repo_id()?, number, label).await
+    pub async fn unlabel_issue(&self, number: i64, label: &str, lease: Option<&str>) -> Result<()> {
+        crate::app::label::detach(&self.pool, self.repo_id()?, number, label, lease).await
     }
     pub async fn create_project_label_group(&self, name: &str, selection: &str) -> Result<()> {
         crate::app::label::create_project_group(&self.pool, self.repo_id()?, name, selection).await
