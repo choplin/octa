@@ -181,6 +181,15 @@ fn json(s: &str) -> serde_json::Value {
     serde_json::from_str(s.trim()).unwrap()
 }
 
+fn issue_numbers(issues: &serde_json::Value) -> Vec<i64> {
+    issues
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|issue| issue["number"].as_i64().unwrap())
+        .collect()
+}
+
 #[test]
 fn issue_help_advertises_tui_without_hiding_existing_commands() {
     let output = Command::new(bin())
@@ -259,35 +268,77 @@ fn comment_appears_in_thread() {
 }
 
 #[test]
-fn close_reopen_and_state_filter() {
+fn issue_list_state_selectors_have_distinct_grammar() {
     let env = Env::new();
-    env.ok(&["issue", "create", "--title", "Bug"]);
-    let lease = env.lease("1");
-    env.ok_with_lease(&["issue", "set-state", "1", "closed"], &lease);
+    env.ok(&["config", "state", "create", "Todo", "--type", "unstarted"]);
+    env.ok(&[
+        "config",
+        "state",
+        "create",
+        "Done",
+        "--type",
+        "completed",
+        "--terminal",
+    ]);
+    env.ok(&["issue", "create", "--title", "In open state"]); // #1
+    env.ok(&[
+        "issue",
+        "create",
+        "--title",
+        "In Todo state",
+        "--state",
+        "Todo",
+    ]); // #2
+    env.ok(&[
+        "issue",
+        "create",
+        "--title",
+        "In Done state",
+        "--state",
+        "Done",
+    ]); // #3
 
-    let open_list = env.ok(&["issue", "list"]);
-    assert!(
-        !open_list.contains("Bug"),
-        "closed issue in open list: {open_list}"
-    );
+    for args in [
+        vec!["issue", "list", "--json"],
+        vec!["issue", "list", "--open", "--json"],
+    ] {
+        let issues = json(&env.ok(&args));
+        assert_eq!(issue_numbers(&issues), vec![1, 2]);
+    }
 
-    let closed_list = env.ok(&["issue", "list", "--state", "closed"]);
-    assert!(
-        closed_list.contains("Bug"),
-        "missing from closed list: {closed_list}"
-    );
+    let closed = json(&env.ok(&["issue", "list", "--closed", "--json"]));
+    assert_eq!(issue_numbers(&closed), vec![3]);
 
-    let all_list = env.ok(&["issue", "list", "--state", "all"]);
-    assert!(
-        all_list.contains("Bug"),
-        "missing from all list: {all_list}"
-    );
+    let all = json(&env.ok(&["issue", "list", "--all", "--json"]));
+    assert_eq!(issue_numbers(&all), vec![1, 2, 3]);
 
-    env.ok_with_lease(&["issue", "set-state", "1", "open"], &lease);
-    assert!(
-        env.ok(&["issue", "list"]).contains("Bug"),
-        "reopened issue missing"
-    );
+    let named_open = json(&env.ok(&["issue", "list", "--state", "open", "--json"]));
+    assert_eq!(issue_numbers(&named_open), vec![1]);
+
+    let named_todo = json(&env.ok(&["issue", "list", "--state", "Todo", "--json"]));
+    assert_eq!(issue_numbers(&named_todo), vec![2]);
+
+    let selector_pairs = [
+        ["--open", "--closed"],
+        ["--open", "--all"],
+        ["--open", "--state"],
+        ["--closed", "--all"],
+        ["--closed", "--state"],
+        ["--all", "--state"],
+    ];
+    for [first, second] in selector_pairs {
+        let mut args = vec!["issue", "list", first, second];
+        if second == "--state" {
+            args.push("Todo");
+        }
+        let output = env.run(&args);
+        assert!(!output.status.success(), "{args:?} unexpectedly succeeded");
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("cannot be used with"),
+            "missing usage conflict for {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 }
 
 #[test]
@@ -1061,7 +1112,7 @@ fn lease_guards_mutations_and_force_unlock_invalidates_the_old_token() {
     let shown = json(&env.ok(&["issue", "show", "1", "--json"]));
     assert_eq!(shown["leased"], true);
     assert!(!shown.to_string().contains(&lease));
-    let listed = env.ok(&["issue", "list", "--state", "all", "--json"]);
+    let listed = env.ok(&["issue", "list", "--all", "--json"]);
     assert!(!listed.contains(&lease));
 
     let out = env.run(&["issue", "lock", "1"]);
@@ -1656,7 +1707,7 @@ fn all_repos_aggregates_across_repositories() {
     // --all-repos sees both.
     let all = json(&env.ok_in(
         repo2.path(),
-        &["issue", "list", "--all-repos", "--state", "all", "--json"],
+        &["issue", "list", "--all-repos", "--all", "--json"],
     ));
     let titles: Vec<&str> = all
         .as_array()
@@ -1675,14 +1726,7 @@ fn all_repos_aggregates_across_repositories() {
 
     let closed = json(&env.ok_in(
         repo2.path(),
-        &[
-            "issue",
-            "list",
-            "--all-repos",
-            "--state",
-            "closed",
-            "--json",
-        ],
+        &["issue", "list", "--all-repos", "--closed", "--json"],
     ));
     assert_eq!(closed.as_array().unwrap().len(), 1);
     assert_eq!(closed.as_array().unwrap()[0]["title"], "In first repo");

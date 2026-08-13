@@ -25,6 +25,7 @@ Important constraints:
 
 - Priority is `0` (none), `1` (urgent), `2` (high), `3` (medium), or `4` (low).
 - Status types are `backlog`, `unstarted`, `started`, `completed`, and `canceled`.
+- With no state selector or with `--open`, `issue list` returns non-terminal Issues. `--closed` returns terminal Issues, `--all` returns both, and `--state <name>` exactly matches a configured state name. These four selectors are mutually exclusive.
 - A Milestone belongs to a Project. `issue create --milestone` requires `--project`.
 - Unset an Issue's Milestone before changing or unsetting its Project.
 - Parent/child relations are repository-local and independent of Project membership. Parent and child may belong to different Projects, or only one may have a Project.

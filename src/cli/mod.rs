@@ -146,8 +146,8 @@ pub(crate) enum IssueCommand {
     },
     /// List issues.
     List {
-        #[arg(long, default_value = "open")]
-        state: String,
+        #[command(flatten)]
+        state_filter: IssueListStateArgs,
         #[arg(long)]
         label: Option<String>,
         /// Filter by status type: backlog, unstarted, started, completed, canceled.
@@ -264,6 +264,40 @@ pub(crate) enum IssueCommand {
         #[arg(long, conflicts_with = "lease")]
         force: bool,
     },
+}
+
+#[derive(Args)]
+#[group(multiple = false)]
+pub(crate) struct IssueListStateArgs {
+    /// List non-terminal issues (the default).
+    #[arg(long)]
+    open: bool,
+    /// List terminal issues.
+    #[arg(long)]
+    closed: bool,
+    /// List both terminal and non-terminal issues.
+    #[arg(long)]
+    all: bool,
+    /// List issues whose configured state exactly matches this name.
+    #[arg(long, value_name = "NAME")]
+    state: Option<String>,
+}
+
+impl IssueListStateArgs {
+    fn into_filter(self) -> (StateFilter, Option<String>) {
+        if self.open {
+            (StateFilter::Open, None)
+        } else if self.closed {
+            (StateFilter::Closed, None)
+        } else if self.all {
+            (StateFilter::All, None)
+        } else if let Some(state) = self.state {
+            (StateFilter::All, Some(state))
+        } else {
+            // Explicit --open and no selector have the same safe default.
+            (StateFilter::Open, None)
+        }
+    }
 }
 
 #[derive(Subcommand)]
@@ -559,14 +593,6 @@ pub(crate) enum LabelGroupCommand {
         #[arg(long)]
         json: bool,
     },
-}
-pub(crate) fn parse_issue_state(value: &str) -> (StateFilter, Option<String>) {
-    match value {
-        "open" => (StateFilter::Open, None),
-        "closed" => (StateFilter::Closed, None),
-        "all" => (StateFilter::All, None),
-        state => (StateFilter::All, Some(state.to_string())),
-    }
 }
 pub(crate) fn parse_pr_state(value: &str) -> Result<StateFilter> {
     match value {

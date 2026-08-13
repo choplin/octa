@@ -1,4 +1,4 @@
-use super::{parse_issue_state, IssueCommand};
+use super::IssueCommand;
 use crate::store::{LeaseOutcome, Store};
 use anyhow::Result;
 
@@ -42,7 +42,7 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             }
         }
         IssueCommand::List {
-            state,
+            state_filter,
             label,
             status_type,
             priority,
@@ -52,7 +52,7 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             unblocked,
             json,
         } => {
-            let (filter, state_name) = parse_issue_state(&state);
+            let (filter, state_name) = state_filter.into_filter();
             let issues = store
                 .list_issues(
                     filter,

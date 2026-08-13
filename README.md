@@ -101,10 +101,15 @@ Issue は番号、本文、コメント、状態、依存関係、ラベルを�
 
 ```sh
 octa issue set-state 1 in_progress
-octa issue list --state open
-octa issue list --state closed
-octa issue list --state all
+octa issue list --open
+octa issue list --closed
+octa issue list --all
+octa issue list --state in_progress
 ```
+
+引数なしと `--open` は非terminal状態、`--closed` はterminal状態、`--all` は
+両方を表示します。`--state <name>` は設定済みの状態名との完全一致です。
+これら4つのselectorは同時に指定できません。
 
 Linear の Issue 一覧と詳細の代わりに、read-only の2ペインTUIも使えます。
 これは現行の初期実装を説明するものであり、将来のTUI更新操作を製品境界から除外するものではありません。
@@ -381,7 +386,7 @@ octa query --schema
 
 ```sh
 octa issue create --title "調査する" --json
-octa issue list --state all --json
+octa issue list --all --json
 octa issue show 1 --json
 octa pr list --state all --json
 octa wiki show release-process --json
@@ -403,7 +408,7 @@ octa --repo other-repository issue list
 読み取り系の一部の一覧では、`--all-repos` で登録済みリポジトリを横断できます。
 
 ```sh
-octa --all-repos issue list --state all
+octa --all-repos issue list --all
 octa --all-repos pr list --state all
 octa --all-repos wiki list
 ```

@@ -279,8 +279,7 @@ fn repository_local_collaboration_runs_end_to_end_without_losing_context() {
     let unblocked_before = env.json(&[
         "issue",
         "list",
-        "--state",
-        "all",
+        "--all",
         "--project",
         "Workflow parity",
         "--unblocked",
@@ -299,8 +298,7 @@ fn repository_local_collaboration_runs_end_to_end_without_losing_context() {
     let unblocked_after = env.json(&[
         "issue",
         "list",
-        "--state",
-        "all",
+        "--all",
         "--project",
         "Workflow parity",
         "--unblocked",
