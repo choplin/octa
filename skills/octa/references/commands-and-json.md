@@ -2,10 +2,12 @@
 
 Use `octa <surface> --help` and nested help as the executable source of truth. The summary below identifies the current product surface without prescribing a work process.
 
+Examples assume an installed `octa` executable. When developing octa itself, build it and use `./target/debug/octa`; install from the source tree with `cargo install --path .` only when installation is explicitly requested.
+
 ## Issue
 
 ```text
-issue create|list|show|set|unset|add|remove|comment|set-state|lock|unlock
+issue create|list|show|set|unset|add|remove|comment|set-state|lock|unlock|tui
 ```
 
 Important constraints:
@@ -17,6 +19,7 @@ Important constraints:
 - Parent/child relations are repository-local and independent of Project membership. Parent and child may belong to different Projects, or only one may have a Project.
 - Setting a parent initially inherits the parent's Project when the child has none. Later Project changes or removal do not propagate across the relation and are not blocked by it.
 - `issue list --related-to N` filters symmetric relations; `--unblocked` excludes Issues with non-terminal blockers.
+- `issue tui` is an interactive read-only browser. For agent automation, prefer `issue list --json` and `issue show --json`.
 
 ## Project and Milestone
 
