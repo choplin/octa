@@ -6,6 +6,7 @@
 //! drift between otherwise-correct primitives is caught.
 
 use serde_json::Value;
+use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
@@ -94,6 +95,26 @@ impl Env {
         serde_json::from_str(self.ok(args).trim()).unwrap()
     }
 
+    fn query(&self, document: &str) -> Output {
+        let mut child = self
+            .command_in(self.path())
+            .arg("query")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("failed to spawn octa query");
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(document.as_bytes())
+            .expect("failed to write GraphQL document");
+        child
+            .wait_with_output()
+            .expect("failed to collect octa query output")
+    }
+
     fn ok_with_lease(&self, args: &[&str], lease: &str) -> String {
         let mut leased_args = args.to_vec();
         leased_args.extend(["--lease", lease]);
@@ -127,6 +148,309 @@ fn wait_with_timeout(child: &mut Child, timeout: Duration) -> Option<std::proces
         }
         thread::sleep(Duration::from_millis(20));
     }
+}
+
+fn assert_command_fails_at(stage: &str, output: &Output, expected_error: &str) {
+    assert!(
+        !output.status.success(),
+        "{stage}: command unexpectedly succeeded"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(expected_error),
+        "{stage}: expected error {expected_error:?}, got:\n{stderr}"
+    );
+}
+
+struct AgentLifecycle {
+    env: Env,
+}
+
+impl AgentLifecycle {
+    fn new() -> Self {
+        let env = Env::new();
+
+        for (name, status_type) in [
+            ("Backlog", "backlog"),
+            ("In Progress", "started"),
+            ("In Review", "started"),
+            ("Done", "completed"),
+        ] {
+            env.ok(&["config", "state", "create", name, "--type", status_type]);
+        }
+        env.ok(&[
+            "project",
+            "create",
+            "--name",
+            "Agent lifecycle",
+            "--summary",
+            "Ship work safely across agent handoffs",
+        ]);
+        env.ok(&[
+            "issue",
+            "create",
+            "--title",
+            "Implement lifecycle scenario",
+            "--state",
+            "Backlog",
+            "--project",
+            "Agent lifecycle",
+        ]);
+        env.ok(&[
+            "issue",
+            "create",
+            "--title",
+            "Run the follow-up",
+            "--state",
+            "Backlog",
+            "--project",
+            "Agent lifecycle",
+        ]);
+
+        // Arrange the dependency, then release the setup lease so every
+        // scenario starts with an unowned Backlog issue.
+        let setup_lease = env.ok(&["issue", "lock", "1"]).trim().to_string();
+        env.ok_with_lease(&["issue", "add", "1", "--blocks", "2"], &setup_lease);
+        env.ok(&["issue", "unlock", "1", "--lease", &setup_lease]);
+
+        Self { env }
+    }
+
+    fn ready_backlog(&self) -> Value {
+        self.env.json(&[
+            "issue",
+            "list",
+            "--state",
+            "Backlog",
+            "--unblocked",
+            "--json",
+        ])
+    }
+
+    fn start_as_agent_a(&self) -> String {
+        let lease = self.env.ok(&["issue", "lock", "1"]).trim().to_string();
+        self.env
+            .ok_with_lease(&["issue", "set-state", "1", "In Progress"], &lease);
+        lease
+    }
+
+    fn commit_implementation_and_open_pr(&self) {
+        git(
+            self.env.path(),
+            &["switch", "-q", "-c", "agent-lifecycle-change"],
+        );
+        fs::write(
+            self.env.path().join("lifecycle.txt"),
+            "implemented by agent A\n",
+        )
+        .expect("agent A failed to write the implementation artifact");
+        git(self.env.path(), &["add", "lifecycle.txt"]);
+        git(
+            self.env.path(),
+            &["commit", "-q", "-m", "implement lifecycle change"],
+        );
+        git(self.env.path(), &["switch", "-q", "main"]);
+        self.env.ok(&[
+            "pr",
+            "create",
+            "--title",
+            "Agent lifecycle change",
+            "--branch",
+            "agent-lifecycle-change",
+        ]);
+    }
+
+    fn handoff_to_agent_b(&self, agent_a_lease: &str) -> String {
+        self.env.ok(&[
+            "issue",
+            "comment",
+            "1",
+            "--body",
+            "Handoff: implementation is committed; link PR #1 and review it.",
+        ]);
+        self.env
+            .ok(&["issue", "unlock", "1", "--lease", agent_a_lease]);
+        self.env.ok(&["issue", "lock", "1"]).trim().to_string()
+    }
+}
+
+#[test]
+fn leased_issue_rejects_a_competing_agent_and_unleased_mutation() {
+    // This scenario isolates the ownership boundary: agent A selects ready
+    // Backlog work and locks it, then agent B must fail both to take the lease
+    // and to mutate the issue without one. Handoff behavior is tested below.
+    let scenario = AgentLifecycle::new();
+    assert_eq!(
+        numbers_at(&scenario.ready_backlog(), &["number"]),
+        vec![1],
+        "discovery: only the unblocked Backlog issue should be ready"
+    );
+
+    let agent_a_lease = scenario.start_as_agent_a();
+    let competing_lock = scenario.env.run(&["issue", "lock", "1"]);
+    assert_command_fails_at("agent B competing lease", &competing_lock, "already leased");
+
+    let unleased_write = scenario.env.run(&["issue", "set-state", "1", "In Review"]);
+    assert_command_fails_at(
+        "agent B write without lease",
+        &unleased_write,
+        "valid lease required",
+    );
+    assert!(
+        !agent_a_lease.is_empty(),
+        "agent A should receive an opaque lease"
+    );
+}
+
+#[test]
+fn handoff_gives_the_next_agent_fresh_ownership_and_complete_context() {
+    // This scenario treats a handoff as a recoverability contract. Agent B must
+    // see the Issue, Project, dependency, PR, and handoff note, obtain a fresh
+    // lease, and prove that agent A's released lease can no longer mutate work.
+    let scenario = AgentLifecycle::new();
+    let agent_a_lease = scenario.start_as_agent_a();
+    scenario.commit_implementation_and_open_pr();
+
+    let context = scenario.env.query(
+        r#"{
+            issue(number: 1) {
+                number
+                state
+                project { name issues { number state } }
+                blocks { number title state }
+            }
+            pullRequests { number title branch state }
+        }"#,
+    );
+    assert!(
+        context.status.success(),
+        "context query: GraphQL command failed:\n{}",
+        String::from_utf8_lossy(&context.stderr)
+    );
+    let context: Value = serde_json::from_slice(&context.stdout).unwrap();
+    assert_eq!(context["data"]["issue"]["number"], 1);
+    assert_eq!(
+        context["data"]["issue"]["project"]["name"],
+        "Agent lifecycle"
+    );
+    assert_eq!(context["data"]["issue"]["blocks"][0]["number"], 2);
+    assert_eq!(
+        context["data"]["pullRequests"][0]["branch"],
+        "agent-lifecycle-change"
+    );
+    assert!(
+        context["errors"].is_null(),
+        "context query: unexpected GraphQL errors: {}",
+        context["errors"]
+    );
+
+    let agent_b_lease = scenario.handoff_to_agent_b(&agent_a_lease);
+    assert_ne!(
+        agent_b_lease, agent_a_lease,
+        "handoff: agent B must receive a fresh opaque lease"
+    );
+    let stale_agent_a_write = scenario.env.run(&[
+        "issue",
+        "set-state",
+        "1",
+        "In Review",
+        "--lease",
+        &agent_a_lease,
+    ]);
+    assert_command_fails_at(
+        "handoff stale agent A lease",
+        &stale_agent_a_write,
+        "valid lease required",
+    );
+
+    scenario
+        .env
+        .ok_with_lease(&["pr", "add", "1", "--issue", "1"], &agent_b_lease);
+    let resumed = scenario.env.json(&["issue", "show", "1", "--json"]);
+    assert_eq!(
+        resumed["comments"][0]["body"],
+        "Handoff: implementation is committed; link PR #1 and review it.",
+        "handoff: agent B could not recover agent A's pickup context"
+    );
+    assert_eq!(
+        resumed["pull_requests"][0]["number"], 1,
+        "handoff: agent B did not link the implementation PR"
+    );
+}
+
+#[test]
+fn integrated_pr_completes_the_issue_and_reveals_unblocked_work() {
+    // This scenario ties workflow completion to an observable Git outcome. The
+    // linked PR passes review, its branch is fast-forwarded into main, and only
+    // then does Done reveal the dependent issue through the normal read paths.
+    let scenario = AgentLifecycle::new();
+    let agent_a_lease = scenario.start_as_agent_a();
+    scenario.commit_implementation_and_open_pr();
+    let agent_b_lease = scenario.handoff_to_agent_b(&agent_a_lease);
+    scenario
+        .env
+        .ok_with_lease(&["pr", "add", "1", "--issue", "1"], &agent_b_lease);
+
+    scenario.env.ok(&["pr", "set-state", "1", "review"]);
+    scenario
+        .env
+        .ok_with_lease(&["issue", "set-state", "1", "In Review"], &agent_b_lease);
+    let review = scenario.env.json(&["issue", "show", "1", "--json"]);
+    assert_eq!(review["state"], "In Review", "review: issue state drifted");
+    assert_eq!(
+        review["pull_requests"][0]["state"], "review",
+        "review: linked PR state was not visible from the issue"
+    );
+
+    git(
+        scenario.env.path(),
+        &["merge", "-q", "--ff-only", "agent-lifecycle-change"],
+    );
+    assert!(
+        scenario.env.path().join("lifecycle.txt").is_file(),
+        "integration: target branch does not contain the implementation artifact"
+    );
+    scenario.env.ok(&["pr", "set-state", "1", "closed"]);
+    scenario
+        .env
+        .ok_with_lease(&["issue", "set-state", "1", "Done"], &agent_b_lease);
+    scenario
+        .env
+        .ok(&["issue", "unlock", "1", "--lease", &agent_b_lease]);
+
+    let next_open = scenario
+        .env
+        .json(&["issue", "list", "--unblocked", "--json"]);
+    assert_eq!(
+        numbers_at(&next_open, &["number"]),
+        vec![2],
+        "next-work discovery: default open list should reveal the newly unblocked issue"
+    );
+
+    let next_from_query = scenario.env.query(
+        r#"{
+            issue(number: 1) {
+                state
+                blocks { number title state statusType }
+                pullRequests { number state }
+            }
+        }"#,
+    );
+    assert!(
+        next_from_query.status.success(),
+        "next-work query: GraphQL command failed:\n{}",
+        String::from_utf8_lossy(&next_from_query.stderr)
+    );
+    let next_from_query: Value = serde_json::from_slice(&next_from_query.stdout).unwrap();
+    assert_eq!(next_from_query["data"]["issue"]["state"], "Done");
+    assert_eq!(
+        next_from_query["data"]["issue"]["blocks"][0]["number"], 2,
+        "next-work query: completed issue should expose the work it unblocked"
+    );
+    assert_eq!(
+        next_from_query["data"]["issue"]["pullRequests"][0]["state"], "closed",
+        "next-work query: integrated PR state should remain observable"
+    );
 }
 
 #[test]
