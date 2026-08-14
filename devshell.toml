@@ -11,7 +11,7 @@ prefix = "${CARGO_HOME}/bin"
 
 [[commands]]
 name = "install-local"
-help = "Install the local octa release binary into Cargo's bin directory"
+help = "Install the local octa release binary into Cargo's bin directory (extra args are passed to cargo install)"
 command = '''
-cargo install --path "$PRJ_ROOT" --locked --force
+cargo install "$@" --path "$PRJ_ROOT" --locked --force
 '''
