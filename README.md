@@ -71,7 +71,9 @@ octa issue show 1
 ```
 
 作業を始めるエージェントまたはセッションは、期限のない排他的な **lease** を取得できます。
-`issue lock` は opaque な lease ID を標準出力へ一度だけ返すため、安全な場所に保持します。
+`issue lock` は `amber-otter-lantern` のような、人間が扱いやすい3単語の lease IDを
+標準出力へ一度だけ返します。lease IDはセキュリティcredentialではなく、同時作業の
+誤操作を防ぐための所有権IDです。後続のコマンドで再利用できるよう保持します。
 
 ```sh
 LEASE=$(octa issue lock 1)
@@ -97,7 +99,9 @@ LEASE=$(octa issue lock 1)
 `issue set-state`、`set`、`unset`、`add`、`remove` と通常の `unlock`、および Issue と PR の link を変更する `pr create --issue`、`pr add`、`pr remove` には、対象 Issue の `--lease` が必要です。
 Issue の作成とコメント、PR のコメント、Issue と link しない PR の作成、PR 自体の `set` / `set-state`、Project、Milestone、Wiki、config の操作には lease は不要です。
 読み取り操作にも不要です。
-`issue list` と `issue show` は lease ID を表示せず、取得中かどうかだけを `leased` で示します。
+ツールログやコマンド引数にlease IDが現れることは想定内です。一方、Issueコメント、
+Git成果物、リポジトリファイルなどの永続的な記録には含めません。`issue list` と
+`issue show` はlease IDを表示せず、取得中かどうかだけを `leased` で示します。
 
 ## Issue で作業を調整する
 
@@ -374,6 +378,7 @@ query IssueContext($number: Int!) {
   issue(number: $number) {
     number
     title
+    leased
     project { name }
     labels { name }
     blocks(limit: 20) { number title }
@@ -389,6 +394,7 @@ selection setは必要な列とrelationだけを取得するSQLite queryへ変�
 いないrelationへはアクセスしません。応答はGraphQL JSON envelopeで、実行した
 query数を`extensions.dbAccesses`に含めます。list fieldの`limit`は既定50・最大100、
 query depthは8、complexityは500が上限です。schemaにmutationはありません。
+Issueの`leased` fieldは取得中かどうかだけを返し、lease IDは公開しません。
 
 成功時も検証エラー時も標準GraphQL JSON envelopeを返します。
 成功時は `data`、検証エラー時は `errors` が含まれるため、CLIの終了statusだけでなくenvelopeを確認します。

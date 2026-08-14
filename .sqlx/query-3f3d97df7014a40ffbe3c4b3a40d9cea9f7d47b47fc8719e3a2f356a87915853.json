@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO issue_leases (repo_id, issue_number, lease_id)\n               SELECT ?, ?, ?\n               WHERE EXISTS (\n                   SELECT 1 FROM issues WHERE repo_id = ? AND number = ?\n               )\n               ON CONFLICT DO NOTHING\n               RETURNING lease_id AS \"lease_id!: String\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "lease_id!: String",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "3f3d97df7014a40ffbe3c4b3a40d9cea9f7d47b47fc8719e3a2f356a87915853"
+}

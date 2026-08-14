@@ -80,6 +80,12 @@ impl JsonObject {
             .ok_or_else(|| "projected value is not an integer".into())
     }
 
+    fn boolean(&self, ctx: &Context<'_>) -> async_graphql::Result<bool> {
+        self.value(ctx)?
+            .as_bool()
+            .ok_or_else(|| "projected value is not a boolean".into())
+    }
+
     fn object<T>(
         &self,
         ctx: &Context<'_>,
@@ -130,6 +136,9 @@ impl IssueObject {
     }
     async fn priority(&self, ctx: &Context<'_>) -> async_graphql::Result<i64> {
         self.0.integer(ctx)
+    }
+    async fn leased(&self, ctx: &Context<'_>) -> async_graphql::Result<bool> {
+        self.0.boolean(ctx)
     }
     async fn created_at<'a>(&'a self, ctx: &Context<'_>) -> async_graphql::Result<&'a str> {
         self.0.string(ctx)

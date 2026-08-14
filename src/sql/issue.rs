@@ -9,6 +9,36 @@ use anyhow::Result;
 use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::collections::HashSet;
 
+const LEASE_ADJECTIVES: &[&str] = &[
+    "amber", "azure", "bold", "brisk", "calm", "cedar", "clear", "coral", "cosmic", "crisp",
+    "dawn", "eager", "ember", "fair", "fern", "gentle", "golden", "grand", "green", "happy",
+    "hollow", "indigo", "ivory", "jade", "keen", "lively", "lucid", "lunar", "maple", "mellow",
+    "merry", "misty", "navy", "nimble", "noble", "olive", "pearl", "pine", "quiet", "rapid", "red",
+    "river", "royal", "ruby", "sage", "silver", "solar", "steady", "still", "sunny", "swift",
+    "teal", "tidy", "umber", "vivid", "warm", "white", "wild", "wise", "witty", "yellow", "young",
+    "zesty", "bright",
+];
+const LEASE_ANIMALS: &[&str] = &[
+    "badger", "bear", "beaver", "bison", "bobcat", "camel", "caribou", "cat", "cougar", "crane",
+    "crow", "deer", "dingo", "dolphin", "eagle", "falcon", "ferret", "finch", "fox", "gecko",
+    "goat", "goose", "heron", "horse", "ibis", "jaguar", "koala", "lemur", "lion", "lynx",
+    "marten", "moose", "mouse", "newt", "otter", "owl", "panda", "parrot", "puma", "quail",
+    "rabbit", "raven", "robin", "seal", "shark", "sheep", "skunk", "sloth", "sparrow", "swan",
+    "tiger", "toad", "turtle", "vole", "walrus", "weasel", "whale", "wolf", "wombat", "yak",
+    "zebra", "antelope", "donkey", "gopher",
+];
+const LEASE_OBJECTS: &[&str] = &[
+    "anchor", "arch", "bell", "bridge", "brook", "cabin", "canyon", "castle", "cave", "cliff",
+    "cloud", "comet", "compass", "cove", "creek", "crystal", "dune", "field", "forest", "garden",
+    "gate", "glade", "grove", "harbor", "haven", "hill", "island", "key", "lake", "lantern",
+    "meadow", "mesa", "moon", "mountain", "oasis", "ocean", "orbit", "path", "peak", "pond",
+    "rain", "reef", "ridge", "road", "rock", "shore", "sky", "spring", "star", "stone", "stream",
+    "sun", "tower", "trail", "tree", "valley", "wave", "willow", "wind", "wood", "harvest",
+    "horizon", "prairie", "summit",
+];
+
+const LEASE_ID_GENERATION_ATTEMPTS: usize = 16;
+
 struct IssueListRow {
     repo: String,
     number: i64,
@@ -617,21 +647,62 @@ pub async fn remove_dependency(
 }
 
 pub async fn acquire_lease(pool: &SqlitePool, repo: i64, number: i64) -> Result<Option<String>> {
-    Ok(sqlx::query_scalar!(
-        r#"INSERT INTO issue_leases (repo_id, issue_number, lease_id)
-           SELECT ?, ?, lower(hex(randomblob(32)))
-           WHERE EXISTS (
-               SELECT 1 FROM issues WHERE repo_id = ? AND number = ?
-           )
-           ON CONFLICT(repo_id, issue_number) DO NOTHING
-           RETURNING lease_id AS "lease_id!: String""#,
-        repo,
-        number,
-        repo,
-        number
+    acquire_lease_with(pool, repo, number, random_lease_id).await
+}
+
+fn random_lease_id() -> String {
+    format!(
+        "{}-{}-{}",
+        LEASE_ADJECTIVES[fastrand::usize(..LEASE_ADJECTIVES.len())],
+        LEASE_ANIMALS[fastrand::usize(..LEASE_ANIMALS.len())],
+        LEASE_OBJECTS[fastrand::usize(..LEASE_OBJECTS.len())]
     )
-    .fetch_optional(pool)
-    .await?)
+}
+
+async fn acquire_lease_with(
+    pool: &SqlitePool,
+    repo: i64,
+    number: i64,
+    mut generate_id: impl FnMut() -> String,
+) -> Result<Option<String>> {
+    for _ in 0..LEASE_ID_GENERATION_ATTEMPTS {
+        let lease_id = generate_id();
+        let acquired = sqlx::query_scalar!(
+            r#"INSERT INTO issue_leases (repo_id, issue_number, lease_id)
+               SELECT ?, ?, ?
+               WHERE EXISTS (
+                   SELECT 1 FROM issues WHERE repo_id = ? AND number = ?
+               )
+               ON CONFLICT DO NOTHING
+               RETURNING lease_id AS "lease_id!: String""#,
+            repo,
+            number,
+            lease_id,
+            repo,
+            number
+        )
+        .fetch_optional(pool)
+        .await?;
+        if acquired.is_some() {
+            return Ok(acquired);
+        }
+
+        let already_leased = sqlx::query_scalar!(
+            r#"SELECT EXISTS(
+                   SELECT 1 FROM issue_leases
+                   WHERE repo_id = ? AND issue_number = ?
+               ) AS "leased!: bool""#,
+            repo,
+            number
+        )
+        .fetch_one(pool)
+        .await?;
+        if already_leased {
+            return Ok(None);
+        }
+    }
+
+    anyhow::bail!("could not generate a unique lease ID after repeated collisions")
 }
 
 /// Start a protected Issue mutation. The no-op UPDATE both validates the lease
@@ -721,4 +792,49 @@ pub async fn next_state_position(pool: &SqlitePool, repo: i64) -> Result<i64> {
 
 pub async fn default_starting_state(pool: &SqlitePool, repo: i64) -> Result<Option<String>> {
     Ok(sqlx::query_scalar!("SELECT name FROM issue_states WHERE repo_id = ? AND is_starting = 1 ORDER BY position LIMIT 1", repo).fetch_optional(pool).await?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::acquire_lease_with;
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    #[tokio::test]
+    async fn lease_acquisition_retries_an_id_collision() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::raw_sql(include_str!("../../migrations/0001_init.sql"))
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO repos (id, identity_key, name) VALUES (1, 'test', 'test')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        for number in [1_i64, 2] {
+            sqlx::query(
+                "INSERT INTO issues (repo_id, number, title, state) VALUES (1, ?, 'Issue', 'open')",
+            )
+            .bind(number)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        sqlx::query(
+            "INSERT INTO issue_leases (repo_id, issue_number, lease_id) VALUES (1, 1, 'amber-otter-lantern')"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let mut candidates = ["amber-otter-lantern", "quiet-heron-summit"].into_iter();
+        let acquired = acquire_lease_with(&pool, 1, 2, || candidates.next().unwrap().to_string())
+            .await
+            .unwrap();
+
+        assert_eq!(acquired.as_deref(), Some("quiet-heron-summit"));
+    }
 }

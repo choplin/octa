@@ -36,6 +36,12 @@ impl Planner {
                     "{}.status_type",
                     state.expect("statusType requires state join")
                 ),
+                "leased" => {
+                    let lease = self.next("lease");
+                    format!(
+                        "json(CASE WHEN EXISTS(SELECT 1 FROM issue_leases {lease} WHERE {lease}.repo_id={issue}.repo_id AND {lease}.issue_number={issue}.number) THEN 'true' ELSE 'false' END)"
+                    )
+                }
                 "project" => {
                     let p = self.next("p");
                     let ip = self.next("ip");

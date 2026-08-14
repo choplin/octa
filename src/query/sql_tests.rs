@@ -80,6 +80,21 @@ mod projection {
     }
 
     #[tokio::test]
+    async fn leased_selection_projects_an_issue_scoped_exists() {
+        let sql = executed_sql("{ issue(number: 1) { number leased } }").await;
+
+        assert_contains_in_order(
+            &sql,
+            &[
+                "EXISTS(SELECT 1 FROM issue_leases lease1",
+                "lease1.repo_id=i.repo_id",
+                "lease1.issue_number=i.number",
+            ],
+        );
+        assert!(!sql.contains(" JOIN "));
+    }
+
+    #[tokio::test]
     async fn aliases_and_fragments_merge_one_relation_projection() {
         let sql = executed_sql(
             r#"

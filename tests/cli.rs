@@ -1106,8 +1106,11 @@ fn lease_guards_mutations_and_force_unlock_invalidates_the_old_token() {
     env.ok(&["issue", "create", "--title", "Contended"]);
 
     let lease = env.lease("1");
-    assert_eq!(lease.len(), 64);
-    assert!(lease.chars().all(|character| character.is_ascii_hexdigit()));
+    let words = lease.split('-').collect::<Vec<_>>();
+    assert_eq!(words.len(), 3);
+    assert!(words.iter().all(
+        |word| !word.is_empty() && word.chars().all(|character| character.is_ascii_lowercase())
+    ));
 
     let shown = json(&env.ok(&["issue", "show", "1", "--json"]));
     assert_eq!(shown["leased"], true);
@@ -1944,13 +1947,14 @@ fn graphql_query_traverses_entities_with_variables_filters_and_pagination() {
           query($number: Int!, $limit: Int!) {
           issue(number: $number) {
             number
+            leased
             project { name milestones(limit: $limit) { name } }
             labels { name }
-            blocks(limit: $limit) { number }
+            blocks(limit: $limit) { number leased }
             related(limit: $limit) { number }
             pullRequests { number }
           }
-          issues(filter: { projectId: 1, label: "impl" }, limit: $limit) { number }
+          issues(filter: { projectId: 1, label: "impl" }, limit: $limit) { number leased }
           wikiPage(slug: "home") { linksTo { slug backlinks { slug } } }
         }
     "#;
@@ -1961,8 +1965,10 @@ fn graphql_query_traverses_entities_with_variables_filters_and_pagination() {
         String::from_utf8_lossy(&out.stderr)
     );
     let response = json(&String::from_utf8(out.stdout).unwrap());
+    assert_eq!(response["data"]["issue"]["leased"], true);
     assert_eq!(response["data"]["issue"]["project"]["name"], "Outcome");
     assert_eq!(response["data"]["issue"]["blocks"][0]["number"], 2);
+    assert_eq!(response["data"]["issue"]["blocks"][0]["leased"], false);
     assert_eq!(response["data"]["issue"]["related"][0]["number"], 2);
     assert_eq!(response["data"]["issue"]["pullRequests"][0]["number"], 1);
     assert_eq!(response["data"]["issues"].as_array().unwrap().len(), 1);
