@@ -17,7 +17,7 @@ Use octa as a repository-scoped local collaboration tool that does not require a
 ## Choose a command surface
 
 - Query: `octa query` executes a read-only GraphQL document from stdin or `--file`; prefer it when one read needs selected fields across related entity types.
-- Issue: `octa issue ...` for create/list/show/set/unset/add/remove, comments, state transitions, and locks.
+- Issue: `octa issue ...` for create/list/show/set/unset/add/remove, comments, state transitions, and leases.
 - Project: `octa project ...` for create/list/show/set/add/remove and state transitions.
 - Milestone: `octa milestone ...`; every operation requires `--project`.
 - Pull Request: `octa pr ...` for branch-associated records, comments, states, and explicit many-to-many Issue links through `add`/`remove`.
@@ -25,6 +25,8 @@ Use octa as a repository-scoped local collaboration tool that does not require a
 - Configuration: `octa config state|label|label-group ...`; label commands require `--target issue|project`.
 
 Issue parent/child relations stay within one repository and do not require matching Project membership. A Project-less child initially inherits its parent's Project when the parent relation is set, but later Project changes and removal are independent.
+
+An Issue lease is a non-expiring opaque credential returned once by `issue lock`. Pass it with `--lease` to protected Issue mutations and normal unlock; use `issue unlock --force` only to recover from a lost credential. List and show output expose only the `leased` boolean, never the credential.
 
 Issue and Project label definitions are separate repository-defined opaque data. Do not infer an Issue type or other built-in taxonomy from particular names; octa reserves no operational label names. A `single` group only enforces mutual exclusion among labels explicitly created for the same target and group.
 

@@ -14,7 +14,7 @@ AI エージェントに作業を分けると、判断の背景、未処理の�
 
 octa は、その情報をリポジトリ単位で持続する記録にします。
 
-- **Issue**：状態、依存関係、コメント、ラベル、原子的な lock を持つ作業記録です。
+- **Issue**：状態、依存関係、コメント、ラベル、原子的な lease を持つ作業記録です。
 - **Pull Request**：Git ブランチに紐づく議論と状態の記録です。コードと diff は Git 側に残ります。
 - **Wiki**：方針や手順を残すページです。`[[slug]]` によるリンクと backlink を使えます。
 - **Label と state**：各プロジェクトの分類と作業フローを設定できます。
@@ -70,37 +70,51 @@ octa issue list
 octa issue show 1
 ```
 
-作業を始めるエージェントまたはセッションは lock を取得できます。
+作業を始めるエージェントまたはセッションは、期限のない排他的な **lease** を取得できます。
+`issue lock` は opaque な lease ID を標準出力へ一度だけ返すため、安全な場所に保持します。
 
 ```sh
-octa issue lock 1 --as docs-agent
+LEASE=$(octa issue lock 1)
+octa issue set-state 1 in_progress --lease "$LEASE"
 octa issue comment 1 --body "着手しました。"
 ```
 
-完了後は lock を外し、状態を更新します。
+完了時は同じ lease を付けて状態を更新し、その後で lease を解放します。
 
 ```sh
-octa issue unlock 1 --as docs-agent
-octa issue set-state 1 closed
+octa issue set-state 1 closed --lease "$LEASE"
+octa issue unlock 1 --lease "$LEASE"
 ```
 
-`OCTA_ACTOR` を設定すると、`--as` を省略したときの lock 保持者名に使われます。
+lease ID を失った場合は、復旧操作として `--force` で解放できます。
+以前の lease ID は即座に無効になり、作業を再開するには新しい lease の取得が必要です。
 
 ```sh
-export OCTA_ACTOR=docs-agent
-octa issue lock 1
+octa issue unlock 1 --force
+LEASE=$(octa issue lock 1)
 ```
+
+`issue set-state`、`set`、`unset`、`add`、`remove` と通常の `unlock`、および Issue と PR の link を変更する `pr create --issue`、`pr add`、`pr remove` には、対象 Issue の `--lease` が必要です。
+Issue の作成とコメント、PR のコメント、Issue と link しない PR の作成、PR 自体の `set` / `set-state`、Project、Milestone、Wiki、config の操作には lease は不要です。
+読み取り操作にも不要です。
+`issue list` と `issue show` は lease ID を表示せず、取得中かどうかだけを `leased` で示します。
 
 ## Issue で作業を調整する
 
 Issue は番号、本文、コメント、状態、依存関係、ラベルを持ちます。
+
+以下で既存の Issue 1 を変更する例では、先に取得した lease を使います。
+
+```sh
+LEASE=$(octa issue lock 1)
+```
 
 ### 状態と一覧
 
 既定の状態は `open`、`in_progress`、`closed` です。
 
 ```sh
-octa issue set-state 1 in_progress
+octa issue set-state 1 in_progress --lease "$LEASE"
 octa issue list --open
 octa issue list --closed
 octa issue list --all
@@ -168,9 +182,9 @@ octa issue create \
 unset します。
 
 ```sh
-octa issue set 1 --milestone "Public beta"
+octa issue set 1 --milestone "Public beta" --lease "$LEASE"
 octa issue list --project "CLI を公開する" --milestone "Public beta"
-octa issue unset 1 --milestone
+octa issue unset 1 --milestone --lease "$LEASE"
 ```
 
 Issue の親子関係は同じリポジトリ内で設定でき、Project の所属とは独立しています。
@@ -179,9 +193,10 @@ Project のない既存 Issue に親を設定した時は、その時点の親�
 継承しますが、その後は親子それぞれの Project を変更または解除できます。
 
 ```sh
-octa issue set 2 --parent 1
-octa issue set 2 --project "別の Project"
-octa issue unset 1 --project
+LEASE_2=$(octa issue lock 2)
+octa issue set 2 --parent 1 --lease "$LEASE_2"
+octa issue set 2 --project "別の Project" --lease "$LEASE_2"
+octa issue unset 1 --project --lease "$LEASE"
 ```
 
 Project 内の Milestone が設定されている Issue だけは、従来どおり先に Milestone を
@@ -217,7 +232,7 @@ Issueの状態は `issue set-state` で明示的に遷移させます。
 Issue 1 が Issue 2 をブロックする関係を作るには、次を実行します。
 
 ```sh
-octa issue add 1 --blocks 2
+octa issue add 1 --blocks 2 --lease "$LEASE"
 octa issue show 1
 octa issue show 2
 ```
@@ -231,15 +246,15 @@ octa issue list --unblocked
 依存を削除するには同じプロパティを `remove` します。
 
 ```sh
-octa issue remove 1 --blocks 2
+octa issue remove 1 --blocks 2 --lease "$LEASE"
 ```
 
 順序を持たない関連 Issue は `--related` で結びます。同じ組を逆順で追加しても一件だけ保存され、`--related-to` で候補を絞れます。
 
 ```sh
-octa issue add 1 --related 2
+octa issue add 1 --related 2 --lease "$LEASE"
 octa issue list --related-to 1
-octa issue remove 2 --related 1
+octa issue remove 2 --related 1 --lease "$LEASE_2"
 ```
 
 ### ラベル
@@ -250,8 +265,8 @@ octa issue remove 2 --related 1
 
 ```sh
 octa config label create documentation --target issue
-octa issue add 1 --label documentation
-octa issue remove 1 --label documentation
+octa issue add 1 --label documentation --lease "$LEASE"
+octa issue remove 1 --label documentation --lease "$LEASE"
 ```
 
 `single` グループでは、同じグループのラベルを一つだけ付けられます。
@@ -262,13 +277,13 @@ octa issue remove 1 --label documentation
 octa config label-group create priority --target issue --selection single
 octa config label create high --target issue --group priority
 octa config label create low --target issue --group priority
-octa issue add 1 --label high
+octa issue add 1 --label high --lease "$LEASE"
 
 octa config label-group create area --target issue --selection multi
 octa config label create cli --target issue --group area
 octa config label create storage --target issue --group area
-octa issue add 1 --label cli
-octa issue add 1 --label storage
+octa issue add 1 --label cli --lease "$LEASE"
+octa issue add 1 --label storage --lease "$LEASE"
 ```
 
 Project用のラベル定義はIssue用とは分かれています。同じ名前も別々に定義でき、
@@ -293,7 +308,8 @@ octa pr create \
   --title "リリース手順を追加する" \
   --branch docs/release-process \
   --body "Wiki と README を更新する。" \
-  --issue 1
+  --issue 1 \
+  --lease "$LEASE"
 
 octa pr comment 1 --body "確認をお願いします。"
 octa pr show 1
@@ -304,9 +320,9 @@ octa pr set-state 1 closed
 1つの Issue に複数の PR、1つの PR に複数の Issue を link できます。同じ組は重複保存されません。
 
 ```sh
-octa pr add 2 --issue 1
+octa pr add 2 --issue 1 --lease "$LEASE"
 octa issue show 1
-octa pr remove 2 --issue 1
+octa pr remove 2 --issue 1 --lease "$LEASE"
 ```
 
 PR 一覧は `open`、`closed`、`all` で絞り込めます。
@@ -373,6 +389,21 @@ selection setは必要な列とrelationだけを取得するSQLite queryへ変�
 いないrelationへはアクセスしません。応答はGraphQL JSON envelopeで、実行した
 query数を`extensions.dbAccesses`に含めます。list fieldの`limit`は既定50・最大100、
 query depthは8、complexityは500が上限です。schemaにmutationはありません。
+
+成功時も検証エラー時も標準GraphQL JSON envelopeを返します。
+成功時は `data`、検証エラー時は `errors` が含まれるため、CLIの終了statusだけでなくenvelopeを確認します。
+
+```json
+{"data":{"issue":{"number":25,"title":"read-only GraphQL query surfaceを追加する"}},"extensions":{"dbAccesses":1}}
+```
+
+```sh
+printf '%s\n' '{ missingField }' | octa query
+```
+
+```json
+{"data":null,"extensions":{"dbAccesses":0},"errors":[{"message":"Unknown field \"missingField\" on type \"QueryRoot\".","locations":[{"line":1,"column":3}]}]}
+```
 
 利用可能な型とfieldはintrospection、またはSDL出力で確認できます。
 

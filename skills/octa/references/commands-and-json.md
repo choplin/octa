@@ -13,7 +13,27 @@ query --schema
 
 Without `--file`, the GraphQL document is read from stdin. The schema exposes Issue, Project, Milestone, Pull Request, Wiki, and Issue/Project label fields and relations for the selected repository. It has no mutation type. List fields use `offset` and `limit`; the default limit is 50 and the maximum is 100. Query depth is limited to 8 and complexity to 500.
 
-The selection set is compiled into a SQLite query that projects only selected columns and relations. Singular relations use correlated joins; collection relations use aggregate subqueries containing joins. Unselected relations are not queried. The command writes a standard GraphQL JSON response to stdout, with the executed query count in `extensions.dbAccesses`. Use `query --schema` or GraphQL introspection to inspect the available public fields rather than depending on SQLite tables.
+For example, stdin, variables, and a nested selection can be used together:
+
+```sh
+octa query --variables '{"number": 1}' <<'GRAPHQL'
+query IssueContext($number: Int!) {
+  issue(number: $number) {
+    number
+    project { name }
+    labels { name }
+  }
+}
+GRAPHQL
+```
+
+A file uses the same execution path:
+
+```sh
+octa query --file issue.graphql --variables '{"number": 1}'
+```
+
+The selection set is compiled into a SQLite query that projects only selected columns and relations. Singular relations use correlated joins; collection relations use aggregate subqueries containing joins. Unselected relations are not queried. The command writes a standard GraphQL JSON response to stdout, with the executed query count in `extensions.dbAccesses`. Successful responses contain `data`; validation and execution failures contain `errors` in the envelope and may still exit successfully. Consumers must inspect the envelope rather than relying only on process status. Use `query --schema` or GraphQL introspection to inspect the available public fields rather than depending on SQLite tables.
 
 ## Issue
 
@@ -23,6 +43,10 @@ issue create|list|show|set|unset|add|remove|comment|set-state|lock|unlock|tui
 
 Important constraints:
 
+- `issue lock N` returns a random opaque non-expiring lease ID once. A second acquisition fails while the Issue is leased.
+- `issue set-state`, `set`, `unset`, `add`, and `remove` require the target Issue's `--lease`. So do Issue–PR link changes through `pr create --issue`, `pr add`, and `pr remove`.
+- Normal `issue unlock` requires the matching `--lease`. `issue unlock --force` accepts no lease and invalidates the old credential immediately; use it only for recovery.
+- `issue create`, `issue comment`, unlinked `pr create`, `pr comment`, `pr set`, `pr set-state`, and Project, Milestone, Wiki, and config operations do not require an Issue lease. Read commands and lease acquisition also require no existing lease credential.
 - Priority is `0` (none), `1` (urgent), `2` (high), `3` (medium), or `4` (low).
 - Status types are `backlog`, `unstarted`, `started`, `completed`, and `canceled`.
 - With no state selector or with `--open`, `issue list` returns non-terminal Issues. `--closed` returns terminal Issues, `--all` returns both, and `--state <name>` exactly matches a configured state name. These four selectors are mutually exclusive.
@@ -69,7 +93,7 @@ Commands exposing `--json` write one JSON value to stdout:
 
 - List commands return arrays.
 - `issue show` returns the Issue fields plus `labels`, `blocks`, `blocked_by`, `related`, `pull_requests`, `parent`, `sub_issues`, and `comments`.
-- An Issue includes `repo`, `number`, `title`, `body`, `state`, `status_type`, `priority`, optional `project`, optional `milestone`, optional `locked_by`, `created_at`, and `updated_at`.
+- An Issue includes `repo`, `number`, `title`, `body`, `state`, `status_type`, `priority`, optional `project`, optional `milestone`, `leased`, `created_at`, and `updated_at`. The lease ID is never exposed by list, show, or query output.
 - `project list` includes every Project by default, including completed and canceled Projects. Use `--active` for the explicit non-terminal Project filter.
 - Project list/show tallies count all assigned Issues and expose backlog, unstarted, started, completed, canceled, and total; canceled work is never subtracted implicitly.
 - Projects are ordered by priority 1 through 4, then priority 0 (None).
