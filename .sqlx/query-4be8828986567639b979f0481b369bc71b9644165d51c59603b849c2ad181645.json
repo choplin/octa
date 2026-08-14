@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT name FROM issue_states WHERE repo_id = ? AND is_starting = 1 ORDER BY position LIMIT 1",
+  "query": "SELECT name FROM issue_states WHERE repo_id = ? AND is_starting = 1 ORDER BY name",
   "describe": {
     "columns": [
       {
@@ -16,5 +16,5 @@
       false
     ]
   },
-  "hash": "98f3a34a9d7af5550df258ae304e8b8dda7dbe413f60c008d07c797a6e37aa1b"
+  "hash": "4be8828986567639b979f0481b369bc71b9644165d51c59603b849c2ad181645"
 }

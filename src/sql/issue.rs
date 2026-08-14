@@ -55,7 +55,6 @@ struct IssueListRow {
     created_at: String,
     updated_at: String,
     is_terminal: i64,
-    state_position: i64,
 }
 
 pub async fn insert(
@@ -98,8 +97,7 @@ pub async fn get(pool: &SqlitePool, repo: i64, number: i64) -> Result<Option<Iss
                 WHERE l.repo_id = i.repo_id AND l.issue_number = i.number
             ) AS "leased!: i64",
             i.created_at AS "created_at!: String", i.updated_at AS "updated_at!: String",
-            COALESCE(s.is_terminal, 0) AS "is_terminal!: i64",
-            COALESCE(s.position, 0) AS "state_position!: i64"
+            COALESCE(s.is_terminal, 0) AS "is_terminal!: i64"
         FROM
             issues i
         JOIN
@@ -148,8 +146,7 @@ pub async fn list_entries(pool: &SqlitePool, repo: Option<i64>) -> Result<Vec<Is
                     WHERE l.repo_id = i.repo_id AND l.issue_number = i.number
                 ) AS "leased!: i64",
                 i.created_at AS "created_at!: String", i.updated_at AS "updated_at!: String",
-                COALESCE(s.is_terminal, 0) AS "is_terminal!: i64",
-                COALESCE(s.position, 0) AS "state_position!: i64"
+                COALESCE(s.is_terminal, 0) AS "is_terminal!: i64"
             FROM
                 issues i
             JOIN
@@ -193,8 +190,7 @@ pub async fn list_entries(pool: &SqlitePool, repo: Option<i64>) -> Result<Vec<Is
                     WHERE l.repo_id = i.repo_id AND l.issue_number = i.number
                 ) AS "leased!: i64",
                 i.created_at AS "created_at!: String", i.updated_at AS "updated_at!: String",
-                COALESCE(s.is_terminal, 0) AS "is_terminal!: i64",
-                COALESCE(s.position, 0) AS "state_position!: i64"
+                COALESCE(s.is_terminal, 0) AS "is_terminal!: i64"
             FROM
                 issues i
             JOIN
@@ -245,7 +241,6 @@ fn into_entry(row: IssueListRow) -> IssueListEntry {
             updated_at: row.updated_at,
         },
         is_terminal: row.is_terminal != 0,
-        state_position: row.state_position,
     }
 }
 
@@ -768,7 +763,7 @@ pub async fn release_lease(
 }
 
 pub async fn list_states(pool: &SqlitePool, repo: i64) -> Result<Vec<IssueState>> {
-    Ok(sqlx::query!(r#"SELECT name AS "name!: String", status_type AS "status_type!: String", is_starting AS "is_starting!: i64", is_terminal AS "is_terminal!: i64", position AS "position!: i64" FROM issue_states WHERE repo_id = ? ORDER BY position, name"#, repo).fetch_all(pool).await?.into_iter().map(|row| IssueState { name: row.name, status_type: row.status_type, is_starting: row.is_starting != 0, is_terminal: row.is_terminal != 0, position: row.position }).collect())
+    Ok(sqlx::query!(r#"SELECT name AS "name!: String", status_type AS "status_type!: String", is_starting AS "is_starting!: i64", is_terminal AS "is_terminal!: i64" FROM issue_states WHERE repo_id = ? ORDER BY CASE status_type WHEN 'backlog' THEN 0 WHEN 'unstarted' THEN 1 WHEN 'started' THEN 2 WHEN 'completed' THEN 3 ELSE 4 END, name"#, repo).fetch_all(pool).await?.into_iter().map(|row| IssueState { name: row.name, status_type: row.status_type, is_starting: row.is_starting != 0, is_terminal: row.is_terminal != 0 }).collect())
 }
 
 pub async fn insert_state(
@@ -778,20 +773,145 @@ pub async fn insert_state(
     status_type: &str,
     starting: bool,
     terminal: bool,
-    position: i64,
 ) -> Result<()> {
-    let starting = starting as i64;
+    let starting_flag = starting as i64;
     let terminal = terminal as i64;
-    sqlx::query!("INSERT INTO issue_states (repo_id, name, status_type, is_starting, is_terminal, position) VALUES (?, ?, ?, ?, ?, ?)", repo, name, status_type, starting, terminal, position).execute(pool).await?;
+    let mut tx = pool.begin().await?;
+    if starting {
+        sqlx::query!(
+            "UPDATE issue_states SET is_starting = 0 WHERE repo_id = ?",
+            repo
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    sqlx::query!("INSERT INTO issue_states (repo_id, name, status_type, is_starting, is_terminal) VALUES (?, ?, ?, ?, ?)", repo, name, status_type, starting_flag, terminal).execute(&mut *tx).await?;
+    tx.commit().await?;
     Ok(())
 }
 
-pub async fn next_state_position(pool: &SqlitePool, repo: i64) -> Result<i64> {
-    Ok(sqlx::query_scalar!(r#"SELECT COALESCE(MAX(position), -1) + 1 AS "p!: i64" FROM issue_states WHERE repo_id = ?"#, repo).fetch_one(pool).await?)
+/// Names of every state flagged as the repository's starting state.
+///
+/// The repository invariant is that at most one state carries the flag, but
+/// legacy data can carry more. Callers resolve the ambiguity rather than
+/// silently picking one.
+pub async fn starting_states(pool: &SqlitePool, repo: i64) -> Result<Vec<String>> {
+    Ok(sqlx::query_scalar!(
+        "SELECT name FROM issue_states WHERE repo_id = ? AND is_starting = 1 ORDER BY name",
+        repo
+    )
+    .fetch_all(pool)
+    .await?)
 }
 
-pub async fn default_starting_state(pool: &SqlitePool, repo: i64) -> Result<Option<String>> {
-    Ok(sqlx::query_scalar!("SELECT name FROM issue_states WHERE repo_id = ? AND is_starting = 1 ORDER BY position LIMIT 1", repo).fetch_optional(pool).await?)
+pub async fn get_state(pool: &SqlitePool, repo: i64, name: &str) -> Result<Option<IssueState>> {
+    Ok(sqlx::query!(r#"SELECT name AS "name!: String", status_type AS "status_type!: String", is_starting AS "is_starting!: i64", is_terminal AS "is_terminal!: i64" FROM issue_states WHERE repo_id = ? AND name = ?"#, repo, name).fetch_optional(pool).await?.map(|row| IssueState { name: row.name, status_type: row.status_type, is_starting: row.is_starting != 0, is_terminal: row.is_terminal != 0 }))
+}
+
+pub async fn count_issues_in_state(pool: &SqlitePool, repo: i64, name: &str) -> Result<i64> {
+    Ok(sqlx::query_scalar!(
+        r#"SELECT COUNT(*) AS "count!: i64" FROM issues WHERE repo_id = ? AND state = ?"#,
+        repo,
+        name
+    )
+    .fetch_one(pool)
+    .await?)
+}
+
+/// Rename a state and repoint every issue that referenced the old name.
+///
+/// `issues.state` stores the state name without a foreign key, so both tables
+/// have to move together.
+pub async fn rename_state(pool: &SqlitePool, repo: i64, from: &str, to: &str) -> Result<()> {
+    let mut tx = pool.begin().await?;
+    sqlx::query!(
+        "UPDATE issue_states SET name = ? WHERE repo_id = ? AND name = ?",
+        to,
+        repo,
+        from
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query!(
+        "UPDATE issues SET state = ? WHERE repo_id = ? AND state = ?",
+        to,
+        repo,
+        from
+    )
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+pub async fn update_state_flags(
+    pool: &SqlitePool,
+    repo: i64,
+    name: &str,
+    status_type: &str,
+    terminal: bool,
+) -> Result<()> {
+    let terminal = terminal as i64;
+    sqlx::query!(
+        "UPDATE issue_states SET status_type = ?, is_terminal = ? WHERE repo_id = ? AND name = ?",
+        status_type,
+        terminal,
+        repo,
+        name
+    )
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Delete a state, first moving any issues that reference it to `move_to`.
+pub async fn delete_state(
+    pool: &SqlitePool,
+    repo: i64,
+    name: &str,
+    move_to: Option<&str>,
+) -> Result<()> {
+    let mut tx = pool.begin().await?;
+    if let Some(move_to) = move_to {
+        sqlx::query!(
+            "UPDATE issues SET state = ?, updated_at = datetime('now') WHERE repo_id = ? AND state = ?",
+            move_to,
+            repo,
+            name
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    sqlx::query!(
+        "DELETE FROM issue_states WHERE repo_id = ? AND name = ?",
+        repo,
+        name
+    )
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Make `name` the sole starting state of the repository.
+pub async fn set_starting_state(pool: &SqlitePool, repo: i64, name: &str) -> Result<()> {
+    let mut tx = pool.begin().await?;
+    sqlx::query!(
+        "UPDATE issue_states SET is_starting = 0 WHERE repo_id = ? AND name <> ?",
+        repo,
+        name
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query!(
+        "UPDATE issue_states SET is_starting = 1 WHERE repo_id = ? AND name = ?",
+        repo,
+        name
+    )
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 #[cfg(test)]

@@ -247,4 +247,30 @@ impl Store {
         )
         .await
     }
+
+    pub async fn set_state_config(
+        &self,
+        name: &str,
+        new_name: Option<&str>,
+        status_type: Option<&str>,
+        terminal: Option<bool>,
+    ) -> Result<()> {
+        crate::app::issue::set_state_config(
+            &self.pool,
+            self.repo_id()?,
+            name,
+            new_name,
+            status_type,
+            terminal,
+        )
+        .await
+    }
+
+    pub async fn delete_state(&self, name: &str, move_to: Option<&str>) -> Result<i64> {
+        crate::app::issue::delete_state(&self.pool, self.repo_id()?, name, move_to).await
+    }
+
+    pub async fn set_default_state(&self, name: &str) -> Result<()> {
+        crate::app::issue::set_default_state(&self.pool, self.repo_id()?, name).await
+    }
 }

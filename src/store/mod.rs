@@ -186,7 +186,7 @@ mod migration_tests {
             (
                 "issue_states",
                 rows!(
-                    r#"SELECT json_array(repo_id, name, status_type, is_starting, is_terminal, position) AS "row!: String" FROM issue_states ORDER BY repo_id, position, name"#
+                    r#"SELECT json_array(repo_id, name, status_type, is_starting, is_terminal) AS "row!: String" FROM issue_states ORDER BY repo_id, name"#
                 ),
             ),
             (
@@ -321,18 +321,7 @@ mod migration_tests {
             pool,
             scope: Resolved::One(repo),
         };
-        for (name, status_type) in [
-            ("Todo", "unstarted"),
-            ("In Progress", "started"),
-            ("In Review", "started"),
-            ("Done", "completed"),
-            ("Canceled", "canceled"),
-        ] {
-            store
-                .add_state(name, Some(status_type), false, false)
-                .await
-                .unwrap();
-        }
+        // Todo, In Progress, In Review, Done, and Canceled come from the seed.
         let first = store
             .create_issue("First", "first body", Some("Todo"), 2, None, None, None)
             .await
@@ -375,6 +364,11 @@ mod migration_tests {
                 None,
                 None,
             )
+            .await
+            .unwrap();
+        // A state left over from an older workflow, still referenced by issues.
+        store
+            .add_state("closed", Some("completed"), false, true)
             .await
             .unwrap();
         let legacy_closed = store
@@ -452,7 +446,6 @@ mod migration_tests {
                 "status_type",
                 "is_starting",
                 "is_terminal",
-                "position"
             ]
         );
 
@@ -494,7 +487,7 @@ mod migration_tests {
     }
 
     #[tokio::test]
-    async fn repo_upsert_seeds_only_legacy_states_and_preserves_custom_workflow() {
+    async fn repo_upsert_seeds_the_default_workflow_once_and_preserves_customizations() {
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
             .connect("sqlite::memory:")
@@ -507,7 +500,7 @@ mod migration_tests {
 
         let initial: Vec<(String, String)> = sqlx::query!(
             r#"SELECT name AS "name!: String", status_type AS "status_type!: String"
-               FROM issue_states WHERE repo_id = ? ORDER BY position, name"#,
+               FROM issue_states WHERE repo_id = ? ORDER BY name"#,
             repo
         )
         .fetch_all(&pool)
@@ -516,25 +509,29 @@ mod migration_tests {
         .into_iter()
         .map(|row| (row.name, row.status_type))
         .collect();
+        // Ordered by name: the table stores no ordering of its own.
         assert_eq!(
             initial,
             vec![
-                ("open".into(), "unstarted".into()),
-                ("in_progress".into(), "started".into()),
-                ("closed".into(), "completed".into()),
+                ("Backlog".into(), "backlog".into()),
+                ("Canceled".into(), "canceled".into()),
+                ("Done".into(), "completed".into()),
+                ("In Progress".into(), "started".into()),
+                ("In Review".into(), "started".into()),
+                ("Todo".into(), "unstarted".into()),
             ]
         );
+        let starting = crate::sql::issue::starting_states(&pool, repo)
+            .await
+            .unwrap();
+        assert_eq!(starting, vec!["Backlog".to_string()]);
 
-        for (name, status_type) in [
-            ("Backlog", "backlog"),
-            ("In Review", "started"),
-            ("Canceled", "canceled"),
-            ("Custom", "unstarted"),
-        ] {
-            crate::app::issue::add_state(&pool, repo, name, Some(status_type), false, false)
-                .await
-                .unwrap();
-        }
+        crate::app::issue::add_state(&pool, repo, "Custom", Some("unstarted"), false, false)
+            .await
+            .unwrap();
+        crate::app::issue::delete_state(&pool, repo, "Todo", None)
+            .await
+            .unwrap();
         crate::app::issue::create(
             &pool,
             repo,
@@ -550,8 +547,8 @@ mod migration_tests {
         .unwrap();
 
         let states_before: Vec<String> = sqlx::query_scalar!(
-            r#"SELECT json_array(name, status_type, is_starting, is_terminal, position) AS "state!: String"
-               FROM issue_states WHERE repo_id = ? ORDER BY position, name"#,
+            r#"SELECT json_array(name, status_type, is_starting, is_terminal) AS "state!: String"
+               FROM issue_states WHERE repo_id = ? ORDER BY name"#,
             repo
         )
         .fetch_all(&pool)
@@ -571,8 +568,8 @@ mod migration_tests {
             .unwrap();
 
         let states_after: Vec<String> = sqlx::query_scalar!(
-            r#"SELECT json_array(name, status_type, is_starting, is_terminal, position) AS "state!: String"
-               FROM issue_states WHERE repo_id = ? ORDER BY position, name"#,
+            r#"SELECT json_array(name, status_type, is_starting, is_terminal) AS "state!: String"
+               FROM issue_states WHERE repo_id = ? ORDER BY name"#,
             repo
         )
         .fetch_all(&pool)

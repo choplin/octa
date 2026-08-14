@@ -170,14 +170,6 @@ impl AgentLifecycle {
     fn new() -> Self {
         let env = Env::new();
 
-        for (name, status_type) in [
-            ("Backlog", "backlog"),
-            ("In Progress", "started"),
-            ("In Review", "started"),
-            ("Done", "completed"),
-        ] {
-            env.ok(&["config", "state", "create", name, "--type", status_type]);
-        }
         env.ok(&[
             "project",
             "create",
@@ -513,15 +505,6 @@ fn repository_local_collaboration_runs_end_to_end_without_losing_context() {
         "--priority",
         "2",
     ]);
-    for (name, status_type) in [
-        ("Backlog", "backlog"),
-        ("Todo", "unstarted"),
-        ("In Progress", "started"),
-        ("In Review", "started"),
-        ("Done", "completed"),
-    ] {
-        env.ok(&["config", "state", "create", name, "--type", status_type]);
-    }
     env.ok(&[
         "milestone",
         "create",
@@ -796,10 +779,6 @@ Constraints: view-only; no mutation keys.";
     // same Project name without leaking either object across repository scope.
     let repo2 = TempDir::new().unwrap();
     init_repo(repo2.path());
-    env.ok_in(
-        repo2.path(),
-        &["config", "state", "create", "Backlog", "--type", "backlog"],
-    );
     env.ok_in(
         repo2.path(),
         &["project", "create", "--name", "Workflow parity"],

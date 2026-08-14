@@ -14,9 +14,16 @@ async fn require(pool: &SqlitePool, repo: i64, number: i64) -> Result<Issue> {
         .ok_or_else(|| anyhow!("issue #{number} not found"))
 }
 async fn starting(pool: &SqlitePool, repo: i64) -> Result<String> {
-    crate::sql::issue::default_starting_state(pool, repo)
-        .await?
-        .ok_or_else(|| anyhow!("no starting state configured for this repo"))
+    let mut candidates = crate::sql::issue::starting_states(pool, repo).await?;
+    match candidates.len() {
+        1 => Ok(candidates.remove(0)),
+        0 => bail!("no starting state configured for this repo; run `octa config state set-default <name>`"),
+        _ => bail!(
+            "{} states are flagged as starting ({}); run `octa config state set-default <name>` to pick one",
+            candidates.len(),
+            candidates.join(", ")
+        ),
+    }
 }
 pub(crate) struct ListQuery<'a> {
     pub filter: StateFilter,
@@ -202,15 +209,7 @@ pub async fn list(
                 .is_none_or(|set| set.contains(&entry.issue.number))
     });
     // Preserve the general list API's stable repository/issue-number order.
-    // `state_position` is only a final deterministic tie-breaker for malformed
-    // duplicate projections.
-    entries.sort_by_key(|entry| {
-        (
-            entry.issue.repo.clone(),
-            entry.issue.number,
-            entry.state_position,
-        )
-    });
+    entries.sort_by_key(|entry| (entry.issue.repo.clone(), entry.issue.number));
     Ok(entries.into_iter().map(|entry| entry.issue).collect())
 }
 
@@ -532,8 +531,13 @@ pub async fn add_state(
     if starting && status_type.is_terminal() {
         bail!("terminal status type {status_type} cannot use --starting");
     }
+    if crate::sql::issue::get_state(pool, repo, name)
+        .await?
+        .is_some()
+    {
+        bail!("a configured state named {name:?} already exists");
+    }
     let terminal = terminal || status_type.is_terminal();
-    let position = crate::sql::issue::next_state_position(pool, repo).await?;
     crate::sql::issue::insert_state(
         pool,
         repo,
@@ -541,9 +545,109 @@ pub async fn add_state(
         &status_type.to_string(),
         starting,
         terminal,
-        position,
     )
     .await
+}
+
+async fn require_state(pool: &SqlitePool, repo: i64, name: &str) -> Result<IssueState> {
+    crate::sql::issue::get_state(pool, repo, name)
+        .await?
+        .ok_or_else(|| anyhow!("no configured state named {name:?}"))
+}
+
+/// Update a state's name, status type, or terminal flag.
+///
+/// Renaming repoints every issue in the state, so no issue is left pointing at
+/// a name that no longer exists.
+pub async fn set_state_config(
+    pool: &SqlitePool,
+    repo: i64,
+    name: &str,
+    new_name: Option<&str>,
+    status_type: Option<&str>,
+    terminal: Option<bool>,
+) -> Result<()> {
+    let state = require_state(pool, repo, name).await?;
+    if new_name.is_none() && status_type.is_none() && terminal.is_none() {
+        bail!("nothing to update; pass --name, --type, or --terminal");
+    }
+
+    let current_type = state.status_type.parse::<StatusType>()?;
+    let status_type = match status_type {
+        Some(value) => value.parse::<StatusType>()?,
+        None => current_type,
+    };
+    let terminal = terminal.unwrap_or(state.is_terminal);
+    if terminal && !status_type.is_terminal() {
+        bail!("status type {status_type} is non-terminal and cannot be terminal");
+    }
+    if state.is_starting && status_type.is_terminal() {
+        bail!(
+            "{name:?} is the starting state and cannot become terminal status type {status_type}"
+        );
+    }
+    let terminal = terminal || status_type.is_terminal();
+
+    let mut name = name.to_string();
+    if let Some(new_name) = new_name {
+        if new_name != name {
+            if crate::sql::issue::get_state(pool, repo, new_name)
+                .await?
+                .is_some()
+            {
+                bail!("a configured state named {new_name:?} already exists");
+            }
+            crate::sql::issue::rename_state(pool, repo, &name, new_name).await?;
+            name = new_name.to_string();
+        }
+    }
+    if status_type != current_type || terminal != state.is_terminal {
+        crate::sql::issue::update_state_flags(
+            pool,
+            repo,
+            &name,
+            &status_type.to_string(),
+            terminal,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+/// Delete a state, moving any issues that reference it to `move_to`.
+pub async fn delete_state(
+    pool: &SqlitePool,
+    repo: i64,
+    name: &str,
+    move_to: Option<&str>,
+) -> Result<i64> {
+    let state = require_state(pool, repo, name).await?;
+    if state.is_starting {
+        bail!("{name:?} is the starting state; run `octa config state set-default <name>` first");
+    }
+    let move_to = match move_to {
+        Some(target) if target == name => bail!("--move-to must name a different state"),
+        Some(target) => {
+            require_state(pool, repo, target).await?;
+            Some(target)
+        }
+        None => None,
+    };
+    let affected = crate::sql::issue::count_issues_in_state(pool, repo, name).await?;
+    if affected > 0 && move_to.is_none() {
+        bail!("{affected} issue(s) are in {name:?}; pass --move-to <state> to move them");
+    }
+    crate::sql::issue::delete_state(pool, repo, name, move_to).await?;
+    Ok(affected)
+}
+
+/// Make `name` the sole state new issues start in.
+pub async fn set_default_state(pool: &SqlitePool, repo: i64, name: &str) -> Result<()> {
+    let state = require_state(pool, repo, name).await?;
+    if state.is_terminal || state.status_type.parse::<StatusType>()?.is_terminal() {
+        bail!("terminal state {name:?} cannot be the starting state");
+    }
+    crate::sql::issue::set_starting_state(pool, repo, name).await
 }
 
 #[cfg(test)]

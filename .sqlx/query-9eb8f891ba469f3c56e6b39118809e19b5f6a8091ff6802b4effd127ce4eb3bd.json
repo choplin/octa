@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT name AS \"name!: String\", status_type AS \"status_type!: String\"\n               FROM issue_states WHERE repo_id = ? ORDER BY position, name",
+  "query": "SELECT name AS \"name!: String\", status_type AS \"status_type!: String\"\n               FROM issue_states WHERE repo_id = ? ORDER BY name",
   "describe": {
     "columns": [
       {
@@ -22,5 +22,5 @@
       false
     ]
   },
-  "hash": "a4daa9df6acd4a8cdf977c3d8728c2b2d022bc244f1db36d3f833cd3dc612c58"
+  "hash": "9eb8f891ba469f3c56e6b39118809e19b5f6a8091ff6802b4effd127ce4eb3bd"
 }

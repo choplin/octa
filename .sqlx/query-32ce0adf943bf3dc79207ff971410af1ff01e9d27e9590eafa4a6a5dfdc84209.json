@@ -1,10 +1,10 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT COALESCE(MAX(position), -1) + 1 AS \"p!: i64\" FROM issue_states WHERE repo_id = ?",
+  "query": "SELECT COUNT(*) AS \"count!: i64\" FROM issue_states WHERE repo_id = ?",
   "describe": {
     "columns": [
       {
-        "name": "p!: i64",
+        "name": "count!: i64",
         "ordinal": 0,
         "type_info": "Integer"
       }
@@ -16,5 +16,5 @@
       false
     ]
   },
-  "hash": "209a89145b0ed440ceb7db7a7b889bb997826d193da85620d3d72b33027754f8"
+  "hash": "32ce0adf943bf3dc79207ff971410af1ff01e9d27e9590eafa4a6a5dfdc84209"
 }

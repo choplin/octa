@@ -15,7 +15,6 @@ CREATE TABLE issue_states (
         CHECK (status_type IN ('backlog', 'unstarted', 'started', 'completed', 'canceled')),
     is_starting INTEGER NOT NULL DEFAULT 0,
     is_terminal INTEGER NOT NULL DEFAULT 0,
-    position    INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (repo_id, name)
 );
 

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE issues SET state = ? WHERE repo_id = ? AND state = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "d202b7770d301384f658af66064e2b7215c1f775feebbdc2b43481b480307fcf"
+}

@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT name AS \"name!: String\", status_type AS \"status_type!: String\", is_starting AS \"is_starting!: i64\", is_terminal AS \"is_terminal!: i64\", position AS \"position!: i64\" FROM issue_states WHERE repo_id = ? ORDER BY position, name",
+  "query": "SELECT name AS \"name!: String\", status_type AS \"status_type!: String\", is_starting AS \"is_starting!: i64\", is_terminal AS \"is_terminal!: i64\" FROM issue_states WHERE repo_id = ? AND name = ?",
   "describe": {
     "columns": [
       {
@@ -22,23 +22,17 @@
         "name": "is_terminal!: i64",
         "ordinal": 3,
         "type_info": "Integer"
-      },
-      {
-        "name": "position!: i64",
-        "ordinal": 4,
-        "type_info": "Integer"
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 2
     },
     "nullable": [
-      false,
       false,
       false,
       false,
       false
     ]
   },
-  "hash": "fde5f322d869c4385bb599bca2ce3d9dc256f64cd3c174547e72436b4386686a"
+  "hash": "c6e3767d96940c3580a8a899009ba0fb41f9fd5cb1028dbd337bdb1662f1746f"
 }

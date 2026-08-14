@@ -81,7 +81,6 @@ pub struct Issue {
 pub(crate) struct IssueListEntry {
     pub issue: Issue,
     pub is_terminal: bool,
-    pub state_position: i64,
 }
 
 #[derive(Debug, Serialize)]
@@ -110,7 +109,6 @@ pub struct IssueState {
     pub status_type: String,
     pub is_starting: bool,
     pub is_terminal: bool,
-    pub position: i64,
 }
 
 impl StateFilter {

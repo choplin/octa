@@ -77,14 +77,14 @@ octa issue show 1
 
 ```sh
 LEASE=$(octa issue lock 1)
-octa issue set-state 1 in_progress --lease "$LEASE"
+octa issue set-state 1 "In Progress" --lease "$LEASE"
 octa issue comment 1 --body "着手しました。"
 ```
 
 完了時は同じ lease を付けて状態を更新し、その後で lease を解放します。
 
 ```sh
-octa issue set-state 1 closed --lease "$LEASE"
+octa issue set-state 1 Done --lease "$LEASE"
 octa issue unlock 1 --lease "$LEASE"
 ```
 
@@ -115,14 +115,15 @@ LEASE=$(octa issue lock 1)
 
 ### 状態と一覧
 
-既定の状態は `open`、`in_progress`、`closed` です。
+新規リポジトリには `Backlog`、`Todo`、`In Progress`、`In Review`、`Done`、
+`Canceled` の6状態が作られ、新規Issueは `Backlog` に入ります。
 
 ```sh
-octa issue set-state 1 in_progress --lease "$LEASE"
+octa issue set-state 1 "In Progress" --lease "$LEASE"
 octa issue list --open
 octa issue list --closed
 octa issue list --all
-octa issue list --state in_progress
+octa issue list --state "In Progress"
 ```
 
 引数なしと `--open` は非terminal状態、`--closed` はterminal状態、`--all` は
@@ -206,28 +207,47 @@ octa issue unset 1 --project --lease "$LEASE"
 Project 内の Milestone が設定されている Issue だけは、従来どおり先に Milestone を
 unset してから Project を変更または解除します。
 
-新規リポジトリに自動作成される状態名は、互換性のための `open`、
-`in_progress`、`closed` だけです。プロジェクト固有のworkflow状態は自由に追加できます。
+新規リポジトリには、Linear の既定 workflow に合わせた6状態が自動作成されます。
+
+| 状態 | status type | 備考 |
+|---|---|---|
+| Backlog | `backlog` | 新規Issueの入口 |
+| Todo | `unstarted` | |
+| In Progress | `started` | |
+| In Review | `started` | |
+| Done | `completed` | 終端 |
+| Canceled | `canceled` | 終端 |
+
+seedが走るのは状態を1つも持たないリポジトリだけです。すでにworkflowを
+設定済みのリポジトリの状態構成は、そのまま保たれます。
+
+状態はあとから追加・変更・削除できます。
 
 ```sh
-octa config state create Backlog --type backlog
-octa config state create Todo --type unstarted
-octa config state create "In Progress" --type started
-octa config state create "In Review" --type started
-octa config state create Done --type completed
-octa config state create Canceled --type canceled
-octa config state create blocked
+octa config state create blocked --type unstarted
+octa config state set Todo --name Ready
+octa config state set Ready --type started
+octa config state delete blocked --move-to Ready
+octa config state set-default Ready
 octa config state list
 ```
 
-`--starting` と `--terminal` は状態の入口・終端を示すフラグです。
+`config state set --name` での改名は、その状態のIssueも一緒に移します。
+`config state delete` は、Issueが残っている状態には `--move-to <state>` を要求し、
+入口の状態は `set-default` で入口を移すまで削除できません。
 
-初期状態では `open` が入口、`closed` が終端です。status type は
-`backlog`、`unstarted`、`started`、`completed`、`canceled` の5分類です。
-これらのstatus typeは一般的な分類であり、特定の状態名を要求しません。
-Backlog、Todo、In Progress、In Review、Done、Canceled などのworkflow名は、
-必要なリポジトリで上記のように追加します。旧バージョンで作成済みのworkflow状態や
-その他のcustom/legacy stateと、それらを参照するIssueはmigration後も削除・改名されません。
+新規Issueが入る状態は1リポジトリにつき1つだけで、`config state set-default`
+（または `config state create --starting`）で移します。この明示的なフラグだけで
+決まります。
+
+状態は並び順を持ちません。`config state list` の表示順は `status_type`
+（backlog → unstarted → started → completed → canceled）と名前から導かれるので、
+あとから追加した状態も該当のグループに並びます。
+
+status type は `backlog`、`unstarted`、`started`、`completed`、`canceled` の
+5分類です。これらは一般的な分類であり、特定の状態名を要求しません。
+旧バージョンで作成済みのworkflow状態やその他のcustom/legacy stateと、
+それらを参照するIssueはmigration後も削除・改名されません。
 
 Issueの状態は `issue set-state` で明示的に遷移させます。
 

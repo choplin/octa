@@ -453,11 +453,33 @@ pub(crate) enum StateCommand {
         /// Status type: backlog, unstarted, started, completed, canceled.
         #[arg(long = "type")]
         status_type: Option<String>,
+        /// Make this the state new issues start in, replacing the current one.
         #[arg(long)]
         starting: bool,
         #[arg(long)]
         terminal: bool,
     },
+    /// Update a configured issue state. Renaming moves its issues with it.
+    Set {
+        name: String,
+        /// New name for the state.
+        #[arg(long = "name")]
+        new_name: Option<String>,
+        /// Status type: backlog, unstarted, started, completed, canceled.
+        #[arg(long = "type")]
+        status_type: Option<String>,
+        #[arg(long)]
+        terminal: Option<bool>,
+    },
+    /// Delete a configured issue state.
+    Delete {
+        name: String,
+        /// State to move this state's issues to before deleting it.
+        #[arg(long)]
+        move_to: Option<String>,
+    },
+    /// Set the state new issues start in.
+    SetDefault { name: String },
 }
 
 #[derive(Subcommand)]

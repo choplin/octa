@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT json_array(repo_id, name, status_type, is_starting, is_terminal, position) AS \"row!: String\" FROM issue_states ORDER BY repo_id, position, name",
+  "query": "SELECT json_array(repo_id, name, status_type, is_starting, is_terminal) AS \"row!: String\" FROM issue_states ORDER BY repo_id, name",
   "describe": {
     "columns": [
       {
@@ -16,5 +16,5 @@
       null
     ]
   },
-  "hash": "a084cd5203f3af5b90c1883137fa698b2f8d3cc8bae16ba120df0603aff67999"
+  "hash": "5e317af67d40e09405bd53c69e38b5e9707df868933dd6140f3d2dcd4ddb6c62"
 }

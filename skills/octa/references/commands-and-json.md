@@ -80,12 +80,12 @@ octa records PR metadata and discussion; Git remains the source for code and dif
 wiki create|set|show|list
 config label create|list --target issue|project
 config label-group create|list --target issue|project
-config state create|list
+config state create|set|delete|set-default|list
 ```
 
-Wiki bodies recognize `[[slug]]`; `wiki show` includes outgoing links and backlinks. Issue and Project labels have separate definitions selected by the required `--target`. Label and label-group names are opaque repository data with no reserved operational taxonomy. Label groups use `single` or `multi` selection; `single` only makes explicitly grouped labels for the same target mutually exclusive. `config state create --type` accepts the five status types above, with optional `--starting` and `--terminal`.
+Wiki bodies recognize `[[slug]]`; `wiki show` includes outgoing links and backlinks. Issue and Project labels have separate definitions selected by the required `--target`. Label and label-group names are opaque repository data with no reserved operational taxonomy. Label groups use `single` or `multi` selection; `single` only makes explicitly grouped labels for the same target mutually exclusive. `config state create --type` accepts the five status types above, with optional `--starting` and `--terminal`. `config state set <name>` changes a state's `--name`, `--type`, or `--terminal`; renaming carries the state's Issues with it. `config state delete <name>` needs `--move-to <state>` while Issues still reference the state, and refuses the starting state. `config state set-default <name>` moves the starting flag.
 
-New repositories seed only the compatibility states `open`, `in_progress`, and `closed`. Workflow names such as Backlog, Todo, In Progress, In Review, Done, and Canceled are repository-owned custom states; create whichever ones are useful with `config state create --type`. Existing custom and legacy states and their Issues are preserved.
+New repositories seed Backlog, Todo, In Progress, In Review, Done, and Canceled — Linear's default workflow minus its `duplicate` status type, which octa does not model. Seeding happens only for a repository with no configured states, so an existing workflow is never extended behind your back. Exactly one state carries the starting flag and receives new Issues; it is resolved from that flag alone. Issue states carry no stored ordinal — `config state list` derives its order from `status_type` (backlog, unstarted, started, completed, canceled) and then name, so there is nothing to reorder. Existing custom and legacy states and their Issues are preserved.
 
 ## JSON contracts
 
