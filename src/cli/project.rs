@@ -1,8 +1,11 @@
+use super::output::{Output, Tone};
 use super::{MilestoneCommand, ProjectCommand};
 use crate::store::Store;
 use anyhow::Result;
+use urushi::View;
 
 pub(crate) async fn run(store: &Store, command: ProjectCommand) -> Result<()> {
+    let output = Output::stdout();
     match command {
         ProjectCommand::Create {
             name,
@@ -26,7 +29,9 @@ pub(crate) async fn run(store: &Store, command: ProjectCommand) -> Result<()> {
             if json {
                 println!("{}", serde_json::json!({ "id": id, "name": name }));
             } else {
-                println!("project {id}: {name}");
+                output.print(View::line(
+                    output.line(Tone::Success, format!("project {id}: {name}")),
+                ));
             }
         }
         ProjectCommand::List { active, json } => {
@@ -34,29 +39,49 @@ pub(crate) async fn run(store: &Store, command: ProjectCommand) -> Result<()> {
             if json {
                 println!("{}", serde_json::to_string(&projects)?);
             } else if projects.is_empty() {
-                println!("no projects");
+                output.print(View::line(output.line(Tone::Warning, "no projects")));
             } else {
-                for project in projects {
-                    println!(
-                        "{:<4} {:<12} {:<10} P{} issues B/U/S/D/C {}/{}/{}/{}/{} {}",
-                        project.project.id,
-                        project.project.state,
-                        project.project.status_type,
-                        project.project.priority,
-                        project.tally.backlog,
-                        project.tally.unstarted,
-                        project.tally.started,
-                        project.tally.completed,
-                        project.tally.canceled,
-                        project.project.name
-                    );
-                    for milestone in &project.milestones {
-                        println!(
-                            "      milestone: {:<4} {:<12} {}",
-                            milestone.position, milestone.status, milestone.name
-                        );
-                    }
-                }
+                let rows = projects.iter().map(|project| {
+                    let milestones = project
+                        .milestones
+                        .iter()
+                        .map(|milestone| {
+                            format!(
+                                "{} {} {}",
+                                milestone.position, milestone.status, milestone.name
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    [
+                        project.project.id.to_string(),
+                        project.project.state.clone(),
+                        project.project.status_type.clone(),
+                        format!("P{}", project.project.priority),
+                        format!(
+                            "{}/{}/{}/{}/{}",
+                            project.tally.backlog,
+                            project.tally.unstarted,
+                            project.tally.started,
+                            project.tally.completed,
+                            project.tally.canceled
+                        ),
+                        project.project.name.clone(),
+                        milestones,
+                    ]
+                });
+                output.print(output.table(
+                    [
+                        "ID",
+                        "State",
+                        "Status Type",
+                        "Priority",
+                        "B/U/S/D/C",
+                        "Name",
+                        "Milestones",
+                    ],
+                    rows,
+                ));
             }
         }
         ProjectCommand::Show { project, json } => {
@@ -64,51 +89,60 @@ pub(crate) async fn run(store: &Store, command: ProjectCommand) -> Result<()> {
             if json {
                 println!("{}", serde_json::to_string(&detail)?);
             } else {
-                println!(
-                    "{}: {} ({})",
-                    detail.project.id, detail.project.name, detail.project.state
-                );
-                println!("status type: {}", detail.project.status_type);
-                println!("priority: {}", detail.project.priority);
-                println!("summary: {}", detail.project.summary);
+                let mut view = View::line(output.row(
+                    format!("{}", detail.project.id),
+                    format!(": {} ({})", detail.project.name, detail.project.state),
+                ))
+                .push(output.field("status type: ", &detail.project.status_type))
+                .push(output.field("priority: ", detail.project.priority.to_string()))
+                .push(output.field("summary: ", &detail.project.summary));
                 if !detail.labels.is_empty() {
-                    println!("labels: {}", detail.labels.join(", "));
+                    view = view.push(output.field("labels: ", detail.labels.join(", ")));
                 }
-                println!(
-                    "issues: {} (backlog {}, unstarted {}, started {}, completed {}, canceled {})",
-                    detail.tally.total,
-                    detail.tally.backlog,
-                    detail.tally.unstarted,
-                    detail.tally.started,
-                    detail.tally.completed,
-                    detail.tally.canceled
-                );
+                view = view.push(output.field(
+                    "issues: ",
+                    format!(
+                        "{} (backlog {}, unstarted {}, started {}, completed {}, canceled {})",
+                        detail.tally.total,
+                        detail.tally.backlog,
+                        detail.tally.unstarted,
+                        detail.tally.started,
+                        detail.tally.completed,
+                        detail.tally.canceled
+                    ),
+                ));
                 if !detail.issue_numbers.is_empty() {
-                    println!(
-                        "issue numbers: {}",
-                        detail
-                            .issue_numbers
-                            .iter()
-                            .map(|number| format!("#{number}"))
-                            .collect::<Vec<_>>()
-                            .join(", ")
+                    view = view.push(
+                        output.field(
+                            "issue numbers: ",
+                            detail
+                                .issue_numbers
+                                .iter()
+                                .map(|number| format!("#{number}"))
+                                .collect::<Vec<_>>()
+                                .join(", "),
+                        ),
                     );
                 }
                 if !detail.milestones.is_empty() {
-                    println!("milestones:");
+                    view = view.push(output.line(Tone::Accent, "milestones:"));
                     for milestone in &detail.milestones {
-                        println!(
-                            "  {}. {} [{}] (id {})",
-                            milestone.position, milestone.name, milestone.status, milestone.id
-                        );
+                        view = view.push(output.line(
+                            Tone::Body,
+                            format!(
+                                "  {}. {} [{}] (id {})",
+                                milestone.position, milestone.name, milestone.status, milestone.id
+                            ),
+                        ));
                     }
                 }
-                println!();
+                view = view.push(output.line(Tone::Body, ""));
                 if detail.project.description.is_empty() {
-                    println!("(no description)");
+                    view = view.push(output.line(Tone::Warning, "(no description)"));
                 } else {
-                    println!("{}", detail.project.description);
+                    view = view.push(output.line(Tone::Body, &detail.project.description));
                 }
+                output.print(view);
             }
         }
         ProjectCommand::Set {
@@ -131,16 +165,22 @@ pub(crate) async fn run(store: &Store, command: ProjectCommand) -> Result<()> {
             if json {
                 println!("{}", serde_json::json!({ "updated": true }));
             } else {
-                println!("updated project {project}");
+                output.print(View::line(
+                    output.line(Tone::Success, format!("updated project {project}")),
+                ));
             }
         }
         ProjectCommand::Add { project, label } => {
             store.label_project(&project, &label).await?;
-            println!("updated project {project}");
+            output.print(View::line(
+                output.line(Tone::Success, format!("updated project {project}")),
+            ));
         }
         ProjectCommand::Remove { project, label } => {
             store.unlabel_project(&project, &label).await?;
-            println!("updated project {project}");
+            output.print(View::line(
+                output.line(Tone::Success, format!("updated project {project}")),
+            ));
         }
         ProjectCommand::SetState {
             project,
@@ -157,7 +197,10 @@ pub(crate) async fn run(store: &Store, command: ProjectCommand) -> Result<()> {
                     serde_json::json!({ "state": state, "status_type": status_type })
                 );
             } else {
-                println!("project {project} -> {state} ({status_type})");
+                output.print(View::line(output.line(
+                    Tone::Success,
+                    format!("project {project} -> {state} ({status_type})"),
+                )));
             }
         }
     }
@@ -165,6 +208,7 @@ pub(crate) async fn run(store: &Store, command: ProjectCommand) -> Result<()> {
 }
 
 pub(crate) async fn run_milestone(store: &Store, command: MilestoneCommand) -> Result<()> {
+    let output = Output::stdout();
     match command {
         MilestoneCommand::Create {
             project,
@@ -193,7 +237,9 @@ pub(crate) async fn run_milestone(store: &Store, command: MilestoneCommand) -> R
                     serde_json::json!({ "project": project, "id": id, "name": name })
                 );
             } else {
-                println!("milestone {id}: {name}");
+                output.print(View::line(
+                    output.line(Tone::Success, format!("milestone {id}: {name}")),
+                ));
             }
         }
         MilestoneCommand::List { project, json } => {
@@ -201,14 +247,17 @@ pub(crate) async fn run_milestone(store: &Store, command: MilestoneCommand) -> R
             if json {
                 println!("{}", serde_json::to_string(&milestones)?);
             } else if milestones.is_empty() {
-                println!("no milestones");
+                output.print(View::line(output.line(Tone::Warning, "no milestones")));
             } else {
-                for milestone in milestones {
-                    println!(
-                        "{:<4} {:<4} {:<12} {}",
-                        milestone.id, milestone.position, milestone.status, milestone.name
-                    );
-                }
+                let rows = milestones.iter().map(|milestone| {
+                    [
+                        milestone.id.to_string(),
+                        milestone.position.to_string(),
+                        milestone.status.clone(),
+                        milestone.name.clone(),
+                    ]
+                });
+                output.print(output.table(["ID", "Position", "Status", "Name"], rows));
             }
         }
         MilestoneCommand::Show {
@@ -220,21 +269,28 @@ pub(crate) async fn run_milestone(store: &Store, command: MilestoneCommand) -> R
             if json {
                 println!("{}", serde_json::to_string(&milestone)?);
             } else {
-                println!(
-                    "{}: {} (position {}, {})",
-                    milestone.id, milestone.name, milestone.position, milestone.status
-                );
-                println!(
-                    "dates: {} -> {}",
-                    milestone.start_date.as_deref().unwrap_or("(none)"),
-                    milestone.target_date.as_deref().unwrap_or("(none)")
-                );
-                println!();
+                let mut view = View::line(output.row(
+                    milestone.id.to_string(),
+                    format!(
+                        ": {} (position {}, {})",
+                        milestone.name, milestone.position, milestone.status
+                    ),
+                ))
+                .push(output.field(
+                    "dates: ",
+                    format!(
+                        "{} -> {}",
+                        milestone.start_date.as_deref().unwrap_or("(none)"),
+                        milestone.target_date.as_deref().unwrap_or("(none)")
+                    ),
+                ))
+                .push(output.line(Tone::Body, ""));
                 if milestone.description.is_empty() {
-                    println!("(no description)");
+                    view = view.push(output.line(Tone::Warning, "(no description)"));
                 } else {
-                    println!("{}", milestone.description);
+                    view = view.push(output.line(Tone::Body, &milestone.description));
                 }
+                output.print(view);
             }
         }
         MilestoneCommand::Set {
@@ -265,7 +321,9 @@ pub(crate) async fn run_milestone(store: &Store, command: MilestoneCommand) -> R
             if json {
                 println!("{}", serde_json::json!({ "updated": true }));
             } else {
-                println!("updated milestone {milestone}");
+                output.print(View::line(
+                    output.line(Tone::Success, format!("updated milestone {milestone}")),
+                ));
             }
         }
         MilestoneCommand::Unset {
@@ -295,7 +353,9 @@ pub(crate) async fn run_milestone(store: &Store, command: MilestoneCommand) -> R
             if json {
                 println!("{}", serde_json::json!({ "updated": true }));
             } else {
-                println!("updated milestone {milestone}");
+                output.print(View::line(
+                    output.line(Tone::Success, format!("updated milestone {milestone}")),
+                ));
             }
         }
     }

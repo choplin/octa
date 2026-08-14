@@ -5,6 +5,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 mod issue;
 mod label;
+mod output;
 mod pr;
 mod project;
 mod state;

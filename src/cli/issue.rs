@@ -1,8 +1,11 @@
+use super::output::{Output, Tone};
 use super::IssueCommand;
 use crate::store::{LeaseOutcome, Store};
 use anyhow::Result;
+use urushi::View;
 
 pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
+    let output = Output::stdout();
     match command {
         IssueCommand::Tui => {
             // Details are repository-scoped (issue numbers are only unique
@@ -38,7 +41,7 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             if json {
                 println!("{}", serde_json::json!({ "number": number }));
             } else {
-                println!("#{number}");
+                output.print(View::line(output.line(Tone::Success, format!("#{number}"))));
             }
         }
         IssueCommand::List {
@@ -69,26 +72,41 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             if json {
                 println!("{}", serde_json::to_string(&issues)?);
             } else if issues.is_empty() {
-                println!("no issues");
+                output.print(View::line(output.line(Tone::Warning, "no issues")));
             } else {
-                for issue in &issues {
-                    let lease = if issue.leased { " [leased]" } else { "" };
-                    println!(
-                        "#{:<4} {:<12} {:<10} P{} {}{}",
-                        issue.number,
-                        issue.state,
-                        issue.status_type,
-                        issue.priority,
-                        issue.title,
-                        lease
-                    );
-                    if let Some(project) = &issue.project {
-                        println!("      project: {}", project.name);
-                    }
-                    if let Some(milestone) = &issue.milestone {
-                        println!("      milestone: {}", milestone.name);
-                    }
-                }
+                let rows = issues.iter().map(|issue| {
+                    [
+                        format!("#{}", issue.number),
+                        issue.state.clone(),
+                        issue.status_type.clone(),
+                        format!("P{}", issue.priority),
+                        issue.title.clone(),
+                        issue
+                            .project
+                            .as_ref()
+                            .map(|project| project.name.clone())
+                            .unwrap_or_default(),
+                        issue
+                            .milestone
+                            .as_ref()
+                            .map(|milestone| milestone.name.clone())
+                            .unwrap_or_default(),
+                        if issue.leased { "yes" } else { "" }.to_owned(),
+                    ]
+                });
+                output.print(output.table(
+                    [
+                        "Issue",
+                        "State",
+                        "Status Type",
+                        "Priority",
+                        "Title",
+                        "Project",
+                        "Milestone",
+                        "Leased",
+                    ],
+                    rows,
+                ));
             }
         }
         IssueCommand::Show { number, json } => {
@@ -97,78 +115,99 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                 println!("{}", serde_json::to_string(&detail)?);
             } else {
                 let issue = &detail.issue;
-                println!("#{} {} ({})", issue.number, issue.title, issue.state);
-                println!("status type: {}", issue.status_type);
-                println!("priority: {}", issue.priority);
-                println!(
-                    "project: {}",
-                    issue
-                        .project
-                        .as_ref()
-                        .map(|project| project.name.as_str())
-                        .unwrap_or("No Project")
-                );
-                println!(
-                    "milestone: {}",
-                    issue
-                        .milestone
-                        .as_ref()
-                        .map(|milestone| milestone.name.as_str())
-                        .unwrap_or("No Milestone")
+                let mut view = View::line(output.row(
+                    format!("#{}", issue.number),
+                    format!(" {} ({})", issue.title, issue.state),
+                ))
+                .push(output.field("status type: ", &issue.status_type))
+                .push(output.field("priority: ", issue.priority.to_string()))
+                .push(
+                    output.field(
+                        "project: ",
+                        issue
+                            .project
+                            .as_ref()
+                            .map(|project| project.name.as_str())
+                            .unwrap_or("No Project"),
+                    ),
+                )
+                .push(
+                    output.field(
+                        "milestone: ",
+                        issue
+                            .milestone
+                            .as_ref()
+                            .map(|milestone| milestone.name.as_str())
+                            .unwrap_or("No Milestone"),
+                    ),
                 );
                 if let Some(parent) = &detail.parent {
-                    println!("parent: #{} {}", parent.number, parent.title);
+                    view = view.push(
+                        output.field("parent: ", format!("#{} {}", parent.number, parent.title)),
+                    );
                 }
                 if !detail.sub_issues.is_empty() {
-                    println!(
-                        "sub-issues: {}",
-                        detail
-                            .sub_issues
-                            .iter()
-                            .map(|issue| format!("#{} {}", issue.number, issue.title))
-                            .collect::<Vec<_>>()
-                            .join(", ")
+                    view = view.push(
+                        output.field(
+                            "sub-issues: ",
+                            detail
+                                .sub_issues
+                                .iter()
+                                .map(|issue| format!("#{} {}", issue.number, issue.title))
+                                .collect::<Vec<_>>()
+                                .join(", "),
+                        ),
                     );
                 }
                 if issue.leased {
-                    println!("leased: yes");
+                    view = view.push(output.field("leased: ", "yes"));
                 }
                 if !detail.labels.is_empty() {
-                    println!("labels: {}", detail.labels.join(", "));
+                    view = view.push(output.field("labels: ", detail.labels.join(", ")));
                 }
                 if !detail.blocked_by.is_empty() {
-                    println!("blocked by: {}", join_numbers(&detail.blocked_by));
+                    view =
+                        view.push(output.field("blocked by: ", join_numbers(&detail.blocked_by)));
                 }
                 if !detail.blocks.is_empty() {
-                    println!("blocks: {}", join_numbers(&detail.blocks));
+                    view = view.push(output.field("blocks: ", join_numbers(&detail.blocks)));
                 }
                 if !detail.related.is_empty() {
-                    println!("related: {}", join_numbers(&detail.related));
+                    view = view.push(output.field("related: ", join_numbers(&detail.related)));
                 }
                 for pr in &detail.pull_requests {
-                    println!(
-                        "pull request: #{} {} (branch: {}, state: {})",
-                        pr.number, pr.title, pr.branch, pr.state
-                    );
+                    view = view.push(output.field(
+                        "pull request: ",
+                        format!(
+                            "#{} {} (branch: {}, state: {})",
+                            pr.number, pr.title, pr.branch, pr.state
+                        ),
+                    ));
                 }
-                println!();
+                view = view.push(output.line(Tone::Body, ""));
                 if issue.body.is_empty() {
-                    println!("(no description)");
+                    view = view.push(output.line(Tone::Warning, "(no description)"));
                 } else {
-                    println!("{}", issue.body);
+                    view = view.push(output.line(Tone::Body, &issue.body));
                 }
                 if !detail.comments.is_empty() {
-                    println!();
-                    println!("--- comments ---");
+                    view = view
+                        .push(output.line(Tone::Body, ""))
+                        .push(output.line(Tone::Accent, "--- comments ---"));
                     for comment in &detail.comments {
-                        println!("[{}] {}", comment.created_at, comment.body);
+                        view = view.push(
+                            output.field(format!("[{}] ", comment.created_at), &comment.body),
+                        );
                     }
                 }
+                output.print(view);
             }
         }
         IssueCommand::Comment { number, body } => {
             store.add_issue_comment(number, &body).await?;
-            println!("commented on issue #{number}");
+            output.print(View::line(
+                output.line(Tone::Success, format!("commented on issue #{number}")),
+            ));
         }
         IssueCommand::SetState {
             number,
@@ -178,7 +217,9 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             store
                 .set_issue_state(number, &state, lease.as_deref())
                 .await?;
-            println!("issue #{number} -> {state}");
+            output.print(View::line(
+                output.line(Tone::Success, format!("issue #{number} -> {state}")),
+            ));
         }
         IssueCommand::Set {
             number,
@@ -225,7 +266,9 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                     .set_issue_parent(number, parent, lease.as_deref())
                     .await?;
             }
-            println!("updated issue #{number}");
+            output.print(View::line(
+                output.line(Tone::Success, format!("updated issue #{number}")),
+            ));
         }
         IssueCommand::Unset {
             number,
@@ -248,7 +291,9 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             if parent {
                 store.clear_issue_parent(number, lease.as_deref()).await?;
             }
-            println!("updated issue #{number}");
+            output.print(View::line(
+                output.line(Tone::Success, format!("updated issue #{number}")),
+            ));
         }
         IssueCommand::Add {
             number,
@@ -288,7 +333,9 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             if let Some(pr) = pr {
                 store.link_pr(number, pr, lease.as_deref()).await?;
             }
-            println!("updated issue #{number}");
+            output.print(View::line(
+                output.line(Tone::Success, format!("updated issue #{number}")),
+            ));
         }
         IssueCommand::Remove {
             number,
@@ -330,7 +377,9 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             if let Some(pr) = pr {
                 store.unlink_pr(number, pr, lease.as_deref()).await?;
             }
-            println!("updated issue #{number}");
+            output.print(View::line(
+                output.line(Tone::Success, format!("updated issue #{number}")),
+            ));
         }
         IssueCommand::Lock { number } => match store.lock_issue(number).await? {
             LeaseOutcome::Acquired(lease) => println!("{lease}"),
@@ -344,7 +393,9 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             force,
         } => {
             if store.unlock_issue(number, lease.as_deref(), force).await? {
-                println!("unlocked issue #{number}");
+                output.print(View::line(
+                    output.line(Tone::Success, format!("unlocked issue #{number}")),
+                ));
             } else {
                 anyhow::bail!("valid lease required for issue #{number} (use --force to override)");
             }

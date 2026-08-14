@@ -255,6 +255,25 @@ fn create_list_show_roundtrip() {
 }
 
 #[test]
+fn piped_human_output_is_plain_and_json_stays_machine_readable() {
+    let env = Env::new();
+
+    let created = env.ok(&["issue", "create", "--title", "Styled"]);
+    assert_eq!(created, "#1\n");
+    assert!(!created.contains('\u{1b}'));
+
+    let listed = env.ok(&["issue", "list"]);
+    assert!(listed.contains("Styled"));
+    assert!(listed.contains("│ Issue"));
+    assert!(listed.contains("Title"));
+    assert!(!listed.contains('\u{1b}'));
+
+    let raw_json = env.ok(&["issue", "show", "1", "--json"]);
+    assert_eq!(json(&raw_json)["title"], "Styled");
+    assert!(!raw_json.contains('\u{1b}'));
+}
+
+#[test]
 fn comment_appears_in_thread() {
     let env = Env::new();
     env.ok(&["issue", "create", "--title", "Discuss"]);
@@ -621,7 +640,7 @@ fn project_list_orders_priorities_with_none_last_and_filters_active_explicitly()
     assert_eq!(all[0]["status_type"], "canceled");
     let all_text = env.ok(&["project", "list"]);
     assert!(all_text.contains("Urgent"), "{all_text}");
-    assert!(all_text.contains("issues B/U/S/D/C"), "{all_text}");
+    assert!(all_text.contains("B/U/S/D/C"), "{all_text}");
 
     let active = json(&env.ok(&["project", "list", "--active", "--json"]));
     assert_eq!(

@@ -1,7 +1,10 @@
+use super::output::{Output, Tone};
 use super::{parse_pr_state, PrCommand};
 use crate::store::Store;
 use anyhow::Result;
+use urushi::View;
 pub(crate) async fn run(store: &Store, command: PrCommand) -> Result<()> {
+    let output = Output::stdout();
     match command {
         PrCommand::Create {
             title,
@@ -17,7 +20,7 @@ pub(crate) async fn run(store: &Store, command: PrCommand) -> Result<()> {
             if json {
                 println!("{}", serde_json::json!({"number":number}))
             } else {
-                println!("#{number}")
+                output.print(View::line(output.line(Tone::Success, format!("#{number}"))))
             }
         }
         PrCommand::List { state, json } => {
@@ -25,14 +28,17 @@ pub(crate) async fn run(store: &Store, command: PrCommand) -> Result<()> {
             if json {
                 println!("{}", serde_json::to_string(&prs)?)
             } else if prs.is_empty() {
-                println!("no pull requests")
+                output.print(View::line(output.line(Tone::Warning, "no pull requests")))
             } else {
-                for pr in prs {
-                    println!(
-                        "#{:<4} {:<8} {} ({})",
-                        pr.number, pr.state, pr.title, pr.branch
-                    )
-                }
+                let rows = prs.iter().map(|pr| {
+                    [
+                        format!("#{}", pr.number),
+                        pr.state.clone(),
+                        pr.title.clone(),
+                        pr.branch.clone(),
+                    ]
+                });
+                output.print(output.table(["PR", "State", "Title", "Branch"], rows))
             }
         }
         PrCommand::Show { number, json } => {
@@ -41,33 +47,47 @@ pub(crate) async fn run(store: &Store, command: PrCommand) -> Result<()> {
                 println!("{}", serde_json::to_string(&detail)?)
             } else {
                 let pr = &detail.pr;
-                println!("#{} {} ({})", pr.number, pr.title, pr.state);
-                println!("branch: {}", pr.branch);
-                println!();
-                println!(
-                    "{}",
+                let mut view = View::line(output.row(
+                    format!("#{}", pr.number),
+                    format!(" {} ({})", pr.title, pr.state),
+                ))
+                .push(output.field("branch: ", &pr.branch))
+                .push(output.line(Tone::Body, ""))
+                .push(output.line(
+                    if pr.body.is_empty() {
+                        Tone::Warning
+                    } else {
+                        Tone::Body
+                    },
                     if pr.body.is_empty() {
                         "(no description)"
                     } else {
                         &pr.body
-                    }
-                );
+                    },
+                ));
                 if !detail.comments.is_empty() {
-                    println!();
-                    println!("--- comments ---");
+                    view = view
+                        .push(output.line(Tone::Body, ""))
+                        .push(output.line(Tone::Accent, "--- comments ---"));
                     for comment in detail.comments {
-                        println!("[{}] {}", comment.created_at, comment.body)
+                        view = view
+                            .push(output.field(format!("[{}] ", comment.created_at), comment.body));
                     }
                 }
+                output.print(view)
             }
         }
         PrCommand::Comment { number, body } => {
             store.add_pr_comment(number, &body).await?;
-            println!("commented on PR #{number}")
+            output.print(View::line(
+                output.line(Tone::Success, format!("commented on PR #{number}")),
+            ))
         }
         PrCommand::SetState { number, state } => {
             store.set_pr_state(number, &state).await?;
-            println!("PR #{number} -> {state}")
+            output.print(View::line(
+                output.line(Tone::Success, format!("PR #{number} -> {state}")),
+            ))
         }
         PrCommand::Set {
             number,
@@ -77,7 +97,9 @@ pub(crate) async fn run(store: &Store, command: PrCommand) -> Result<()> {
             store
                 .edit_pr(number, title.as_deref(), body.as_deref())
                 .await?;
-            println!("updated PR #{number}")
+            output.print(View::line(
+                output.line(Tone::Success, format!("updated PR #{number}")),
+            ))
         }
         PrCommand::Add {
             number,
@@ -85,7 +107,9 @@ pub(crate) async fn run(store: &Store, command: PrCommand) -> Result<()> {
             lease,
         } => {
             store.link_pr(issue, number, lease.as_deref()).await?;
-            println!("updated PR #{number}")
+            output.print(View::line(
+                output.line(Tone::Success, format!("updated PR #{number}")),
+            ))
         }
         PrCommand::Remove {
             number,
@@ -93,7 +117,9 @@ pub(crate) async fn run(store: &Store, command: PrCommand) -> Result<()> {
             lease,
         } => {
             store.unlink_pr(issue, number, lease.as_deref()).await?;
-            println!("updated PR #{number}")
+            output.print(View::line(
+                output.line(Tone::Success, format!("updated PR #{number}")),
+            ))
         }
     }
     Ok(())
