@@ -18,6 +18,12 @@ CREATE TABLE issue_states (
     PRIMARY KEY (repo_id, name)
 );
 
+-- A repository has at most one starting state. The partial index leaves zero
+-- starting states legal; that case is a configuration error the application
+-- reports with the command that fixes it, not something to reject on write.
+CREATE UNIQUE INDEX issue_states_one_starting_idx
+    ON issue_states (repo_id) WHERE is_starting = 1;
+
 CREATE TABLE issues (
     repo_id    INTEGER NOT NULL REFERENCES repos(id),
     number     INTEGER NOT NULL,

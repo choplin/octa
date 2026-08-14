@@ -449,6 +449,32 @@ mod migration_tests {
             ]
         );
 
+        // The schema itself, not just the application layer, keeps a repository
+        // to one starting state.
+        let repo = crate::sql::repo::upsert(&pool, "/starting/.git", "starting")
+            .await
+            .unwrap();
+        // Runtime-checked queries: these assert schema behavior and have no
+        // place in the offline query cache the application's own queries use.
+        let promote = "UPDATE issue_states SET is_starting = 1 WHERE repo_id = ? AND name = 'Todo'";
+        let second_starting = sqlx::query(promote).bind(repo).execute(&pool).await;
+        assert!(
+            second_starting.is_err(),
+            "a second starting state must be rejected by the schema"
+        );
+        // Clearing the flag everywhere first is what the application does, and
+        // it stays legal — including the intermediate state with none set.
+        sqlx::query("UPDATE issue_states SET is_starting = 0 WHERE repo_id = ?")
+            .bind(repo)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(promote)
+            .bind(repo)
+            .execute(&pool)
+            .await
+            .unwrap();
+
         let issue_columns: Vec<String> = sqlx::query!("PRAGMA table_info('issues')")
             .fetch_all(&pool)
             .await
