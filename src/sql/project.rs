@@ -224,7 +224,7 @@ pub async fn tally(pool: &SqlitePool, repo: i64, id: i64) -> Result<ProjectTally
                   COUNT(*) AS "count!: i64"
            FROM issue_projects ip
            JOIN issues i ON i.repo_id = ip.repo_id AND i.number = ip.issue_number
-           LEFT JOIN issue_states s ON s.repo_id = i.repo_id AND s.name = i.state
+           LEFT JOIN issue_states s ON s.name = i.state
            WHERE ip.repo_id = ? AND ip.project_id = ?
            GROUP BY COALESCE(s.status_type, 'unstarted')"#,
         repo,

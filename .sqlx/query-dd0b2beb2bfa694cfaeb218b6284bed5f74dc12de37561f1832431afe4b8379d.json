@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT json_array(name, group_name) AS \"row!: String\" FROM project_labels ORDER BY name",
+  "describe": {
+    "columns": [
+      {
+        "name": "row!: String",
+        "ordinal": 0,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "dd0b2beb2bfa694cfaeb218b6284bed5f74dc12de37561f1832431afe4b8379d"
+}

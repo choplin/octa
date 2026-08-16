@@ -1,10 +1,9 @@
 use crate::domain::label::{Label, LabelGroup};
 use anyhow::Result;
 use sqlx::{Sqlite, SqlitePool, Transaction};
-pub async fn insert_group(pool: &SqlitePool, repo: i64, name: &str, selection: &str) -> Result<()> {
+pub async fn insert_group(pool: &SqlitePool, name: &str, selection: &str) -> Result<()> {
     sqlx::query!(
-        "INSERT INTO label_groups (repo_id, name, selection) VALUES (?, ?, ?)",
-        repo,
+        "INSERT INTO label_groups (name, selection) VALUES (?, ?)",
         name,
         selection
     )
@@ -13,21 +12,18 @@ pub async fn insert_group(pool: &SqlitePool, repo: i64, name: &str, selection: &
     Ok(())
 }
 
-pub async fn group_exists(pool: &SqlitePool, repo: i64, name: &str) -> Result<bool> {
-    Ok(sqlx::query_scalar!(
-        "SELECT COUNT(*) FROM label_groups WHERE repo_id = ? AND name = ?",
-        repo,
-        name
+pub async fn group_exists(pool: &SqlitePool, name: &str) -> Result<bool> {
+    Ok(
+        sqlx::query_scalar!("SELECT COUNT(*) FROM label_groups WHERE name = ?", name)
+            .fetch_one(pool)
+            .await?
+            != 0,
     )
-    .fetch_one(pool)
-    .await?
-        != 0)
 }
 
-pub async fn insert(pool: &SqlitePool, repo: i64, name: &str, group: Option<&str>) -> Result<()> {
+pub async fn insert(pool: &SqlitePool, name: &str, group: Option<&str>) -> Result<()> {
     sqlx::query!(
-        "INSERT INTO labels (repo_id, name, group_name) VALUES (?, ?, ?)",
-        repo,
+        "INSERT INTO labels (name, group_name) VALUES (?, ?)",
         name,
         group
     )
@@ -36,7 +32,7 @@ pub async fn insert(pool: &SqlitePool, repo: i64, name: &str, group: Option<&str
     Ok(())
 }
 
-pub async fn list(pool: &SqlitePool, repo: i64) -> Result<Vec<Label>> {
+pub async fn list(pool: &SqlitePool) -> Result<Vec<Label>> {
     Ok(sqlx::query_as!(
         Label,
         r#"
@@ -45,18 +41,15 @@ pub async fn list(pool: &SqlitePool, repo: i64) -> Result<Vec<Label>> {
             group_name AS "group?: String"
         FROM
             labels
-        WHERE
-            repo_id = ?
         ORDER BY
             group_name, name
-    "#,
-        repo
+    "#
     )
     .fetch_all(pool)
     .await?)
 }
 
-pub async fn list_groups(pool: &SqlitePool, repo: i64) -> Result<Vec<LabelGroup>> {
+pub async fn list_groups(pool: &SqlitePool) -> Result<Vec<LabelGroup>> {
     Ok(sqlx::query_as!(
         LabelGroup,
         r#"
@@ -65,12 +58,9 @@ pub async fn list_groups(pool: &SqlitePool, repo: i64) -> Result<Vec<LabelGroup>
             selection AS "selection!: String"
         FROM
             label_groups
-        WHERE
-            repo_id = ?
         ORDER BY
             name
-    "#,
-        repo
+    "#
     )
     .fetch_all(pool)
     .await?)
@@ -78,7 +68,6 @@ pub async fn list_groups(pool: &SqlitePool, repo: i64) -> Result<Vec<LabelGroup>
 
 pub async fn label_group_tx(
     tx: &mut Transaction<'_, Sqlite>,
-    repo: i64,
     label: &str,
 ) -> Result<Option<Option<String>>> {
     Ok(sqlx::query_scalar!(
@@ -88,22 +77,15 @@ pub async fn label_group_tx(
             FROM
                 labels
             WHERE
-                repo_id = ?
-            AND
                 name = ?
         "#,
-        repo,
         label
     )
     .fetch_optional(&mut **tx)
     .await?)
 }
 
-pub async fn group_selection_tx(
-    tx: &mut Transaction<'_, Sqlite>,
-    repo: i64,
-    group: &str,
-) -> Result<String> {
+pub async fn group_selection_tx(tx: &mut Transaction<'_, Sqlite>, group: &str) -> Result<String> {
     Ok(sqlx::query_scalar!(
         r#"
             SELECT
@@ -111,11 +93,8 @@ pub async fn group_selection_tx(
             FROM
                 label_groups
             WHERE
-                repo_id = ?
-            AND
                 name = ?
         "#,
-        repo,
         group
     )
     .fetch_one(&mut **tx)
@@ -128,7 +107,7 @@ pub async fn replace_single_group(
     number: i64,
     group: &str,
 ) -> Result<()> {
-    sqlx::query!("DELETE FROM issue_labels WHERE repo_id = ? AND issue_number = ? AND label_name IN (SELECT name FROM labels WHERE repo_id = ? AND group_name = ?)", repo, number, repo, group).execute(&mut **tx).await?;
+    sqlx::query!("DELETE FROM issue_labels WHERE repo_id = ? AND issue_number = ? AND label_name IN (SELECT name FROM labels WHERE group_name = ?)", repo, number, group).execute(&mut **tx).await?;
     Ok(())
 }
 
@@ -166,15 +145,9 @@ pub async fn detach(
     Ok(())
 }
 
-pub async fn insert_project_group(
-    pool: &SqlitePool,
-    repo: i64,
-    name: &str,
-    selection: &str,
-) -> Result<()> {
+pub async fn insert_project_group(pool: &SqlitePool, name: &str, selection: &str) -> Result<()> {
     sqlx::query!(
-        "INSERT INTO project_label_groups (repo_id, name, selection) VALUES (?, ?, ?)",
-        repo,
+        "INSERT INTO project_label_groups (name, selection) VALUES (?, ?)",
         name,
         selection
     )
@@ -183,10 +156,9 @@ pub async fn insert_project_group(
     Ok(())
 }
 
-pub async fn project_group_exists(pool: &SqlitePool, repo: i64, name: &str) -> Result<bool> {
+pub async fn project_group_exists(pool: &SqlitePool, name: &str) -> Result<bool> {
     Ok(sqlx::query_scalar!(
-        "SELECT COUNT(*) FROM project_label_groups WHERE repo_id = ? AND name = ?",
-        repo,
+        "SELECT COUNT(*) FROM project_label_groups WHERE name = ?",
         name
     )
     .fetch_one(pool)
@@ -196,13 +168,11 @@ pub async fn project_group_exists(pool: &SqlitePool, repo: i64, name: &str) -> R
 
 pub async fn insert_project_label(
     pool: &SqlitePool,
-    repo: i64,
     name: &str,
     group: Option<&str>,
 ) -> Result<()> {
     sqlx::query!(
-        "INSERT INTO project_labels (repo_id, name, group_name) VALUES (?, ?, ?)",
-        repo,
+        "INSERT INTO project_labels (name, group_name) VALUES (?, ?)",
         name,
         group
     )
@@ -211,23 +181,21 @@ pub async fn insert_project_label(
     Ok(())
 }
 
-pub async fn list_project_labels(pool: &SqlitePool, repo: i64) -> Result<Vec<Label>> {
+pub async fn list_project_labels(pool: &SqlitePool) -> Result<Vec<Label>> {
     Ok(sqlx::query_as!(
         Label,
         r#"SELECT name AS "name!: String", group_name AS "group?: String"
-           FROM project_labels WHERE repo_id = ? ORDER BY group_name, name"#,
-        repo
+           FROM project_labels ORDER BY group_name, name"#
     )
     .fetch_all(pool)
     .await?)
 }
 
-pub async fn list_project_groups(pool: &SqlitePool, repo: i64) -> Result<Vec<LabelGroup>> {
+pub async fn list_project_groups(pool: &SqlitePool) -> Result<Vec<LabelGroup>> {
     Ok(sqlx::query_as!(
         LabelGroup,
         r#"SELECT name AS "name!: String", selection AS "selection!: String"
-           FROM project_label_groups WHERE repo_id = ? ORDER BY name"#,
-        repo
+           FROM project_label_groups ORDER BY name"#
     )
     .fetch_all(pool)
     .await?)
@@ -235,13 +203,11 @@ pub async fn list_project_groups(pool: &SqlitePool, repo: i64) -> Result<Vec<Lab
 
 pub async fn project_label_group_tx(
     tx: &mut Transaction<'_, Sqlite>,
-    repo: i64,
     label: &str,
 ) -> Result<Option<Option<String>>> {
     Ok(sqlx::query_scalar!(
         r#"SELECT group_name AS "g?: String" FROM project_labels
-           WHERE repo_id = ? AND name = ?"#,
-        repo,
+           WHERE name = ?"#,
         label
     )
     .fetch_optional(&mut **tx)
@@ -250,13 +216,11 @@ pub async fn project_label_group_tx(
 
 pub async fn project_group_selection_tx(
     tx: &mut Transaction<'_, Sqlite>,
-    repo: i64,
     group: &str,
 ) -> Result<String> {
     Ok(sqlx::query_scalar!(
         r#"SELECT selection AS "s!: String" FROM project_label_groups
-           WHERE repo_id = ? AND name = ?"#,
-        repo,
+           WHERE name = ?"#,
         group
     )
     .fetch_one(&mut **tx)
@@ -270,10 +234,9 @@ pub async fn replace_project_single_group(
     group: &str,
 ) -> Result<()> {
     sqlx::query!(
-        "DELETE FROM project_label_links WHERE repo_id = ? AND project_id = ? AND label_name IN (SELECT name FROM project_labels WHERE repo_id = ? AND group_name = ?)",
+        "DELETE FROM project_label_links WHERE repo_id = ? AND project_id = ? AND label_name IN (SELECT name FROM project_labels WHERE group_name = ?)",
         repo,
         project,
-        repo,
         group
     )
     .execute(&mut **tx)

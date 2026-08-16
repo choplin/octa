@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO project_label_groups (name, selection) VALUES (?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "fe58c1658d2ae84b493c6d184d3dbbc0e01166c3b121bcc724182f107ae3b49b"
+}

@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT selection AS \"s!: String\" FROM project_label_groups\n           WHERE name = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "s!: String",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "ea11c0b4773cd9eabd736d8a8c8aa7139b4cd5576e660e953b415defd8fd6ac3"
+}

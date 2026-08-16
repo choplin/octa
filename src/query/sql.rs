@@ -6,11 +6,15 @@ use async_graphql::{Name, SelectionField, Value};
 
 pub(super) struct Planner {
     alias: usize,
+    /// The active repository. Labels are global configuration, so a label's
+    /// issues and projects are scoped by the active repository rather than by
+    /// the label row itself.
+    repo: i64,
 }
 
 impl Planner {
-    pub(super) fn new() -> Self {
-        Self { alias: 0 }
+    pub(super) fn new(repo: i64) -> Self {
+        Self { alias: 0, repo }
     }
     fn next(&mut self, prefix: &str) -> String {
         self.alias += 1;
@@ -59,7 +63,7 @@ impl Planner {
                     let x = self.next("il");
                     let item = self.label(&merged.children, &l, LabelTarget::Issue)?;
                     let page = Page::from_field(field)?;
-                    list(format!("SELECT {item} item FROM issue_labels {x} JOIN labels {l} ON {l}.repo_id={x}.repo_id AND {l}.name={x}.label_name WHERE {x}.repo_id={issue}.repo_id AND {x}.issue_number={issue}.number ORDER BY {l}.name {}", page.sql()))
+                    list(format!("SELECT {item} item FROM issue_labels {x} JOIN labels {l} ON {l}.name={x}.label_name WHERE {x}.repo_id={issue}.repo_id AND {x}.issue_number={issue}.number ORDER BY {l}.name {}", page.sql()))
                 }
                 "blocks" | "blockedBy" => {
                     let i = self.next("i");
@@ -154,7 +158,7 @@ impl Planner {
                     let x = self.next("pl");
                     let nested = self.label(&merged.children, &l, LabelTarget::Project)?;
                     let page = Page::from_field(field)?;
-                    list(format!("SELECT {nested} item FROM project_label_links {x} JOIN project_labels {l} ON {l}.repo_id={x}.repo_id AND {l}.name={x}.label_name WHERE {x}.repo_id={project}.repo_id AND {x}.project_id={project}.id ORDER BY {l}.name {}", page.sql()))
+                    list(format!("SELECT {nested} item FROM project_label_links {x} JOIN project_labels {l} ON {l}.name={x}.label_name WHERE {x}.repo_id={project}.repo_id AND {x}.project_id={project}.id ORDER BY {l}.name {}", page.sql()))
                 }
                 name => return Err(format!("unsupported Project selection {name}").into()),
             };
@@ -284,14 +288,16 @@ impl Planner {
                     let state = issue_state_join(&merged.children, &i, &s, false);
                     let nested = self.issue(&merged.children, &i, state.alias())?;
                     let page = Page::from_field(field)?;
-                    list(format!("SELECT {nested} item FROM issue_labels {x} JOIN issues {i} ON {i}.repo_id={x}.repo_id AND {i}.number={x}.issue_number {} WHERE {x}.repo_id={label}.repo_id AND {x}.label_name={label}.name ORDER BY {i}.number {}", state.sql(), page.sql()))
+                    let repo = self.repo;
+                    list(format!("SELECT {nested} item FROM issue_labels {x} JOIN issues {i} ON {i}.repo_id={x}.repo_id AND {i}.number={x}.issue_number {} WHERE {x}.repo_id={repo} AND {x}.label_name={label}.name ORDER BY {i}.number {}", state.sql(), page.sql()))
                 }
                 "projects" if target == LabelTarget::Project => {
                     let p = self.next("p");
                     let x = self.next("pl");
                     let nested = self.project(&merged.children, &p)?;
                     let page = Page::from_field(field)?;
-                    list(format!("SELECT {nested} item FROM project_label_links {x} JOIN projects {p} ON {p}.repo_id={x}.repo_id AND {p}.id={x}.project_id WHERE {x}.repo_id={label}.repo_id AND {x}.label_name={label}.name ORDER BY {p}.id {}", page.sql()))
+                    let repo = self.repo;
+                    list(format!("SELECT {nested} item FROM project_label_links {x} JOIN projects {p} ON {p}.repo_id={x}.repo_id AND {p}.id={x}.project_id WHERE {x}.repo_id={repo} AND {x}.label_name={label}.name ORDER BY {p}.id {}", page.sql()))
                 }
                 "issues" | "projects" => "json('[]')".to_string(),
                 name => return Err(format!("unsupported Label selection {name}").into()),
@@ -352,8 +358,8 @@ impl StateJoin<'_> {
     pub(super) fn sql(&self) -> String {
         if self.required {
             format!(
-                "JOIN issue_states {} ON {}.repo_id={}.repo_id AND {}.name={}.state",
-                self.alias, self.alias, self.issue, self.alias, self.issue
+                "JOIN issue_states {} ON {}.name={}.state",
+                self.alias, self.alias, self.issue
             )
         } else {
             String::new()

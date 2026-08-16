@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT group_name AS \"g?: String\" FROM project_labels\n           WHERE name = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "g?: String",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "dcc4215ab4b5b5ac2749a70220ca502afc3976235a494e9d299a6b24ac19b24f"
+}

@@ -227,7 +227,7 @@ impl Store {
     }
 
     pub async fn list_states(&self) -> Result<Vec<IssueState>> {
-        crate::app::issue::list_states(&self.pool, self.repo_id()?).await
+        crate::app::issue::list_states(&self.pool).await
     }
 
     pub async fn add_state(
@@ -237,15 +237,7 @@ impl Store {
         starting: bool,
         terminal: bool,
     ) -> Result<()> {
-        crate::app::issue::add_state(
-            &self.pool,
-            self.repo_id()?,
-            name,
-            status_type,
-            starting,
-            terminal,
-        )
-        .await
+        crate::app::issue::add_state(&self.pool, name, status_type, starting, terminal).await
     }
 
     pub async fn set_state_config(
@@ -255,22 +247,14 @@ impl Store {
         status_type: Option<&str>,
         terminal: Option<bool>,
     ) -> Result<()> {
-        crate::app::issue::set_state_config(
-            &self.pool,
-            self.repo_id()?,
-            name,
-            new_name,
-            status_type,
-            terminal,
-        )
-        .await
+        crate::app::issue::set_state_config(&self.pool, name, new_name, status_type, terminal).await
     }
 
     pub async fn delete_state(&self, name: &str, move_to: Option<&str>) -> Result<i64> {
-        crate::app::issue::delete_state(&self.pool, self.repo_id()?, name, move_to).await
+        crate::app::issue::delete_state(&self.pool, name, move_to).await
     }
 
     pub async fn set_default_state(&self, name: &str) -> Result<()> {
-        crate::app::issue::set_default_state(&self.pool, self.repo_id()?, name).await
+        crate::app::issue::set_default_state(&self.pool, name).await
     }
 }

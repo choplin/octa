@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT json_array(name, status_type, is_starting, is_terminal) AS \"row!: String\" FROM issue_states ORDER BY name",
+  "describe": {
+    "columns": [
+      {
+        "name": "row!: String",
+        "ordinal": 0,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "aa331cabd8596eca429c851620443c563cb6d98cc9aa261e8a6da2c67f4a6eea"
+}

@@ -72,7 +72,7 @@ mod projection {
             &[
                 "'$.statusType',json(json_quote(s.status_type))",
                 "FROM issues i JOIN issue_states s",
-                "s.repo_id=i.repo_id AND s.name=i.state",
+                "s.name=i.state",
             ],
         );
         assert!(!sql.contains("issue_projects"));
@@ -181,7 +181,7 @@ mod issue_relations {
             &sql,
             &[
                 "FROM issue_labels il2 JOIN labels l1",
-                "l1.repo_id=il2.repo_id AND l1.name=il2.label_name",
+                "l1.name=il2.label_name",
                 "WHERE il2.repo_id=i.repo_id AND il2.issue_number=i.number",
                 "ORDER BY l1.name LIMIT 8 OFFSET 3",
             ],
@@ -299,18 +299,20 @@ mod other_relations {
                 "{ labels(target: ISSUE) { issues(limit: 2) { number } } }",
                 [
                     "FROM issue_labels il3 JOIN issues i1",
-                    "WHERE il3.repo_id=l.repo_id AND il3.label_name=l.name",
+                    // Labels are global, so the reverse relation is scoped by
+                    // the active repository rather than by the label row.
+                    "WHERE il3.repo_id=1 AND il3.label_name=l.name",
                     "ORDER BY i1.number LIMIT 2 OFFSET 0",
-                    "FROM labels l WHERE l.repo_id=1",
+                    "FROM labels l ORDER BY l.name",
                 ],
             ),
             (
                 "{ labels(target: PROJECT) { projects(limit: 3) { id } } }",
                 [
                     "FROM project_label_links pl2 JOIN projects p1",
-                    "WHERE pl2.repo_id=l.repo_id AND pl2.label_name=l.name",
+                    "WHERE pl2.repo_id=1 AND pl2.label_name=l.name",
                     "ORDER BY p1.id LIMIT 3 OFFSET 0",
-                    "FROM project_labels l WHERE l.repo_id=1",
+                    "FROM project_labels l ORDER BY l.name",
                 ],
             ),
         ];

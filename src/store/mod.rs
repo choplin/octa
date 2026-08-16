@@ -1,8 +1,10 @@
 //! Storage layer for octa: a single global SQLite database under the XDG data
-//! directory holds every entity for every repository. Each row carries a
+//! directory holds every entity for every repository. Entity rows carry a
 //! `repo_id`, so the store is physically central but logically scoped per
 //! repository — the current repository by default (resolved from cwd via the
 //! git common directory), any named repository, or all of them at once.
+//! Configuration — issue states, labels, and label groups — is global instead:
+//! one set governs every repository.
 //!
 //! Repo identity is the canonicalized git common directory path (works without
 //! a remote; every worktree of a repo shares it). Concurrency rides on SQLite
@@ -119,6 +121,9 @@ impl Store {
             .run(&pool)
             .await
             .context("cannot apply database migrations")?;
+        // Configuration is global, so the default state set is seeded once for
+        // the store rather than once per repository.
+        crate::sql::issue::seed_default_states(&pool).await?;
 
         let store = Self {
             pool,
@@ -150,7 +155,7 @@ impl Store {
         matches!(self.scope, Resolved::All)
     }
 
-    /// Insert the repo if new, seed its default state set, and return its id.
+    /// Insert the repo if new and return its id.
     async fn upsert_repo(&self, identity_key: &str, name: &str) -> Result<i64> {
         crate::sql::repo::upsert(&self.pool, identity_key, name).await
     }
@@ -186,7 +191,7 @@ mod migration_tests {
             (
                 "issue_states",
                 rows!(
-                    r#"SELECT json_array(repo_id, name, status_type, is_starting, is_terminal) AS "row!: String" FROM issue_states ORDER BY repo_id, name"#
+                    r#"SELECT json_array(name, status_type, is_starting, is_terminal) AS "row!: String" FROM issue_states ORDER BY name"#
                 ),
             ),
             (
@@ -240,13 +245,13 @@ mod migration_tests {
             (
                 "label_groups",
                 rows!(
-                    r#"SELECT json_array(repo_id, name, selection) AS "row!: String" FROM label_groups ORDER BY repo_id, name"#
+                    r#"SELECT json_array(name, selection) AS "row!: String" FROM label_groups ORDER BY name"#
                 ),
             ),
             (
                 "labels",
                 rows!(
-                    r#"SELECT json_array(repo_id, name, group_name) AS "row!: String" FROM labels ORDER BY repo_id, name"#
+                    r#"SELECT json_array(name, group_name) AS "row!: String" FROM labels ORDER BY name"#
                 ),
             ),
             (
@@ -258,13 +263,13 @@ mod migration_tests {
             (
                 "project_label_groups",
                 rows!(
-                    r#"SELECT json_array(repo_id, name, selection) AS "row!: String" FROM project_label_groups ORDER BY repo_id, name"#
+                    r#"SELECT json_array(name, selection) AS "row!: String" FROM project_label_groups ORDER BY name"#
                 ),
             ),
             (
                 "project_labels",
                 rows!(
-                    r#"SELECT json_array(repo_id, name, group_name) AS "row!: String" FROM project_labels ORDER BY repo_id, name"#
+                    r#"SELECT json_array(name, group_name) AS "row!: String" FROM project_labels ORDER BY name"#
                 ),
             ),
             (
@@ -314,6 +319,7 @@ mod migration_tests {
             .await
             .unwrap();
         sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        crate::sql::issue::seed_default_states(&pool).await.unwrap();
         let repo = crate::sql::repo::upsert(&pool, "/test/.git", "test")
             .await
             .unwrap();
@@ -440,40 +446,27 @@ mod migration_tests {
             .collect();
         assert_eq!(
             state_columns,
-            [
-                "repo_id",
-                "name",
-                "status_type",
-                "is_starting",
-                "is_terminal",
-            ]
+            ["name", "status_type", "is_starting", "is_terminal"]
         );
 
-        // The schema itself, not just the application layer, keeps a repository
-        // to one starting state.
-        let repo = crate::sql::repo::upsert(&pool, "/starting/.git", "starting")
-            .await
-            .unwrap();
+        // The schema itself, not just the application layer, keeps the store to
+        // one starting state.
+        crate::sql::issue::seed_default_states(&pool).await.unwrap();
         // Runtime-checked queries: these assert schema behavior and have no
         // place in the offline query cache the application's own queries use.
-        let promote = "UPDATE issue_states SET is_starting = 1 WHERE repo_id = ? AND name = 'Todo'";
-        let second_starting = sqlx::query(promote).bind(repo).execute(&pool).await;
+        let promote = "UPDATE issue_states SET is_starting = 1 WHERE name = 'Todo'";
+        let second_starting = sqlx::query(promote).execute(&pool).await;
         assert!(
             second_starting.is_err(),
             "a second starting state must be rejected by the schema"
         );
         // Clearing the flag everywhere first is what the application does, and
         // it stays legal — including the intermediate state with none set.
-        sqlx::query("UPDATE issue_states SET is_starting = 0 WHERE repo_id = ?")
-            .bind(repo)
+        sqlx::query("UPDATE issue_states SET is_starting = 0")
             .execute(&pool)
             .await
             .unwrap();
-        sqlx::query(promote)
-            .bind(repo)
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::query(promote).execute(&pool).await.unwrap();
 
         let issue_columns: Vec<String> = sqlx::query!("PRAGMA table_info('issues')")
             .fetch_all(&pool)
@@ -513,21 +506,21 @@ mod migration_tests {
     }
 
     #[tokio::test]
-    async fn repo_upsert_seeds_the_default_workflow_once_and_preserves_customizations() {
+    async fn seeding_installs_the_default_workflow_once_and_preserves_customizations() {
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
             .connect("sqlite::memory:")
             .await
             .unwrap();
         sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        crate::sql::issue::seed_default_states(&pool).await.unwrap();
         let repo = crate::sql::repo::upsert(&pool, "/seed/.git", "seed")
             .await
             .unwrap();
 
         let initial: Vec<(String, String)> = sqlx::query!(
             r#"SELECT name AS "name!: String", status_type AS "status_type!: String"
-               FROM issue_states WHERE repo_id = ? ORDER BY name"#,
-            repo
+               FROM issue_states ORDER BY name"#
         )
         .fetch_all(&pool)
         .await
@@ -547,15 +540,13 @@ mod migration_tests {
                 ("Todo".into(), "unstarted".into()),
             ]
         );
-        let starting = crate::sql::issue::starting_states(&pool, repo)
-            .await
-            .unwrap();
+        let starting = crate::sql::issue::starting_states(&pool).await.unwrap();
         assert_eq!(starting, vec!["Backlog".to_string()]);
 
-        crate::app::issue::add_state(&pool, repo, "Custom", Some("unstarted"), false, false)
+        crate::app::issue::add_state(&pool, "Custom", Some("unstarted"), false, false)
             .await
             .unwrap();
-        crate::app::issue::delete_state(&pool, repo, "Todo", None)
+        crate::app::issue::delete_state(&pool, "Todo", None)
             .await
             .unwrap();
         crate::app::issue::create(
@@ -574,8 +565,7 @@ mod migration_tests {
 
         let states_before: Vec<String> = sqlx::query_scalar!(
             r#"SELECT json_array(name, status_type, is_starting, is_terminal) AS "state!: String"
-               FROM issue_states WHERE repo_id = ? ORDER BY name"#,
-            repo
+               FROM issue_states ORDER BY name"#
         )
         .fetch_all(&pool)
         .await
@@ -592,11 +582,11 @@ mod migration_tests {
         crate::sql::repo::upsert(&pool, "/seed/.git", "seed")
             .await
             .unwrap();
+        crate::sql::issue::seed_default_states(&pool).await.unwrap();
 
         let states_after: Vec<String> = sqlx::query_scalar!(
             r#"SELECT json_array(name, status_type, is_starting, is_terminal) AS "state!: String"
-               FROM issue_states WHERE repo_id = ? ORDER BY name"#,
-            repo
+               FROM issue_states ORDER BY name"#
         )
         .fetch_all(&pool)
         .await
@@ -621,6 +611,7 @@ mod migration_tests {
             .await
             .unwrap();
         sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        crate::sql::issue::seed_default_states(&pool).await.unwrap();
         let first_repo = crate::sql::repo::upsert(&pool, "/first/.git", "first")
             .await
             .unwrap();

@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        SELECT\n            name AS \"name!: String\",\n            group_name AS \"group?: String\"\n        FROM\n            labels\n        ORDER BY\n            group_name, name\n    ",
+  "describe": {
+    "columns": [
+      {
+        "name": "name!: String",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "group?: String",
+        "ordinal": 1,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "80d9d2233078e0557cb7d825648589f38142b00f6534fbac30e4fcc434c85982"
+}

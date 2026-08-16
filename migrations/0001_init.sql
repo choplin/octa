@@ -1,5 +1,7 @@
--- octa stores every repository in one SQLite database. Entity identifiers are
--- repository-scoped, so each table carries repo_id explicitly.
+-- octa stores every repository in one SQLite database. Issues, PRs, projects,
+-- and wiki pages are repository-scoped, so those tables carry repo_id
+-- explicitly. Configuration -- issue states, labels, and label groups -- is
+-- global: one set governs every repository.
 
 CREATE TABLE repos (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -9,20 +11,19 @@ CREATE TABLE repos (
 );
 
 CREATE TABLE issue_states (
-    repo_id     INTEGER NOT NULL REFERENCES repos(id),
-    name        TEXT NOT NULL,
+    name        TEXT NOT NULL PRIMARY KEY,
     status_type TEXT NOT NULL DEFAULT 'unstarted'
         CHECK (status_type IN ('backlog', 'unstarted', 'started', 'completed', 'canceled')),
     is_starting INTEGER NOT NULL DEFAULT 0,
-    is_terminal INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (repo_id, name)
+    is_terminal INTEGER NOT NULL DEFAULT 0
 );
 
--- A repository has at most one starting state. The partial index leaves zero
--- starting states legal; that case is a configuration error the application
--- reports with the command that fixes it, not something to reject on write.
+-- At most one starting state exists. Every indexed row shares the constant
+-- value 1, so the unique index admits a single one. It leaves zero starting
+-- states legal; that case is a configuration error the application reports
+-- with the command that fixes it, not something to reject on write.
 CREATE UNIQUE INDEX issue_states_one_starting_idx
-    ON issue_states (repo_id) WHERE is_starting = 1;
+    ON issue_states (is_starting) WHERE is_starting = 1;
 
 CREATE TABLE issues (
     repo_id    INTEGER NOT NULL REFERENCES repos(id),
@@ -110,17 +111,13 @@ CREATE TABLE wiki_links (
 );
 
 CREATE TABLE label_groups (
-    repo_id   INTEGER NOT NULL REFERENCES repos(id),
-    name      TEXT NOT NULL,
-    selection TEXT NOT NULL CHECK (selection IN ('single', 'multi')),
-    PRIMARY KEY (repo_id, name)
+    name      TEXT NOT NULL PRIMARY KEY,
+    selection TEXT NOT NULL CHECK (selection IN ('single', 'multi'))
 );
 
 CREATE TABLE labels (
-    repo_id    INTEGER NOT NULL REFERENCES repos(id),
-    name       TEXT NOT NULL,
-    group_name TEXT,
-    PRIMARY KEY (repo_id, name)
+    name       TEXT NOT NULL PRIMARY KEY,
+    group_name TEXT
 );
 
 CREATE TABLE issue_labels (
@@ -130,24 +127,19 @@ CREATE TABLE issue_labels (
     PRIMARY KEY (repo_id, issue_number, label_name),
     FOREIGN KEY (repo_id, issue_number)
         REFERENCES issues(repo_id, number),
-    FOREIGN KEY (repo_id, label_name)
-        REFERENCES labels(repo_id, name)
+    FOREIGN KEY (label_name)
+        REFERENCES labels(name)
 );
 
 CREATE TABLE project_label_groups (
-    repo_id   INTEGER NOT NULL REFERENCES repos(id),
-    name      TEXT NOT NULL,
-    selection TEXT NOT NULL CHECK (selection IN ('single', 'multi')),
-    PRIMARY KEY (repo_id, name)
+    name      TEXT NOT NULL PRIMARY KEY,
+    selection TEXT NOT NULL CHECK (selection IN ('single', 'multi'))
 );
 
 CREATE TABLE project_labels (
-    repo_id    INTEGER NOT NULL REFERENCES repos(id),
-    name       TEXT NOT NULL,
-    group_name TEXT,
-    PRIMARY KEY (repo_id, name),
-    FOREIGN KEY (repo_id, group_name)
-        REFERENCES project_label_groups(repo_id, name)
+    name       TEXT NOT NULL PRIMARY KEY,
+    group_name TEXT
+        REFERENCES project_label_groups(name)
 );
 
 CREATE TABLE projects (
@@ -175,8 +167,8 @@ CREATE TABLE project_label_links (
     PRIMARY KEY (repo_id, project_id, label_name),
     FOREIGN KEY (repo_id, project_id)
         REFERENCES projects(repo_id, id) ON DELETE CASCADE,
-    FOREIGN KEY (repo_id, label_name)
-        REFERENCES project_labels(repo_id, name)
+    FOREIGN KEY (label_name)
+        REFERENCES project_labels(name)
 );
 
 CREATE TABLE issue_projects (

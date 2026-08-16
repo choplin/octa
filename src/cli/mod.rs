@@ -627,6 +627,16 @@ pub(crate) fn parse_pr_state(value: &str) -> Result<StateFilter> {
 }
 
 pub async fn run(cli: Cli) -> Result<()> {
+    // Configuration is global. A repository selector would suggest the command
+    // targets one repository's settings, so reject it instead of ignoring it.
+    if matches!(cli.command, TopCommand::Config { .. }) {
+        if cli.scope.all_repos {
+            anyhow::bail!("configuration is global; --all-repos does not apply to `octa config`");
+        }
+        if cli.scope.repo.is_some() {
+            anyhow::bail!("configuration is global; --repo does not apply to `octa config`");
+        }
+    }
     let store = Store::open(cli.scope.to_scope()).await?;
     match cli.command {
         TopCommand::Query {

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE issues SET state = ?, updated_at = datetime('now') WHERE state = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "78fad15b00076efd92bfc003f1c09688cd4cffc071b7ab0d9a0dca3b25535977"
+}

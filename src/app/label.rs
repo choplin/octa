@@ -1,28 +1,28 @@
 use crate::domain::label::{Label, LabelGroup};
 use anyhow::{bail, Result};
 use sqlx::SqlitePool;
-pub async fn create_group(pool: &SqlitePool, repo: i64, name: &str, selection: &str) -> Result<()> {
+pub async fn create_group(pool: &SqlitePool, name: &str, selection: &str) -> Result<()> {
     if selection != "single" && selection != "multi" {
         bail!("selection must be 'single' or 'multi'");
     }
-    crate::sql::label::insert_group(pool, repo, name, selection).await
+    crate::sql::label::insert_group(pool, name, selection).await
 }
 
-pub async fn create(pool: &SqlitePool, repo: i64, name: &str, group: Option<&str>) -> Result<()> {
+pub async fn create(pool: &SqlitePool, name: &str, group: Option<&str>) -> Result<()> {
     if let Some(group) = group {
-        if !crate::sql::label::group_exists(pool, repo, group).await? {
+        if !crate::sql::label::group_exists(pool, group).await? {
             bail!("unknown label group {group:?}; create it first with `octa config label-group create --target issue`");
         }
     }
-    crate::sql::label::insert(pool, repo, name, group).await
+    crate::sql::label::insert(pool, name, group).await
 }
 
-pub async fn list(pool: &SqlitePool, repo: i64) -> Result<Vec<Label>> {
-    crate::sql::label::list(pool, repo).await
+pub async fn list(pool: &SqlitePool) -> Result<Vec<Label>> {
+    crate::sql::label::list(pool).await
 }
 
-pub async fn list_groups(pool: &SqlitePool, repo: i64) -> Result<Vec<LabelGroup>> {
-    crate::sql::label::list_groups(pool, repo).await
+pub async fn list_groups(pool: &SqlitePool) -> Result<Vec<LabelGroup>> {
+    crate::sql::label::list_groups(pool).await
 }
 
 pub async fn attach(
@@ -36,13 +36,13 @@ pub async fn attach(
         bail!("issue #{number} not found");
     }
     let mut tx = crate::sql::issue::begin_lease_mutation(pool, repo, number, lease).await?;
-    let group = crate::sql::label::label_group_tx(&mut tx, repo, label)
+    let group = crate::sql::label::label_group_tx(&mut tx, label)
         .await?
         .ok_or_else(|| {
             anyhow::anyhow!("unknown label {label:?}; create it first with `octa config label create --target issue`")
         })?;
     if let Some(group) = group {
-        if crate::sql::label::group_selection_tx(&mut tx, repo, &group).await? == "single" {
+        if crate::sql::label::group_selection_tx(&mut tx, &group).await? == "single" {
             crate::sql::label::replace_single_group(&mut tx, repo, number, &group).await?;
         }
     }
@@ -67,38 +67,32 @@ pub async fn detach(
     Ok(())
 }
 
-pub async fn create_project_group(
-    pool: &SqlitePool,
-    repo: i64,
-    name: &str,
-    selection: &str,
-) -> Result<()> {
+pub async fn create_project_group(pool: &SqlitePool, name: &str, selection: &str) -> Result<()> {
     if selection != "single" && selection != "multi" {
         bail!("selection must be 'single' or 'multi'");
     }
-    crate::sql::label::insert_project_group(pool, repo, name, selection).await
+    crate::sql::label::insert_project_group(pool, name, selection).await
 }
 
 pub async fn create_project_label(
     pool: &SqlitePool,
-    repo: i64,
     name: &str,
     group: Option<&str>,
 ) -> Result<()> {
     if let Some(group) = group {
-        if !crate::sql::label::project_group_exists(pool, repo, group).await? {
+        if !crate::sql::label::project_group_exists(pool, group).await? {
             bail!("unknown label group {group:?}; create it first with `octa config label-group create --target project`");
         }
     }
-    crate::sql::label::insert_project_label(pool, repo, name, group).await
+    crate::sql::label::insert_project_label(pool, name, group).await
 }
 
-pub async fn list_project_labels(pool: &SqlitePool, repo: i64) -> Result<Vec<Label>> {
-    crate::sql::label::list_project_labels(pool, repo).await
+pub async fn list_project_labels(pool: &SqlitePool) -> Result<Vec<Label>> {
+    crate::sql::label::list_project_labels(pool).await
 }
 
-pub async fn list_project_groups(pool: &SqlitePool, repo: i64) -> Result<Vec<LabelGroup>> {
-    crate::sql::label::list_project_groups(pool, repo).await
+pub async fn list_project_groups(pool: &SqlitePool) -> Result<Vec<LabelGroup>> {
+    crate::sql::label::list_project_groups(pool).await
 }
 
 pub async fn attach_project(
@@ -109,13 +103,13 @@ pub async fn attach_project(
 ) -> Result<()> {
     let project = crate::app::project::resolve(pool, repo, project_ref).await?;
     let mut tx = pool.begin().await?;
-    let group = crate::sql::label::project_label_group_tx(&mut tx, repo, label)
+    let group = crate::sql::label::project_label_group_tx(&mut tx, label)
         .await?
         .ok_or_else(|| {
             anyhow::anyhow!("unknown label {label:?}; create it first with `octa config label create --target project`")
         })?;
     if let Some(group) = group {
-        if crate::sql::label::project_group_selection_tx(&mut tx, repo, &group).await? == "single" {
+        if crate::sql::label::project_group_selection_tx(&mut tx, &group).await? == "single" {
             crate::sql::label::replace_project_single_group(&mut tx, repo, project.id, &group)
                 .await?;
         }
