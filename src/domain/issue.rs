@@ -2,55 +2,6 @@ use crate::domain::{
     milestone::MilestoneRef, pr::PrRef, project::ProjectRef, state_filter::StateFilter, Comment,
 };
 use serde::Serialize;
-use std::fmt;
-use std::str::FromStr;
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum StatusType {
-    Backlog,
-    Unstarted,
-    Started,
-    Completed,
-    Canceled,
-}
-
-impl StatusType {
-    pub const VALUES: &'static str = "backlog, unstarted, started, completed, canceled";
-
-    pub fn is_terminal(self) -> bool {
-        matches!(self, Self::Completed | Self::Canceled)
-    }
-}
-
-impl fmt::Display for StatusType {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::Backlog => "backlog",
-            Self::Unstarted => "unstarted",
-            Self::Started => "started",
-            Self::Completed => "completed",
-            Self::Canceled => "canceled",
-        })
-    }
-}
-
-impl FromStr for StatusType {
-    type Err = anyhow::Error;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "backlog" => Ok(Self::Backlog),
-            "unstarted" => Ok(Self::Unstarted),
-            "started" => Ok(Self::Started),
-            "completed" => Ok(Self::Completed),
-            "canceled" => Ok(Self::Canceled),
-            _ => anyhow::bail!(
-                "unknown status type {value:?}; expected one of {}",
-                Self::VALUES
-            ),
-        }
-    }
-}
 
 pub fn validate_priority(priority: i64) -> anyhow::Result<i64> {
     if (0..=4).contains(&priority) {
@@ -67,7 +18,6 @@ pub struct Issue {
     pub title: String,
     pub body: String,
     pub state: String,
-    pub status_type: String,
     pub priority: i64,
     pub project: Option<ProjectRef>,
     pub milestone: Option<MilestoneRef>,
@@ -106,7 +56,6 @@ pub struct IssueRef {
 #[derive(Debug, Serialize)]
 pub struct IssueState {
     pub name: String,
-    pub status_type: String,
     pub is_starting: bool,
     pub is_terminal: bool,
 }

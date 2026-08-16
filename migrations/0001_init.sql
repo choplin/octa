@@ -10,10 +10,11 @@ CREATE TABLE repos (
     created_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- A state is classified by two flags only: whether new issues start in it and
+-- whether it closes the issue. octa deliberately models no intermediate
+-- gradation between them.
 CREATE TABLE issue_states (
     name        TEXT NOT NULL PRIMARY KEY,
-    status_type TEXT NOT NULL DEFAULT 'unstarted'
-        CHECK (status_type IN ('backlog', 'unstarted', 'started', 'completed', 'canceled')),
     is_starting INTEGER NOT NULL DEFAULT 0,
     is_terminal INTEGER NOT NULL DEFAULT 0
 );
@@ -149,8 +150,7 @@ CREATE TABLE projects (
     summary      TEXT NOT NULL DEFAULT '',
     description  TEXT NOT NULL DEFAULT '',
     state        TEXT NOT NULL DEFAULT 'planned',
-    status_type  TEXT NOT NULL DEFAULT 'unstarted'
-        CHECK (status_type IN ('backlog', 'unstarted', 'started', 'completed', 'canceled')),
+    is_terminal  INTEGER NOT NULL DEFAULT 0,
     priority     INTEGER NOT NULL DEFAULT 0 CHECK (priority BETWEEN 0 AND 4),
     created_at   TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at   TEXT NOT NULL DEFAULT (datetime('now')),

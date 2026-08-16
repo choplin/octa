@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR IGNORE INTO issue_states (name, is_starting, is_terminal) VALUES (?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "d84043392946d3fa3a804d0818ae6884c6076f4dbc122a56b0e02d474182eb1d"
+}

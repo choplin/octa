@@ -151,9 +151,6 @@ pub(crate) enum IssueCommand {
         state_filter: IssueListStateArgs,
         #[arg(long)]
         label: Option<String>,
-        /// Filter by status type: backlog, unstarted, started, completed, canceled.
-        #[arg(long)]
-        status_type: Option<String>,
         /// Filter by priority (0 through 4).
         #[arg(long)]
         priority: Option<i64>,
@@ -313,8 +310,9 @@ pub(crate) enum ProjectCommand {
         description: String,
         #[arg(long, default_value = "planned")]
         state: String,
-        #[arg(long = "type", default_value = "unstarted")]
-        status_type: String,
+        /// Mark the Project closed: `project list --active` hides it.
+        #[arg(long)]
+        terminal: bool,
         #[arg(long, default_value_t = 0)]
         priority: i64,
         #[arg(long)]
@@ -322,7 +320,7 @@ pub(crate) enum ProjectCommand {
     },
     /// List Projects and full issue lifecycle tallies.
     List {
-        /// Show only Projects whose status type is not completed or canceled.
+        /// Show only Projects that are not in a terminal state.
         #[arg(long)]
         active: bool,
         #[arg(long)]
@@ -360,12 +358,13 @@ pub(crate) enum ProjectCommand {
         #[arg(long)]
         label: String,
     },
-    /// Set the Project state and its status category.
+    /// Set the Project state and whether it closes the Project.
     SetState {
         project: String,
         state: String,
-        #[arg(long = "type")]
-        status_type: String,
+        /// Mark the Project closed: `project list --active` hides it.
+        #[arg(long)]
+        terminal: bool,
         #[arg(long)]
         json: bool,
     },
@@ -451,9 +450,6 @@ pub(crate) enum StateCommand {
     /// Create a configured issue state.
     Create {
         name: String,
-        /// Status type: backlog, unstarted, started, completed, canceled.
-        #[arg(long = "type")]
-        status_type: Option<String>,
         /// Make this the state new issues start in, replacing the current one.
         #[arg(long)]
         starting: bool,
@@ -466,9 +462,6 @@ pub(crate) enum StateCommand {
         /// New name for the state.
         #[arg(long = "name")]
         new_name: Option<String>,
-        /// Status type: backlog, unstarted, started, completed, canceled.
-        #[arg(long = "type")]
-        status_type: Option<String>,
         #[arg(long)]
         terminal: Option<bool>,
     },

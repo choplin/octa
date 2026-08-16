@@ -191,7 +191,7 @@ mod migration_tests {
             (
                 "issue_states",
                 rows!(
-                    r#"SELECT json_array(name, status_type, is_starting, is_terminal) AS "row!: String" FROM issue_states ORDER BY name"#
+                    r#"SELECT json_array(name, is_starting, is_terminal) AS "row!: String" FROM issue_states ORDER BY name"#
                 ),
             ),
             (
@@ -275,7 +275,7 @@ mod migration_tests {
             (
                 "projects",
                 rows!(
-                    r#"SELECT json_array(repo_id, id, name, summary, description, state, status_type, priority, created_at, updated_at) AS "row!: String" FROM projects ORDER BY repo_id, id"#
+                    r#"SELECT json_array(repo_id, id, name, summary, description, state, is_terminal, priority, created_at, updated_at) AS "row!: String" FROM projects ORDER BY repo_id, id"#
                 ),
             ),
             (
@@ -373,10 +373,7 @@ mod migration_tests {
             .await
             .unwrap();
         // A state left over from an older workflow, still referenced by issues.
-        store
-            .add_state("closed", Some("completed"), false, true)
-            .await
-            .unwrap();
+        store.add_state("closed", false, true).await.unwrap();
         let legacy_closed = store
             .create_issue(
                 "Legacy closed",
@@ -444,10 +441,7 @@ mod migration_tests {
             .into_iter()
             .map(|row| row.name)
             .collect();
-        assert_eq!(
-            state_columns,
-            ["name", "status_type", "is_starting", "is_terminal"]
-        );
+        assert_eq!(state_columns, ["name", "is_starting", "is_terminal"]);
 
         // The schema itself, not just the application layer, keeps the store to
         // one starting state.
@@ -518,32 +512,32 @@ mod migration_tests {
             .await
             .unwrap();
 
-        let initial: Vec<(String, String)> = sqlx::query!(
-            r#"SELECT name AS "name!: String", status_type AS "status_type!: String"
+        let initial: Vec<(String, bool)> = sqlx::query!(
+            r#"SELECT name AS "name!: String", is_terminal AS "is_terminal!: bool"
                FROM issue_states ORDER BY name"#
         )
         .fetch_all(&pool)
         .await
         .unwrap()
         .into_iter()
-        .map(|row| (row.name, row.status_type))
+        .map(|row| (row.name, row.is_terminal))
         .collect();
         // Ordered by name: the table stores no ordering of its own.
         assert_eq!(
             initial,
             vec![
-                ("Backlog".into(), "backlog".into()),
-                ("Canceled".into(), "canceled".into()),
-                ("Done".into(), "completed".into()),
-                ("In Progress".into(), "started".into()),
-                ("In Review".into(), "started".into()),
-                ("Todo".into(), "unstarted".into()),
+                ("Backlog".to_string(), false),
+                ("Canceled".to_string(), true),
+                ("Done".to_string(), true),
+                ("In Progress".to_string(), false),
+                ("In Review".to_string(), false),
+                ("Todo".to_string(), false),
             ]
         );
         let starting = crate::sql::issue::starting_states(&pool).await.unwrap();
         assert_eq!(starting, vec!["Backlog".to_string()]);
 
-        crate::app::issue::add_state(&pool, "Custom", Some("unstarted"), false, false)
+        crate::app::issue::add_state(&pool, "Custom", false, false)
             .await
             .unwrap();
         crate::app::issue::delete_state(&pool, "Todo", None)
@@ -564,7 +558,7 @@ mod migration_tests {
         .unwrap();
 
         let states_before: Vec<String> = sqlx::query_scalar!(
-            r#"SELECT json_array(name, status_type, is_starting, is_terminal) AS "state!: String"
+            r#"SELECT json_array(name, is_starting, is_terminal) AS "state!: String"
                FROM issue_states ORDER BY name"#
         )
         .fetch_all(&pool)
@@ -585,7 +579,7 @@ mod migration_tests {
         crate::sql::issue::seed_default_states(&pool).await.unwrap();
 
         let states_after: Vec<String> = sqlx::query_scalar!(
-            r#"SELECT json_array(name, status_type, is_starting, is_terminal) AS "state!: String"
+            r#"SELECT json_array(name, is_starting, is_terminal) AS "state!: String"
                FROM issue_states ORDER BY name"#
         )
         .fetch_all(&pool)

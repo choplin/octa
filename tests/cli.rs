@@ -380,13 +380,11 @@ fn json_outputs_have_expected_fields() {
     assert_eq!(arr[0]["number"], 1);
     assert_eq!(arr[0]["title"], "JSON");
     assert_eq!(arr[0]["state"], "Backlog");
-    assert_eq!(arr[0]["status_type"], "backlog");
     assert_eq!(arr[0]["priority"], 0);
 
     let show = json(&env.ok(&["issue", "show", "1", "--json"]));
     assert_eq!(show["number"], 1);
     assert_eq!(show["title"], "JSON");
-    assert_eq!(show["status_type"], "backlog");
     assert_eq!(show["priority"], 0);
     let comments = show["comments"].as_array().expect("comments not an array");
     assert_eq!(comments.len(), 1);
@@ -394,7 +392,7 @@ fn json_outputs_have_expected_fields() {
 }
 
 #[test]
-fn status_type_and_priority_filters_preserve_stable_issue_order() {
+fn state_and_priority_filters_preserve_stable_issue_order() {
     let env = Env::new();
     env.ok(&[
         "issue",
@@ -471,8 +469,8 @@ fn status_type_and_priority_filters_preserve_stable_issue_order() {
     let backlog = json(&env.ok(&[
         "issue",
         "list",
-        "--status-type",
-        "backlog",
+        "--state",
+        "Backlog",
         "--priority",
         "1",
         "--json",
@@ -482,7 +480,7 @@ fn status_type_and_priority_filters_preserve_stable_issue_order() {
 }
 
 #[test]
-fn priority_and_status_type_validation_and_edit_roundtrip() {
+fn priority_validation_and_edit_roundtrip() {
     let env = Env::new();
     let created = env.ok(&[
         "issue",
@@ -497,7 +495,6 @@ fn priority_and_status_type_validation_and_edit_roundtrip() {
     assert_eq!(created.trim(), "#1");
     let show = json(&env.ok(&["issue", "show", "1", "--json"]));
     assert_eq!(show["state"], "Todo");
-    assert_eq!(show["status_type"], "unstarted");
     assert_eq!(show["priority"], 2);
 
     env.ok(&["issue", "set", "1", "--priority", "1"]);
@@ -509,11 +506,18 @@ fn priority_and_status_type_validation_and_edit_roundtrip() {
         .status
         .success());
     assert!(!env
-        .run(&["issue", "list", "--status-type", "unknown"])
+        .run(&["issue", "list", "--status-type", "backlog"])
         .status
         .success());
     assert!(!env
-        .run(&["config", "state", "create", "Odd", "--type", "unknown"])
+        .run(&[
+            "config",
+            "state",
+            "create",
+            "Odd",
+            "--starting",
+            "--terminal"
+        ])
         .status
         .success());
 }
@@ -578,28 +582,19 @@ fn project_lifecycle_tally_and_issue_context_roundtrip() {
     let filtered = json(&env.ok(&["issue", "list", "--project", "Ship CLI", "--json"]));
     assert_eq!(filtered.as_array().unwrap().len(), 2);
     let project = json(&env.ok(&["project", "show", "1", "--json"]));
-    assert_eq!(project["tally"]["unstarted"], 1);
-    assert_eq!(project["tally"]["started"], 1);
-    assert_eq!(project["tally"]["canceled"], 1);
+    // Todo and In Progress are open; Canceled closes the issue.
+    assert_eq!(project["tally"]["open"], 2);
+    assert_eq!(project["tally"]["closed"], 1);
     assert_eq!(project["tally"]["total"], 3);
     let overview = json(&env.ok(&["project", "list", "--json"]));
-    assert_eq!(overview[0]["tally"]["unstarted"], 1);
-    assert_eq!(overview[0]["tally"]["started"], 1);
-    assert_eq!(overview[0]["tally"]["completed"], 0);
-    assert_eq!(overview[0]["tally"]["canceled"], 1);
+    assert_eq!(overview[0]["tally"]["open"], 2);
+    assert_eq!(overview[0]["tally"]["closed"], 1);
     assert_eq!(overview[0]["tally"]["total"], 3);
 
-    env.ok(&[
-        "project",
-        "set-state",
-        "1",
-        "shipped",
-        "--type",
-        "completed",
-    ]);
+    env.ok(&["project", "set-state", "1", "shipped", "--terminal"]);
     assert_eq!(
-        json(&env.ok(&["project", "list", "--json"]))[0]["status_type"],
-        "completed"
+        json(&env.ok(&["project", "list", "--json"]))[0]["is_terminal"],
+        true
     );
     assert!(json(&env.ok(&["project", "list", "--active", "--json"]))
         .as_array()
@@ -619,14 +614,7 @@ fn project_list_orders_priorities_with_none_last_and_filters_active_explicitly()
     ] {
         env.ok(&["project", "create", "--name", name, "--priority", priority]);
     }
-    env.ok(&[
-        "project",
-        "set-state",
-        "Urgent",
-        "canceled",
-        "--type",
-        "canceled",
-    ]);
+    env.ok(&["project", "set-state", "Urgent", "canceled", "--terminal"]);
 
     let all = json(&env.ok(&["project", "list", "--json"]));
     assert_eq!(
@@ -637,10 +625,10 @@ fn project_list_orders_priorities_with_none_last_and_filters_active_explicitly()
             .collect::<Vec<_>>(),
         vec![1, 2, 3, 4, 0]
     );
-    assert_eq!(all[0]["status_type"], "canceled");
+    assert_eq!(all[0]["is_terminal"], true);
     let all_text = env.ok(&["project", "list"]);
     assert!(all_text.contains("Urgent"), "{all_text}");
-    assert!(all_text.contains("B/U/S/D/C"), "{all_text}");
+    assert!(all_text.contains("Open/Closed"), "{all_text}");
 
     let active = json(&env.ok(&["project", "list", "--active", "--json"]));
     assert_eq!(
@@ -1019,34 +1007,28 @@ fn custom_state_and_set() {
             "missing state {expected}: {names:?}"
         );
     }
+    // The listing carries no ordering column: the starting state comes first,
+    // then the remaining open states by name, then the terminal ones by name.
     assert_eq!(
         names,
         vec![
             "Backlog",
-            "Todo",
             "In Progress",
             "In Review",
-            "Done",
-            "Canceled"
+            "Todo",
+            "Canceled",
+            "Done"
         ],
         "new repositories must be seeded with the default workflow"
     );
 
     env.ok(&["issue", "set-state", "1", "In Review"]);
     assert_eq!(
-        json(&env.ok(&["issue", "show", "1", "--json"]))["status_type"],
-        "started"
+        json(&env.ok(&["issue", "show", "1", "--json"]))["state"],
+        "In Review"
     );
 
-    env.ok(&[
-        "config",
-        "state",
-        "create",
-        "blocked",
-        "--type",
-        "unstarted",
-        "--starting",
-    ]);
+    env.ok(&["config", "state", "create", "blocked", "--starting"]);
     env.ok(&["issue", "set-state", "1", "blocked"]);
     let shown = env.ok(&["issue", "show", "1"]);
     assert!(shown.contains("blocked"), "state not applied: {shown}");
@@ -1058,7 +1040,7 @@ fn custom_state_and_set() {
         .success());
 
     // A duplicate name is refused with an explanation, not a raw SQL error.
-    let duplicate = env.run(&["config", "state", "create", "Done", "--type", "completed"]);
+    let duplicate = env.run(&["config", "state", "create", "Done", "--terminal"]);
     assert!(!duplicate.status.success());
     assert!(String::from_utf8_lossy(&duplicate.stderr).contains("already exists"));
 }
@@ -1082,16 +1064,9 @@ fn seeded_repository_starts_new_issues_in_backlog() {
         "Backlog"
     );
 
-    // States carry no stored ordinal; the listing order is derived from status
-    // type, so a state added later still lands in its workflow group.
-    env.ok(&[
-        "config",
-        "state",
-        "create",
-        "Blocked",
-        "--type",
-        "unstarted",
-    ]);
+    // States carry no stored ordinal; the listing order is derived from the two
+    // flags, so a state added later still lands in its group.
+    env.ok(&["config", "state", "create", "Blocked"]);
     let states = json(&env.ok(&["config", "state", "list", "--json"]));
     let names: Vec<&str> = states
         .as_array()
@@ -1104,11 +1079,11 @@ fn seeded_repository_starts_new_issues_in_backlog() {
         vec![
             "Backlog",
             "Blocked",
-            "Todo",
             "In Progress",
             "In Review",
-            "Done",
-            "Canceled"
+            "Todo",
+            "Canceled",
+            "Done"
         ]
     );
     assert!(
@@ -1139,15 +1114,7 @@ fn set_default_state_moves_the_starting_flag_and_stays_unique() {
     );
 
     // Creating another starting state replaces the flag rather than adding one.
-    env.ok(&[
-        "config",
-        "state",
-        "create",
-        "Triage",
-        "--type",
-        "backlog",
-        "--starting",
-    ]);
+    env.ok(&["config", "state", "create", "Triage", "--starting"]);
     let states = json(&env.ok(&["config", "state", "list", "--json"]));
     let starting: Vec<&str> = states
         .as_array()
@@ -1173,7 +1140,6 @@ fn renaming_a_state_carries_its_issues_and_rejects_collisions() {
     env.ok(&["config", "state", "set", "Todo", "--name", "Ready"]);
     let shown = json(&env.ok(&["issue", "show", "1", "--json"]));
     assert_eq!(shown["state"], "Ready");
-    assert_eq!(shown["status_type"], "unstarted");
     assert_eq!(
         issue_numbers(&json(
             &env.ok(&["issue", "list", "--state", "Ready", "--json"])
@@ -1965,8 +1931,8 @@ fn project_overview_aggregates_tallies_across_repositories() {
         .iter()
         .find(|project| project["name"] == "Second outcome")
         .unwrap();
-    assert_eq!(first["tally"]["started"], 1);
-    assert_eq!(second["tally"]["unstarted"], 1);
+    assert_eq!(first["tally"]["open"], 1);
+    assert_eq!(second["tally"]["open"], 1);
 }
 
 #[test]

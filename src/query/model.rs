@@ -6,7 +6,7 @@ use serde_json::{Map, Value as JsonValue};
 #[derive(InputObject, Default, Clone)]
 pub(super) struct IssueFilter {
     pub(super) state: Option<String>,
-    pub(super) status_type: Option<String>,
+    pub(super) is_terminal: Option<bool>,
     pub(super) priority: Option<i64>,
     pub(super) label: Option<String>,
     pub(super) project_id: Option<i64>,
@@ -14,7 +14,7 @@ pub(super) struct IssueFilter {
 
 #[derive(InputObject, Default, Clone)]
 pub(super) struct ProjectFilter {
-    pub(super) status_type: Option<String>,
+    pub(super) is_terminal: Option<bool>,
     pub(super) priority: Option<i64>,
     pub(super) label: Option<String>,
 }
@@ -131,8 +131,8 @@ impl IssueObject {
     async fn state<'a>(&'a self, ctx: &Context<'_>) -> async_graphql::Result<&'a str> {
         self.0.string(ctx)
     }
-    async fn status_type<'a>(&'a self, ctx: &Context<'_>) -> async_graphql::Result<&'a str> {
-        self.0.string(ctx)
+    async fn is_terminal(&self, ctx: &Context<'_>) -> async_graphql::Result<bool> {
+        self.0.boolean(ctx)
     }
     async fn priority(&self, ctx: &Context<'_>) -> async_graphql::Result<i64> {
         self.0.integer(ctx)
@@ -226,8 +226,8 @@ impl ProjectObject {
     async fn state<'a>(&'a self, ctx: &Context<'_>) -> async_graphql::Result<&'a str> {
         self.0.string(ctx)
     }
-    async fn status_type<'a>(&'a self, ctx: &Context<'_>) -> async_graphql::Result<&'a str> {
-        self.0.string(ctx)
+    async fn is_terminal(&self, ctx: &Context<'_>) -> async_graphql::Result<bool> {
+        self.0.boolean(ctx)
     }
     async fn priority(&self, ctx: &Context<'_>) -> async_graphql::Result<i64> {
         self.0.integer(ctx)

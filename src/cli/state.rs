@@ -18,34 +18,26 @@ pub(crate) async fn run(store: &Store, command: StateCommand) -> Result<()> {
                     if state.is_terminal {
                         flags.push("terminal")
                     }
-                    [
-                        state.name.clone(),
-                        state.status_type.clone(),
-                        flags.join(", "),
-                    ]
+                    [state.name.clone(), flags.join(", ")]
                 });
-                output.print(output.table(["Name", "Status Type", "Flags"], rows));
+                output.print(output.table(["Name", "Flags"], rows));
             }
         }
         StateCommand::Create {
             name,
-            status_type,
             starting,
             terminal,
         } => {
-            store
-                .add_state(&name, status_type.as_deref(), starting, terminal)
-                .await?;
+            store.add_state(&name, starting, terminal).await?;
             output.print(output.line(Tone::Success, format!("created state {name}")));
         }
         StateCommand::Set {
             name,
             new_name,
-            status_type,
             terminal,
         } => {
             store
-                .set_state_config(&name, new_name.as_deref(), status_type.as_deref(), terminal)
+                .set_state_config(&name, new_name.as_deref(), terminal)
                 .await?;
             match new_name {
                 Some(new_name) if new_name != name => output.print(

@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT p.repo_id AS \"repo_id!: i64\", r.name AS \"repo!: String\",\n                  p.id AS \"id!: i64\", p.name AS \"name!: String\",\n                  p.summary AS \"summary!: String\", p.description AS \"description!: String\",\n                  p.state AS \"state!: String\", p.status_type AS \"status_type!: String\",\n                  p.priority AS \"priority!: i64\", p.created_at AS \"created_at!: String\",\n                  p.updated_at AS \"updated_at!: String\"\n           FROM projects p JOIN repos r ON r.id = p.repo_id\n           WHERE p.repo_id = ? AND p.status_type NOT IN ('completed', 'canceled')\n           ORDER BY r.name, CASE WHEN p.priority = 0 THEN 5 ELSE p.priority END, p.id",
+  "query": "SELECT p.repo_id AS \"repo_id!: i64\", r.name AS \"repo!: String\",\n                  p.id AS \"id!: i64\", p.name AS \"name!: String\",\n                  p.summary AS \"summary!: String\", p.description AS \"description!: String\",\n                  p.state AS \"state!: String\", p.is_terminal AS \"is_terminal!: bool\",\n                  p.priority AS \"priority!: i64\", p.created_at AS \"created_at!: String\",\n                  p.updated_at AS \"updated_at!: String\"\n           FROM projects p JOIN repos r ON r.id = p.repo_id\n           WHERE p.repo_id = ? AND p.name = ? COLLATE NOCASE",
   "describe": {
     "columns": [
       {
@@ -39,9 +39,9 @@
         "type_info": "Text"
       },
       {
-        "name": "status_type!: String",
+        "name": "is_terminal!: bool",
         "ordinal": 7,
-        "type_info": "Text"
+        "type_info": "Integer"
       },
       {
         "name": "priority!: i64",
@@ -60,7 +60,7 @@
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 2
     },
     "nullable": [
       false,
@@ -76,5 +76,5 @@
       false
     ]
   },
-  "hash": "3b35df7ff78a4c84359632d3c91279ab7c5d12b21eba12abc5c7a3414d54958f"
+  "hash": "78558fb6305018db4b07839dfbd0209d19ad6c9d08e275e4df7d6ae68a4da07e"
 }

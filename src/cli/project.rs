@@ -11,19 +11,12 @@ pub(crate) async fn run(store: &Store, command: ProjectCommand) -> Result<()> {
             summary,
             description,
             state,
-            status_type,
+            terminal,
             priority,
             json,
         } => {
             let id = store
-                .create_project(
-                    &name,
-                    &summary,
-                    &description,
-                    &state,
-                    &status_type,
-                    priority,
-                )
+                .create_project(&name, &summary, &description, &state, terminal, priority)
                 .await?;
             if json {
                 println!("{}", serde_json::json!({ "id": id, "name": name }));
@@ -53,16 +46,8 @@ pub(crate) async fn run(store: &Store, command: ProjectCommand) -> Result<()> {
                     [
                         project.project.id.to_string(),
                         project.project.state.clone(),
-                        project.project.status_type.clone(),
                         format!("P{}", project.project.priority),
-                        format!(
-                            "{}/{}/{}/{}/{}",
-                            project.tally.backlog,
-                            project.tally.unstarted,
-                            project.tally.started,
-                            project.tally.completed,
-                            project.tally.canceled
-                        ),
+                        format!("{}/{}", project.tally.open, project.tally.closed),
                         project.project.name.clone(),
                         milestones,
                     ]
@@ -71,9 +56,8 @@ pub(crate) async fn run(store: &Store, command: ProjectCommand) -> Result<()> {
                     [
                         "ID",
                         "State",
-                        "Status Type",
                         "Priority",
-                        "B/U/S/D/C",
+                        "Open/Closed",
                         "Name",
                         "Milestones",
                     ],
@@ -91,7 +75,6 @@ pub(crate) async fn run(store: &Store, command: ProjectCommand) -> Result<()> {
                         format!("{}", detail.project.id),
                         format!(": {} ({})", detail.project.name, detail.project.state),
                     ),
-                    output.field("status type: ", &detail.project.status_type),
                     output.field("priority: ", detail.project.priority.to_string()),
                     output.field("summary: ", &detail.project.summary),
                 ];
@@ -101,13 +84,8 @@ pub(crate) async fn run(store: &Store, command: ProjectCommand) -> Result<()> {
                 lines.push(output.field(
                     "issues: ",
                     format!(
-                        "{} (backlog {}, unstarted {}, started {}, completed {}, canceled {})",
-                        detail.tally.total,
-                        detail.tally.backlog,
-                        detail.tally.unstarted,
-                        detail.tally.started,
-                        detail.tally.completed,
-                        detail.tally.canceled
+                        "{} (open {}, closed {})",
+                        detail.tally.total, detail.tally.open, detail.tally.closed
                     ),
                 ));
                 if !detail.issue_numbers.is_empty() {
@@ -178,21 +156,20 @@ pub(crate) async fn run(store: &Store, command: ProjectCommand) -> Result<()> {
         ProjectCommand::SetState {
             project,
             state,
-            status_type,
+            terminal,
             json,
         } => {
-            store
-                .set_project_state(&project, &state, &status_type)
-                .await?;
+            store.set_project_state(&project, &state, terminal).await?;
             if json {
                 println!(
                     "{}",
-                    serde_json::json!({ "state": state, "status_type": status_type })
+                    serde_json::json!({ "state": state, "is_terminal": terminal })
                 );
             } else {
+                let closed = if terminal { "closed" } else { "open" };
                 output.print(output.line(
                     Tone::Success,
-                    format!("project {project} -> {state} ({status_type})"),
+                    format!("project {project} -> {state} ({closed})"),
                 ));
             }
         }

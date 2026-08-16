@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT p.repo_id AS \"repo_id!: i64\", r.name AS \"repo!: String\",\n                  p.id AS \"id!: i64\", p.name AS \"name!: String\",\n                  p.summary AS \"summary!: String\", p.description AS \"description!: String\",\n                  p.state AS \"state!: String\", p.status_type AS \"status_type!: String\",\n                  p.priority AS \"priority!: i64\", p.created_at AS \"created_at!: String\",\n                  p.updated_at AS \"updated_at!: String\"\n           FROM projects p JOIN repos r ON r.id = p.repo_id\n           WHERE p.repo_id = ?\n           ORDER BY r.name, CASE WHEN p.priority = 0 THEN 5 ELSE p.priority END, p.id",
+  "query": "SELECT p.repo_id AS \"repo_id!: i64\", r.name AS \"repo!: String\",\n                  p.id AS \"id!: i64\", p.name AS \"name!: String\",\n                  p.summary AS \"summary!: String\", p.description AS \"description!: String\",\n                  p.state AS \"state!: String\", p.is_terminal AS \"is_terminal!: bool\",\n                  p.priority AS \"priority!: i64\", p.created_at AS \"created_at!: String\",\n                  p.updated_at AS \"updated_at!: String\"\n           FROM projects p JOIN repos r ON r.id = p.repo_id\n           WHERE p.repo_id = ? AND p.is_terminal = 0\n           ORDER BY r.name, CASE WHEN p.priority = 0 THEN 5 ELSE p.priority END, p.id",
   "describe": {
     "columns": [
       {
@@ -39,9 +39,9 @@
         "type_info": "Text"
       },
       {
-        "name": "status_type!: String",
+        "name": "is_terminal!: bool",
         "ordinal": 7,
-        "type_info": "Text"
+        "type_info": "Integer"
       },
       {
         "name": "priority!: i64",
@@ -76,5 +76,5 @@
       false
     ]
   },
-  "hash": "e54b1c74bfbde68e2caed082f7c989abd3f28c801d7e3e26504960562ab80a59"
+  "hash": "8b66aacfd016e3329231fb9d6a53546fc58fd58506162fcc49f38a1eda9be5f8"
 }

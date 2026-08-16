@@ -1,5 +1,5 @@
 use crate::domain::{
-    issue::{validate_priority, StatusType},
+    issue::validate_priority,
     project::{Project, ProjectDetail, ProjectOverview},
 };
 use anyhow::{anyhow, bail, Result};
@@ -21,11 +21,10 @@ pub async fn create(
     summary: &str,
     description: &str,
     state: &str,
-    status_type: &str,
+    terminal: bool,
     priority: i64,
 ) -> Result<i64> {
     validate_name(name)?;
-    let status_type = status_type.parse::<StatusType>()?;
     crate::sql::project::insert(
         pool,
         repo,
@@ -33,7 +32,7 @@ pub async fn create(
         summary,
         description,
         state,
-        &status_type.to_string(),
+        terminal,
         validate_priority(priority)?,
     )
     .await
@@ -104,9 +103,8 @@ pub async fn set_state(
     repo: i64,
     reference: &str,
     state: &str,
-    status_type: &str,
+    terminal: bool,
 ) -> Result<()> {
     let project = resolve(pool, repo, reference).await?;
-    let status_type = status_type.parse::<StatusType>()?;
-    crate::sql::project::set_state(pool, repo, project.id, state, &status_type.to_string()).await
+    crate::sql::project::set_state(pool, repo, project.id, state, terminal).await
 }

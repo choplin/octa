@@ -46,7 +46,6 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
         IssueCommand::List {
             state_filter,
             label,
-            status_type,
             priority,
             project,
             milestone,
@@ -59,7 +58,6 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                 .list_issues(
                     filter,
                     state_name.as_deref(),
-                    status_type.as_deref(),
                     priority,
                     label.as_deref(),
                     project.as_deref(),
@@ -77,7 +75,6 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                     [
                         format!("#{}", issue.number),
                         issue.state.clone(),
-                        issue.status_type.clone(),
                         format!("P{}", issue.priority),
                         issue.title.clone(),
                         issue
@@ -97,7 +94,6 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                     [
                         "Issue",
                         "State",
-                        "Status Type",
                         "Priority",
                         "Title",
                         "Project",
@@ -119,7 +115,6 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                         format!("#{}", issue.number),
                         format!(" {} ({})", issue.title, issue.state),
                     ),
-                    output.field("status type: ", &issue.status_type),
                     output.field("priority: ", issue.priority.to_string()),
                     output.field(
                         "project: ",

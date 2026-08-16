@@ -148,10 +148,11 @@ octa issue tui
 
 有限の成果を Project としてまとめ、段階が必要な Project には順序付きの
 Milestone を作れます。Project と Milestone は名前または番号で参照できます。
-`project list` は既定で completed / canceled を含む全 Project を返し、各 tally
-も canceled を含む全 Issue を数えます。作業中の Project だけが必要な場合は
-`project list --active` と明示します。Project は priority 1〜4 の順、その後に
-0（None）の順で表示されます。
+`project list` は既定で終端の Project も含む全 Project を返し、各 tally も
+終端状態の Issue を含む全 Issue を open / closed で数えます。作業中の Project
+だけが必要な場合は `project list --active` と明示します。Project の終端かどうかは
+`project create --terminal` と `project set-state <project> <state> --terminal`
+で設定します。Project は priority 1〜4 の順、その後に 0（None）の順で表示されます。
 
 ```sh
 octa project create --name "CLI を公開する"
@@ -207,16 +208,17 @@ octa issue unset 1 --project --lease "$LEASE"
 Project 内の Milestone が設定されている Issue だけは、従来どおり先に Milestone を
 unset してから Project を変更または解除します。
 
-新規リポジトリには、Linear の既定 workflow に合わせた6状態が自動作成されます。
+新規リポジトリには、キャプチャから実行・レビュー・2つの終端までを覆う6状態が
+自動作成されます。
 
-| 状態 | status type | 備考 |
+| 状態 | フラグ | 備考 |
 |---|---|---|
-| Backlog | `backlog` | 新規Issueの入口 |
-| Todo | `unstarted` | |
-| In Progress | `started` | |
-| In Review | `started` | |
-| Done | `completed` | 終端 |
-| Canceled | `canceled` | 終端 |
+| Backlog | starting | 新規Issueの入口 |
+| Todo | | |
+| In Progress | | |
+| In Review | | |
+| Done | terminal | 終端 |
+| Canceled | terminal | 終端 |
 
 seedが走るのは状態を1つも持たないリポジトリだけです。すでにworkflowを
 設定済みのリポジトリの状態構成は、そのまま保たれます。
@@ -224,9 +226,9 @@ seedが走るのは状態を1つも持たないリポジトリだけです。す
 状態はあとから追加・変更・削除できます。
 
 ```sh
-octa config state create blocked --type unstarted
+octa config state create blocked
 octa config state set Todo --name Ready
-octa config state set Ready --type started
+octa config state set Ready --terminal true
 octa config state delete blocked --move-to Ready
 octa config state set-default Ready
 octa config state list
@@ -240,12 +242,12 @@ octa config state list
 （または `config state create --starting`）で移します。この明示的なフラグだけで
 決まります。
 
-状態は並び順を持ちません。`config state list` の表示順は `status_type`
-（backlog → unstarted → started → completed → canceled）と名前から導かれるので、
-あとから追加した状態も該当のグループに並びます。
+状態は並び順を持ちません。`config state list` の表示順は `is_starting` と
+`is_terminal` の2フラグと名前から導かれ、入口の状態、残りのopenな状態、終端の状態の
+順に並びます。各グループの中は名前順です。
 
-status type は `backlog`、`unstarted`、`started`、`completed`、`canceled` の
-5分類です。これらは一般的な分類であり、特定の状態名を要求しません。
+octaが状態について持つ分類はこの2フラグだけで、その間の段階を区別しません。
+状態名そのものには何の意味も与えないため、任意の状態名を使えます。
 旧バージョンで作成済みのworkflow状態やその他のcustom/legacy stateと、
 それらを参照するIssueはmigration後も削除・改名されません。
 

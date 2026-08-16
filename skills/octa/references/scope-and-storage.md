@@ -19,7 +19,7 @@ pr list
 wiki list
 ```
 
-With `--all-repos`, `issue list` supports the generic `--open`, `--closed`, and `--all` terminal-state filters, plus status type and priority. Named `--state` values and the `--label`, `--project`, `--milestone`, `--related-to`, and `--unblocked` filters require one repository.
+With `--all-repos`, `issue list` supports the generic `--open`, `--closed`, and `--all` terminal-state filters, plus priority. Named `--state` values and the `--label`, `--project`, `--milestone`, `--related-to`, and `--unblocked` filters require one repository.
 
 ## Local storage
 

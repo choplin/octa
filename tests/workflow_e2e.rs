@@ -423,7 +423,7 @@ fn integrated_pr_completes_the_issue_and_reveals_unblocked_work() {
         r#"{
             issue(number: 1) {
                 state
-                blocks { number title state statusType }
+                blocks { number title state isTerminal }
                 pullRequests { number state }
             }
         }"#,
@@ -768,8 +768,8 @@ Constraints: view-only; no mutation keys.";
     env.ok_with_lease(&["issue", "set-state", "2", "Done"], &target_lease);
 
     let project = env.json(&["project", "show", "Workflow parity", "--json"]);
-    assert_eq!(project["tally"]["completed"], 2);
-    assert_eq!(project["tally"]["unstarted"], 1);
+    assert_eq!(project["tally"]["closed"], 2);
+    assert_eq!(project["tally"]["open"], 1);
     assert_eq!(project["tally"]["total"], 3);
 
     env.ok(&["issue", "unlock", "2", "--lease", &target_lease]);

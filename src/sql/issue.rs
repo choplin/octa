@@ -45,7 +45,6 @@ struct IssueListRow {
     title: String,
     body: String,
     state: String,
-    status_type: String,
     priority: i64,
     project_id: Option<i64>,
     project_name: Option<String>,
@@ -88,7 +87,6 @@ pub async fn get(pool: &SqlitePool, repo: i64, number: i64) -> Result<Option<Iss
             r.name AS "repo!: String",
             i.number AS "number!: i64", i.title AS "title!: String",
             i.body AS "body!: String", i.state AS "state!: String",
-            COALESCE(s.status_type, 'unstarted') AS "status_type!: String",
             i.priority AS "priority!: i64",
             p.id AS "project_id?: i64", p.name AS "project_name?: String",
             m.id AS "milestone_id?: i64", m.name AS "milestone_name?: String",
@@ -136,8 +134,7 @@ pub async fn list_entries(pool: &SqlitePool, repo: Option<i64>) -> Result<Vec<Is
                 r.name AS "repo!: String",
                 i.number AS "number!: i64", i.title AS "title!: String",
                 i.body AS "body!: String", i.state AS "state!: String",
-                COALESCE(s.status_type, 'unstarted') AS "status_type!: String",
-                i.priority AS "priority!: i64",
+                    i.priority AS "priority!: i64",
                 p.id AS "project_id?: i64", p.name AS "project_name?: String",
                 m.id AS "milestone_id?: i64", m.name AS "milestone_name?: String",
                 EXISTS (
@@ -179,8 +176,7 @@ pub async fn list_entries(pool: &SqlitePool, repo: Option<i64>) -> Result<Vec<Is
                 r.name AS "repo!: String",
                 i.number AS "number!: i64", i.title AS "title!: String",
                 i.body AS "body!: String", i.state AS "state!: String",
-                COALESCE(s.status_type, 'unstarted') AS "status_type!: String",
-                i.priority AS "priority!: i64",
+                    i.priority AS "priority!: i64",
                 p.id AS "project_id?: i64", p.name AS "project_name?: String",
                 m.id AS "milestone_id?: i64", m.name AS "milestone_name?: String",
                 EXISTS (
@@ -223,7 +219,6 @@ fn into_entry(row: IssueListRow) -> IssueListEntry {
             title: row.title,
             body: row.body,
             state: row.state,
-            status_type: row.status_type,
             priority: row.priority,
             project: row
                 .project_id
@@ -769,19 +764,21 @@ pub async fn seed_default_states(pool: &SqlitePool) -> Result<()> {
     if configured != 0 {
         return Ok(());
     }
-    // Linear's default workflow, minus its `duplicate` status type which
-    // `issue_states.status_type` does not model. New issues start in Backlog.
-    for (state, status_type, starting, terminal) in [
-        ("Backlog", "backlog", 1, 0),
-        ("Todo", "unstarted", 0, 0),
-        ("In Progress", "started", 0, 0),
-        ("In Review", "started", 0, 0),
-        ("Done", "completed", 0, 1),
-        ("Canceled", "canceled", 0, 1),
+    // A six-state lifecycle covering capture, execution, review, and both
+    // terminal outcomes. New issues start in Backlog.
+    for (state, starting, terminal) in [
+        ("Backlog", 1, 0),
+        ("Todo", 0, 0),
+        ("In Progress", 0, 0),
+        ("In Review", 0, 0),
+        ("Done", 0, 1),
+        ("Canceled", 0, 1),
     ] {
         sqlx::query!(
-            "INSERT OR IGNORE INTO issue_states (name, status_type, is_starting, is_terminal) VALUES (?, ?, ?, ?)",
-            state, status_type, starting, terminal
+            "INSERT OR IGNORE INTO issue_states (name, is_starting, is_terminal) VALUES (?, ?, ?)",
+            state,
+            starting,
+            terminal
         )
         .execute(pool)
         .await?;
@@ -790,13 +787,15 @@ pub async fn seed_default_states(pool: &SqlitePool) -> Result<()> {
 }
 
 pub async fn list_states(pool: &SqlitePool) -> Result<Vec<IssueState>> {
-    Ok(sqlx::query!(r#"SELECT name AS "name!: String", status_type AS "status_type!: String", is_starting AS "is_starting!: i64", is_terminal AS "is_terminal!: i64" FROM issue_states ORDER BY CASE status_type WHEN 'backlog' THEN 0 WHEN 'unstarted' THEN 1 WHEN 'started' THEN 2 WHEN 'completed' THEN 3 ELSE 4 END, name"#).fetch_all(pool).await?.into_iter().map(|row| IssueState { name: row.name, status_type: row.status_type, is_starting: row.is_starting != 0, is_terminal: row.is_terminal != 0 }).collect())
+    // Without an ordering column the listing is derived from the two flags:
+    // the starting state, then the remaining open states, then the terminal
+    // ones, each group by name.
+    Ok(sqlx::query!(r#"SELECT name AS "name!: String", is_starting AS "is_starting!: i64", is_terminal AS "is_terminal!: i64" FROM issue_states ORDER BY is_starting DESC, is_terminal ASC, name"#).fetch_all(pool).await?.into_iter().map(|row| IssueState { name: row.name, is_starting: row.is_starting != 0, is_terminal: row.is_terminal != 0 }).collect())
 }
 
 pub async fn insert_state(
     pool: &SqlitePool,
     name: &str,
-    status_type: &str,
     starting: bool,
     terminal: bool,
 ) -> Result<()> {
@@ -808,7 +807,14 @@ pub async fn insert_state(
             .execute(&mut *tx)
             .await?;
     }
-    sqlx::query!("INSERT INTO issue_states (name, status_type, is_starting, is_terminal) VALUES (?, ?, ?, ?)", name, status_type, starting_flag, terminal).execute(&mut *tx).await?;
+    sqlx::query!(
+        "INSERT INTO issue_states (name, is_starting, is_terminal) VALUES (?, ?, ?)",
+        name,
+        starting_flag,
+        terminal
+    )
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
     Ok(())
 }
@@ -827,7 +833,7 @@ pub async fn starting_states(pool: &SqlitePool) -> Result<Vec<String>> {
 }
 
 pub async fn get_state(pool: &SqlitePool, name: &str) -> Result<Option<IssueState>> {
-    Ok(sqlx::query!(r#"SELECT name AS "name!: String", status_type AS "status_type!: String", is_starting AS "is_starting!: i64", is_terminal AS "is_terminal!: i64" FROM issue_states WHERE name = ?"#, name).fetch_optional(pool).await?.map(|row| IssueState { name: row.name, status_type: row.status_type, is_starting: row.is_starting != 0, is_terminal: row.is_terminal != 0 }))
+    Ok(sqlx::query!(r#"SELECT name AS "name!: String", is_starting AS "is_starting!: i64", is_terminal AS "is_terminal!: i64" FROM issue_states WHERE name = ?"#, name).fetch_optional(pool).await?.map(|row| IssueState { name: row.name, is_starting: row.is_starting != 0, is_terminal: row.is_terminal != 0 }))
 }
 
 /// Count issues in a state across every repository.
@@ -860,16 +866,10 @@ pub async fn rename_state(pool: &SqlitePool, from: &str, to: &str) -> Result<()>
     Ok(())
 }
 
-pub async fn update_state_flags(
-    pool: &SqlitePool,
-    name: &str,
-    status_type: &str,
-    terminal: bool,
-) -> Result<()> {
+pub async fn update_state_flags(pool: &SqlitePool, name: &str, terminal: bool) -> Result<()> {
     let terminal = terminal as i64;
     sqlx::query!(
-        "UPDATE issue_states SET status_type = ?, is_terminal = ? WHERE name = ?",
-        status_type,
+        "UPDATE issue_states SET is_terminal = ? WHERE name = ?",
         terminal,
         name
     )

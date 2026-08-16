@@ -39,7 +39,6 @@ impl Store {
         &self,
         filter: StateFilter,
         state_name: Option<&str>,
-        status_type: Option<&str>,
         priority: Option<i64>,
         label: Option<&str>,
         project: Option<&str>,
@@ -54,7 +53,6 @@ impl Store {
             crate::app::issue::ListQuery {
                 filter,
                 state_name,
-                status_type,
                 priority,
                 label,
                 project,
@@ -79,7 +77,6 @@ impl Store {
             crate::app::issue::ListQuery {
                 filter: StateFilter::All,
                 state_name: None,
-                status_type: None,
                 priority: None,
                 label: None,
                 project: None,
@@ -230,24 +227,17 @@ impl Store {
         crate::app::issue::list_states(&self.pool).await
     }
 
-    pub async fn add_state(
-        &self,
-        name: &str,
-        status_type: Option<&str>,
-        starting: bool,
-        terminal: bool,
-    ) -> Result<()> {
-        crate::app::issue::add_state(&self.pool, name, status_type, starting, terminal).await
+    pub async fn add_state(&self, name: &str, starting: bool, terminal: bool) -> Result<()> {
+        crate::app::issue::add_state(&self.pool, name, starting, terminal).await
     }
 
     pub async fn set_state_config(
         &self,
         name: &str,
         new_name: Option<&str>,
-        status_type: Option<&str>,
         terminal: Option<bool>,
     ) -> Result<()> {
-        crate::app::issue::set_state_config(&self.pool, name, new_name, status_type, terminal).await
+        crate::app::issue::set_state_config(&self.pool, name, new_name, terminal).await
     }
 
     pub async fn delete_state(&self, name: &str, move_to: Option<&str>) -> Result<i64> {

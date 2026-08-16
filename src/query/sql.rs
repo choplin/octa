@@ -36,9 +36,9 @@ impl Planner {
                     format!("{issue}.{}", snake(field.name()))
                 }
                 "state" => format!("{issue}.state"),
-                "statusType" => format!(
-                    "{}.status_type",
-                    state.expect("statusType requires state join")
+                "isTerminal" => format!(
+                    "json(CASE WHEN {}.is_terminal=1 THEN 'true' ELSE 'false' END)",
+                    state.expect("isTerminal requires state join")
                 ),
                 "leased" => {
                     let lease = self.next("lease");
@@ -129,8 +129,11 @@ impl Planner {
             let field = &merged.field;
             let key = response_key(field);
             let value = match field.name() {
-                "id" | "name" | "summary" | "description" | "state" | "statusType" | "priority"
-                | "createdAt" | "updatedAt" => format!("{project}.{}", snake(field.name())),
+                "id" | "name" | "summary" | "description" | "state" | "priority" | "createdAt"
+                | "updatedAt" => format!("{project}.{}", snake(field.name())),
+                "isTerminal" => {
+                    format!("json(CASE WHEN {project}.is_terminal=1 THEN 'true' ELSE 'false' END)")
+                }
                 "issues" => {
                     let i = self.next("i");
                     let s = self.next("s");
@@ -140,7 +143,7 @@ impl Planner {
                         &merged.children,
                         &i,
                         &s,
-                        filter_args.status_type.is_some(),
+                        filter_args.is_terminal.is_some(),
                     );
                     let nested = self.issue(&merged.children, &i, state.alias())?;
                     let filter = issue_filter_sql(&i, state.alias(), &filter_args);
@@ -375,7 +378,7 @@ pub(super) fn issue_state_join<'a>(
 ) -> StateJoin<'a> {
     let selected = merged_fields(fields)
         .iter()
-        .any(|field| field.field.name() == "statusType");
+        .any(|field| field.field.name() == "isTerminal");
     StateJoin {
         issue,
         alias,
@@ -479,6 +482,16 @@ fn object_string(
         Some(_) => Err(format!("{name} must be a string").into()),
     }
 }
+fn object_boolean(
+    object: &async_graphql::indexmap::IndexMap<Name, Value>,
+    name: &str,
+) -> async_graphql::Result<Option<bool>> {
+    match object.get(name) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Boolean(value)) => Ok(Some(*value)),
+        Some(_) => Err(format!("{name} must be a boolean").into()),
+    }
+}
 fn object_integer(
     object: &async_graphql::indexmap::IndexMap<Name, Value>,
     name: &str,
@@ -498,7 +511,7 @@ fn issue_filter(field: &SelectionField<'_>) -> async_graphql::Result<IssueFilter
     };
     Ok(IssueFilter {
         state: object_string(&object, "state")?,
-        status_type: object_string(&object, "statusType")?,
+        is_terminal: object_boolean(&object, "isTerminal")?,
         priority: object_integer(&object, "priority")?,
         label: object_string(&object, "label")?,
         project_id: object_integer(&object, "projectId")?,
@@ -509,11 +522,11 @@ pub(super) fn issue_filter_sql(issue: &str, state: Option<&str>, filter: &IssueF
     if let Some(value) = &filter.state {
         sql.push(format!("{issue}.state={}", quote(value)));
     }
-    if let Some(value) = &filter.status_type {
+    if let Some(value) = filter.is_terminal {
         sql.push(format!(
-            "{}.status_type={}",
-            state.expect("status type filter requires state join"),
-            quote(value)
+            "{}.is_terminal={}",
+            state.expect("isTerminal filter requires state join"),
+            value as i64
         ));
     }
     if let Some(value) = filter.priority {
@@ -533,8 +546,8 @@ pub(super) fn issue_filter_sql(issue: &str, state: Option<&str>, filter: &IssueF
 }
 pub(super) fn project_filter_sql(project: &str, filter: &ProjectFilter) -> String {
     let mut sql = Vec::new();
-    if let Some(value) = &filter.status_type {
-        sql.push(format!("{project}.status_type={}", quote(value)));
+    if let Some(value) = filter.is_terminal {
+        sql.push(format!("{project}.is_terminal={}", value as i64));
     }
     if let Some(value) = filter.priority {
         sql.push(format!("{project}.priority={value}"));

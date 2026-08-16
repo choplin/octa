@@ -77,7 +77,7 @@ impl QueryRoot {
         let fields = ctx.field().selection_set().collect::<Vec<_>>();
         let page = Page::new(offset, limit)?;
         let filter = filter.unwrap_or_default();
-        let state = issue_state_join(&fields, "i", "s", filter.status_type.is_some());
+        let state = issue_state_join(&fields, "i", "s", filter.is_terminal.is_some());
         let projection = Planner::new(db.repo).issue(&fields, "i", state.alias())?;
         let filter = issue_filter_sql("i", state.alias(), &filter);
         let sql = format!(

@@ -17,7 +17,7 @@ pub struct Project {
     pub summary: String,
     pub description: String,
     pub state: String,
-    pub status_type: String,
+    pub is_terminal: bool,
     pub priority: i64,
     pub created_at: String,
     pub updated_at: String,
@@ -33,11 +33,8 @@ pub struct ProjectOverview {
 
 #[derive(Debug, Default, Serialize)]
 pub struct ProjectTally {
-    pub backlog: i64,
-    pub unstarted: i64,
-    pub started: i64,
-    pub completed: i64,
-    pub canceled: i64,
+    pub open: i64,
+    pub closed: i64,
     pub total: i64,
 }
 

@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT p.repo_id AS \"repo_id!: i64\", r.name AS \"repo!: String\",\n                  p.id AS \"id!: i64\", p.name AS \"name!: String\",\n                  p.summary AS \"summary!: String\", p.description AS \"description!: String\",\n                  p.state AS \"state!: String\", p.status_type AS \"status_type!: String\",\n                  p.priority AS \"priority!: i64\", p.created_at AS \"created_at!: String\",\n                  p.updated_at AS \"updated_at!: String\"\n           FROM projects p JOIN repos r ON r.id = p.repo_id\n           WHERE p.repo_id = ? AND p.name = ? COLLATE NOCASE",
+  "query": "SELECT p.repo_id AS \"repo_id!: i64\", r.name AS \"repo!: String\",\n                  p.id AS \"id!: i64\", p.name AS \"name!: String\",\n                  p.summary AS \"summary!: String\", p.description AS \"description!: String\",\n                  p.state AS \"state!: String\", p.is_terminal AS \"is_terminal!: bool\",\n                  p.priority AS \"priority!: i64\", p.created_at AS \"created_at!: String\",\n                  p.updated_at AS \"updated_at!: String\"\n           FROM projects p JOIN repos r ON r.id = p.repo_id\n           WHERE 1 = 1\n           ORDER BY r.name, CASE WHEN p.priority = 0 THEN 5 ELSE p.priority END, p.id",
   "describe": {
     "columns": [
       {
@@ -39,9 +39,9 @@
         "type_info": "Text"
       },
       {
-        "name": "status_type!: String",
+        "name": "is_terminal!: bool",
         "ordinal": 7,
-        "type_info": "Text"
+        "type_info": "Integer"
       },
       {
         "name": "priority!: i64",
@@ -60,7 +60,7 @@
       }
     ],
     "parameters": {
-      "Right": 2
+      "Right": 0
     },
     "nullable": [
       false,
@@ -76,5 +76,5 @@
       false
     ]
   },
-  "hash": "d3096c81304883cf34fffb721f6ee8f35781847e79bedecaaa164b4294111bd1"
+  "hash": "d5b8f0951e1c16927d136670b345852188caebab3a3a53f5011c924365e6fe37"
 }

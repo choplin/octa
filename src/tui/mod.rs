@@ -375,7 +375,6 @@ fn detail_text(detail: &IssueDetail) -> Text<'static> {
             Span::styled("State: ", Style::default().fg(Color::DarkGray)),
             Span::raw(issue.state.clone()),
         ]),
-        Line::from(format!("Status type: {}", issue.status_type)),
         Line::from(format!("Priority: {}", issue.priority)),
         Line::from(format!("Project: {project}")),
         Line::from(format!("Milestone: {milestone}")),
@@ -473,7 +472,6 @@ mod tests {
                 title: title.into(),
                 body: "A body that can be read.".into(),
                 state: "in_progress".into(),
-                status_type: "started".into(),
                 priority: 2,
                 project: Some(ProjectRef {
                     id: 1,
@@ -538,7 +536,6 @@ mod tests {
         for expected in [
             "Build the TUI",
             "State: in_progress",
-            "Status type: started",
             "Priority: 2",
             "Project: CLI launch",
             "Milestone: Public beta",
@@ -584,27 +581,20 @@ mod tests {
 
     #[test]
     fn default_all_view_keeps_review_terminal_canceled_and_legacy_states_visible() {
-        let states = [
-            ("In Progress", "started"),
-            ("In Review", "started"),
-            ("Done", "completed"),
-            ("Canceled", "canceled"),
-            ("closed", "completed"),
-        ];
+        let states = ["In Progress", "In Review", "Done", "Canceled", "closed"];
         let issues = states
             .iter()
             .enumerate()
-            .map(|(index, (state, status_type))| {
+            .map(|(index, state)| {
                 let mut detail = issue(index as i64 + 1, &format!("{state} issue"));
                 detail.issue.state = (*state).into();
-                detail.issue.status_type = (*status_type).into();
                 detail
             })
             .collect();
         let mut app = App::new(issues);
         let screen = rendered(&mut app, 120, 30);
 
-        for (index, (state, _)) in states.iter().enumerate() {
+        for (index, state) in states.iter().enumerate() {
             assert!(
                 screen.contains(&format!("#{} {state}", index + 1)),
                 "missing state {state:?}:\n{screen}"

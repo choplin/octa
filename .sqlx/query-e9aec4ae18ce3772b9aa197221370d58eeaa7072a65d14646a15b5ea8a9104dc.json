@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE issue_states SET is_terminal = ? WHERE name = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "e9aec4ae18ce3772b9aa197221370d58eeaa7072a65d14646a15b5ea8a9104dc"
+}
