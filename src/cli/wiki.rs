@@ -2,7 +2,6 @@ use super::output::{Output, Tone};
 use super::WikiCommand;
 use crate::store::Store;
 use anyhow::Result;
-use urushi::View;
 pub(crate) async fn run(store: &Store, command: WikiCommand) -> Result<()> {
     let output = Output::stdout();
     match command {
@@ -10,17 +9,13 @@ pub(crate) async fn run(store: &Store, command: WikiCommand) -> Result<()> {
             let slug = store
                 .create_wiki(&slug.unwrap_or_else(|| title.clone()), &title, &body)
                 .await?;
-            output.print(View::line(
-                output.line(Tone::Success, format!("created wiki page {slug}")),
-            ))
+            output.print(output.line(Tone::Success, format!("created wiki page {slug}")))
         }
         WikiCommand::Set { slug, title, body } => {
             store
                 .edit_wiki(&slug, title.as_deref(), body.as_deref())
                 .await?;
-            output.print(View::line(
-                output.line(Tone::Success, format!("updated wiki page {slug}")),
-            ))
+            output.print(output.line(Tone::Success, format!("updated wiki page {slug}")))
         }
         WikiCommand::Show { slug, json } => {
             let detail = store.wiki_detail(&slug).await?;
@@ -28,14 +23,15 @@ pub(crate) async fn run(store: &Store, command: WikiCommand) -> Result<()> {
                 println!("{}", serde_json::to_string(&detail)?)
             } else {
                 let page = &detail.page;
-                let mut view = View::line(output.row(&page.title, format!(" ({})", page.slug)));
+                let mut lines = vec![output.row(&page.title, format!(" ({})", page.slug))];
                 if !detail.links_to.is_empty() {
-                    view = view.push(output.field("links to: ", detail.links_to.join(", ")));
+                    lines.push(output.field("links to: ", detail.links_to.join(", ")));
                 }
                 if !detail.backlinks.is_empty() {
-                    view = view.push(output.field("backlinks: ", detail.backlinks.join(", ")));
+                    lines.push(output.field("backlinks: ", detail.backlinks.join(", ")));
                 }
-                view = view.push(output.line(Tone::Body, "")).push(output.line(
+                lines.push(output.line(Tone::Body, ""));
+                lines.push(output.line(
                     if page.body.is_empty() {
                         Tone::Warning
                     } else {
@@ -47,7 +43,7 @@ pub(crate) async fn run(store: &Store, command: WikiCommand) -> Result<()> {
                         &page.body
                     },
                 ));
-                output.print(view)
+                output.print_lines(lines)
             }
         }
         WikiCommand::List { json } => {
@@ -55,7 +51,7 @@ pub(crate) async fn run(store: &Store, command: WikiCommand) -> Result<()> {
             if json {
                 println!("{}", serde_json::to_string(&pages)?)
             } else if pages.is_empty() {
-                output.print(View::line(output.line(Tone::Warning, "no wiki pages")))
+                output.print(output.line(Tone::Warning, "no wiki pages"))
             } else {
                 let rows = pages
                     .iter()

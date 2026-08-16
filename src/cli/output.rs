@@ -1,8 +1,8 @@
 use std::io;
 
 use urushi::{
-    AnsiRenderer, ComponentRole, ComponentStyles, Line, SemanticTokens, Style, Table, TableStyle,
-    TerminalProfile, Theme, View,
+    Align, AnsiRenderer, BlockStyle, ComponentRole, ComponentStyles, SemanticTokens, Table,
+    TableStyle, TerminalProfile, TextStyle, Theme, VerticalAlign, View,
 };
 
 use urushi::Color;
@@ -51,12 +51,12 @@ impl Output {
             border: Color::BRIGHT_BLACK,
         };
         let components = ComponentStyles::from_tokens(&tokens)
-            .with_style(ComponentRole::Body, Style::new())
-            .with_style(ComponentRole::Muted, Style::new().dim())
+            .with_text_style(ComponentRole::Body, TextStyle::new())
+            .with_text_style(ComponentRole::Muted, TextStyle::new().dim())
             .with_table(TableStyle::new(
-                Style::new().foreground(tokens.accent).bold(),
-                Style::new(),
-                Style::new().foreground(tokens.border),
+                BlockStyle::new().foreground(tokens.accent).bold(),
+                BlockStyle::new(),
+                TextStyle::new().foreground(tokens.border),
             ));
 
         Self {
@@ -65,20 +65,32 @@ impl Output {
         }
     }
 
-    pub(crate) fn line(&self, tone: Tone, text: impl Into<String>) -> Line {
-        Line::styled(text, self.theme.style(tone.role()))
+    pub(crate) fn line(&self, tone: Tone, text: impl Into<String>) -> View {
+        View::text(text, self.theme.text_style(tone.role()))
     }
 
-    pub(crate) fn row(&self, identifier: impl Into<String>, remainder: impl Into<String>) -> Line {
-        Line::new()
-            .span(identifier, self.theme.style(ComponentRole::Accent))
-            .span(remainder, self.theme.style(ComponentRole::Body))
+    pub(crate) fn row(&self, identifier: impl Into<String>, remainder: impl Into<String>) -> View {
+        self.spans([
+            (identifier.into(), ComponentRole::Accent),
+            (remainder.into(), ComponentRole::Body),
+        ])
     }
 
-    pub(crate) fn field(&self, label: impl Into<String>, value: impl Into<String>) -> Line {
-        Line::new()
-            .span(label, self.theme.style(ComponentRole::Muted))
-            .span(value, self.theme.style(ComponentRole::Body))
+    pub(crate) fn field(&self, label: impl Into<String>, value: impl Into<String>) -> View {
+        self.spans([
+            (label.into(), ComponentRole::Muted),
+            (value.into(), ComponentRole::Body),
+        ])
+    }
+
+    /// Places differently styled runs of text on one line.
+    fn spans(&self, spans: impl IntoIterator<Item = (String, ComponentRole)>) -> View {
+        View::row(
+            VerticalAlign::Top,
+            spans
+                .into_iter()
+                .map(|(text, role)| View::text(text, self.theme.text_style(role))),
+        )
     }
 
     pub(crate) fn table<H, HS, I, R, S>(&self, headers: H, rows: I) -> View
@@ -94,7 +106,27 @@ impl Output {
     }
 
     pub(crate) fn print(&self, view: View) {
-        println!("{}", self.renderer.render(&view));
+        println!("{}", self.render(&view));
+    }
+
+    /// Prints lines stacked in the order they are given.
+    pub(crate) fn print_lines(&self, lines: impl IntoIterator<Item = View>) {
+        self.print(View::column(Align::Left, lines));
+    }
+
+    /// Renders a view as the text this CLI prints.
+    ///
+    /// A view resolves to a rectangle, so every line is padded to the width of
+    /// the widest one. CLI output is line-oriented rather than a fixed
+    /// rectangle, so that padding is dropped.
+    fn render(&self, view: &View) -> String {
+        self.renderer
+            .render(view)
+            .as_str()
+            .lines()
+            .map(str::trim_end)
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 }
 
@@ -110,12 +142,17 @@ mod tests {
             ColorProfile::TrueColor,
             AnsiPolicy::Disabled,
         ));
-        let view = View::line(output.row("#12", " Fix output"))
-            .push(output.field("state: ", "open"))
-            .push(output.line(Tone::Success, "updated issue #12"));
+        let view = View::column(
+            Align::Left,
+            [
+                output.row("#12", " Fix output"),
+                output.field("state: ", "open"),
+                output.line(Tone::Success, "updated issue #12"),
+            ],
+        );
 
         assert_eq!(
-            output.renderer.render(&view),
+            output.render(&view),
             "#12 Fix output\nstate: open\nupdated issue #12"
         );
     }
@@ -124,9 +161,7 @@ mod tests {
     fn terminal_profiles_degrade_the_same_semantic_view() {
         let render = |color_profile| {
             let output = Output::new(TerminalProfile::new(color_profile, AnsiPolicy::Enabled));
-            output
-                .renderer
-                .render(&View::line(output.line(Tone::Accent, "#12")))
+            output.render(&output.line(Tone::Accent, "#12"))
         };
 
         assert!(render(ColorProfile::TrueColor).starts_with("\u{1b}[1;38;2;56;189;248m"));
@@ -141,7 +176,7 @@ mod tests {
             ColorProfile::TrueColor,
             AnsiPolicy::Disabled,
         ));
-        let rendered = output.renderer.render(&output.table(
+        let rendered = output.render(&output.table(
             ["Issue", "Title"],
             [["#12".to_owned(), "日本語".to_owned()]],
         ));

@@ -2,7 +2,6 @@ use super::output::{Output, Tone};
 use super::StateCommand;
 use crate::store::Store;
 use anyhow::Result;
-use urushi::View;
 pub(crate) async fn run(store: &Store, command: StateCommand) -> Result<()> {
     let output = Output::stdout();
     match command {
@@ -37,9 +36,7 @@ pub(crate) async fn run(store: &Store, command: StateCommand) -> Result<()> {
             store
                 .add_state(&name, status_type.as_deref(), starting, terminal)
                 .await?;
-            output.print(View::line(
-                output.line(Tone::Success, format!("created state {name}")),
-            ));
+            output.print(output.line(Tone::Success, format!("created state {name}")));
         }
         StateCommand::Set {
             name,
@@ -51,12 +48,10 @@ pub(crate) async fn run(store: &Store, command: StateCommand) -> Result<()> {
                 .set_state_config(&name, new_name.as_deref(), status_type.as_deref(), terminal)
                 .await?;
             match new_name {
-                Some(new_name) if new_name != name => output.print(View::line(
+                Some(new_name) if new_name != name => output.print(
                     output.line(Tone::Success, format!("updated state {name} -> {new_name}")),
-                )),
-                _ => output.print(View::line(
-                    output.line(Tone::Success, format!("updated state {name}")),
-                )),
+                ),
+                _ => output.print(output.line(Tone::Success, format!("updated state {name}"))),
             }
         }
         StateCommand::Delete { name, move_to } => {
@@ -68,13 +63,11 @@ pub(crate) async fn run(store: &Store, command: StateCommand) -> Result<()> {
                 }
                 (moved, None) => format!("deleted state {name}; {moved} issue(s) affected"),
             };
-            output.print(View::line(output.line(Tone::Success, message)))
+            output.print(output.line(Tone::Success, message))
         }
         StateCommand::SetDefault { name } => {
             store.set_default_state(&name).await?;
-            output.print(View::line(
-                output.line(Tone::Success, format!("new issues now start in {name}")),
-            ));
+            output.print(output.line(Tone::Success, format!("new issues now start in {name}")));
         }
     }
     Ok(())

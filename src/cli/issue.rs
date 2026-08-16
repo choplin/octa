@@ -2,7 +2,6 @@ use super::output::{Output, Tone};
 use super::IssueCommand;
 use crate::store::{LeaseOutcome, Store};
 use anyhow::Result;
-use urushi::View;
 
 pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
     let output = Output::stdout();
@@ -41,7 +40,7 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             if json {
                 println!("{}", serde_json::json!({ "number": number }));
             } else {
-                output.print(View::line(output.line(Tone::Success, format!("#{number}"))));
+                output.print(output.line(Tone::Success, format!("#{number}")));
             }
         }
         IssueCommand::List {
@@ -72,7 +71,7 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             if json {
                 println!("{}", serde_json::to_string(&issues)?);
             } else if issues.is_empty() {
-                output.print(View::line(output.line(Tone::Warning, "no issues")));
+                output.print(output.line(Tone::Warning, "no issues"));
             } else {
                 let rows = issues.iter().map(|issue| {
                     [
@@ -115,13 +114,13 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                 println!("{}", serde_json::to_string(&detail)?);
             } else {
                 let issue = &detail.issue;
-                let mut view = View::line(output.row(
-                    format!("#{}", issue.number),
-                    format!(" {} ({})", issue.title, issue.state),
-                ))
-                .push(output.field("status type: ", &issue.status_type))
-                .push(output.field("priority: ", issue.priority.to_string()))
-                .push(
+                let mut lines = vec![
+                    output.row(
+                        format!("#{}", issue.number),
+                        format!(" {} ({})", issue.title, issue.state),
+                    ),
+                    output.field("status type: ", &issue.status_type),
+                    output.field("priority: ", issue.priority.to_string()),
                     output.field(
                         "project: ",
                         issue
@@ -130,8 +129,6 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                             .map(|project| project.name.as_str())
                             .unwrap_or("No Project"),
                     ),
-                )
-                .push(
                     output.field(
                         "milestone: ",
                         issue
@@ -140,14 +137,14 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                             .map(|milestone| milestone.name.as_str())
                             .unwrap_or("No Milestone"),
                     ),
-                );
+                ];
                 if let Some(parent) = &detail.parent {
-                    view = view.push(
+                    lines.push(
                         output.field("parent: ", format!("#{} {}", parent.number, parent.title)),
                     );
                 }
                 if !detail.sub_issues.is_empty() {
-                    view = view.push(
+                    lines.push(
                         output.field(
                             "sub-issues: ",
                             detail
@@ -160,23 +157,22 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                     );
                 }
                 if issue.leased {
-                    view = view.push(output.field("leased: ", "yes"));
+                    lines.push(output.field("leased: ", "yes"));
                 }
                 if !detail.labels.is_empty() {
-                    view = view.push(output.field("labels: ", detail.labels.join(", ")));
+                    lines.push(output.field("labels: ", detail.labels.join(", ")));
                 }
                 if !detail.blocked_by.is_empty() {
-                    view =
-                        view.push(output.field("blocked by: ", join_numbers(&detail.blocked_by)));
+                    lines.push(output.field("blocked by: ", join_numbers(&detail.blocked_by)));
                 }
                 if !detail.blocks.is_empty() {
-                    view = view.push(output.field("blocks: ", join_numbers(&detail.blocks)));
+                    lines.push(output.field("blocks: ", join_numbers(&detail.blocks)));
                 }
                 if !detail.related.is_empty() {
-                    view = view.push(output.field("related: ", join_numbers(&detail.related)));
+                    lines.push(output.field("related: ", join_numbers(&detail.related)));
                 }
                 for pr in &detail.pull_requests {
-                    view = view.push(output.field(
+                    lines.push(output.field(
                         "pull request: ",
                         format!(
                             "#{} {} (branch: {}, state: {})",
@@ -184,30 +180,27 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                         ),
                     ));
                 }
-                view = view.push(output.line(Tone::Body, ""));
+                lines.push(output.line(Tone::Body, ""));
                 if issue.body.is_empty() {
-                    view = view.push(output.line(Tone::Warning, "(no description)"));
+                    lines.push(output.line(Tone::Warning, "(no description)"));
                 } else {
-                    view = view.push(output.line(Tone::Body, &issue.body));
+                    lines.push(output.line(Tone::Body, &issue.body));
                 }
                 if !detail.comments.is_empty() {
-                    view = view
-                        .push(output.line(Tone::Body, ""))
-                        .push(output.line(Tone::Accent, "--- comments ---"));
+                    lines.push(output.line(Tone::Body, ""));
+                    lines.push(output.line(Tone::Accent, "--- comments ---"));
                     for comment in &detail.comments {
-                        view = view.push(
+                        lines.push(
                             output.field(format!("[{}] ", comment.created_at), &comment.body),
                         );
                     }
                 }
-                output.print(view);
+                output.print_lines(lines);
             }
         }
         IssueCommand::Comment { number, body } => {
             store.add_issue_comment(number, &body).await?;
-            output.print(View::line(
-                output.line(Tone::Success, format!("commented on issue #{number}")),
-            ));
+            output.print(output.line(Tone::Success, format!("commented on issue #{number}")));
         }
         IssueCommand::SetState {
             number,
@@ -217,9 +210,7 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             store
                 .set_issue_state(number, &state, lease.as_deref())
                 .await?;
-            output.print(View::line(
-                output.line(Tone::Success, format!("issue #{number} -> {state}")),
-            ));
+            output.print(output.line(Tone::Success, format!("issue #{number} -> {state}")));
         }
         IssueCommand::Set {
             number,
@@ -266,9 +257,7 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                     .set_issue_parent(number, parent, lease.as_deref())
                     .await?;
             }
-            output.print(View::line(
-                output.line(Tone::Success, format!("updated issue #{number}")),
-            ));
+            output.print(output.line(Tone::Success, format!("updated issue #{number}")));
         }
         IssueCommand::Unset {
             number,
@@ -291,9 +280,7 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             if parent {
                 store.clear_issue_parent(number, lease.as_deref()).await?;
             }
-            output.print(View::line(
-                output.line(Tone::Success, format!("updated issue #{number}")),
-            ));
+            output.print(output.line(Tone::Success, format!("updated issue #{number}")));
         }
         IssueCommand::Add {
             number,
@@ -333,9 +320,7 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             if let Some(pr) = pr {
                 store.link_pr(number, pr, lease.as_deref()).await?;
             }
-            output.print(View::line(
-                output.line(Tone::Success, format!("updated issue #{number}")),
-            ));
+            output.print(output.line(Tone::Success, format!("updated issue #{number}")));
         }
         IssueCommand::Remove {
             number,
@@ -377,9 +362,7 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             if let Some(pr) = pr {
                 store.unlink_pr(number, pr, lease.as_deref()).await?;
             }
-            output.print(View::line(
-                output.line(Tone::Success, format!("updated issue #{number}")),
-            ));
+            output.print(output.line(Tone::Success, format!("updated issue #{number}")));
         }
         IssueCommand::Lock { number } => match store.lock_issue(number).await? {
             LeaseOutcome::Acquired(lease) => println!("{lease}"),
@@ -393,9 +376,7 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             force,
         } => {
             if store.unlock_issue(number, lease.as_deref(), force).await? {
-                output.print(View::line(
-                    output.line(Tone::Success, format!("unlocked issue #{number}")),
-                ));
+                output.print(output.line(Tone::Success, format!("unlocked issue #{number}")));
             } else {
                 anyhow::bail!("valid lease required for issue #{number} (use --force to override)");
             }
