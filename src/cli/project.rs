@@ -11,11 +11,11 @@ pub(crate) async fn run(store: &Store, command: ProjectCommand) -> Result<()> {
             summary,
             description,
             state,
-            terminal,
+            closed,
             json,
         } => {
             let id = store
-                .create_project(&name, &summary, &description, &state, terminal)
+                .create_project(&name, &summary, &description, &state, closed)
                 .await?;
             if json {
                 println!("{}", serde_json::json!({ "id": id, "name": name }));
@@ -143,17 +143,17 @@ pub(crate) async fn run(store: &Store, command: ProjectCommand) -> Result<()> {
         ProjectCommand::SetState {
             project,
             state,
-            terminal,
+            closed,
             json,
         } => {
-            store.set_project_state(&project, &state, terminal).await?;
+            store.set_project_state(&project, &state, closed).await?;
             if json {
                 println!(
                     "{}",
-                    serde_json::json!({ "state": state, "is_terminal": terminal })
+                    serde_json::json!({ "state": state, "is_closed": closed })
                 );
             } else {
-                let closed = if terminal { "closed" } else { "open" };
+                let closed = if closed { "closed" } else { "open" };
                 output.print(output.line(
                     Tone::Success,
                     format!("project {project} -> {state} ({closed})"),

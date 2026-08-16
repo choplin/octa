@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT name AS \"name!: String\", is_starting AS \"is_starting!: i64\", is_terminal AS \"is_terminal!: i64\" FROM issue_states WHERE name = ?",
+  "query": "SELECT name AS \"name!: String\", is_starting AS \"is_starting!: i64\", is_closed AS \"is_closed!: i64\" FROM issue_states WHERE name = ?",
   "describe": {
     "columns": [
       {
@@ -14,7 +14,7 @@
         "type_info": "Integer"
       },
       {
-        "name": "is_terminal!: i64",
+        "name": "is_closed!: i64",
         "ordinal": 2,
         "type_info": "Integer"
       }
@@ -28,5 +28,5 @@
       false
     ]
   },
-  "hash": "0e8247e6e2d2a3a75c66657c4e848b630caa9954391f1d59366bf37e513cb1c6"
+  "hash": "8bd8565dc62a4adbd8930a87b212804715493b988d9eb4d573b8dbfcf7c2875f"
 }

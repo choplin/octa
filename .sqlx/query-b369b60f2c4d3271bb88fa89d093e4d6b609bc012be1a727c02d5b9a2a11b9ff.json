@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE issue_states SET is_closed = ? WHERE name = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "b369b60f2c4d3271bb88fa89d093e4d6b609bc012be1a727c02d5b9a2a11b9ff"
+}

@@ -182,7 +182,7 @@ pub async fn list(
     };
     let mut entries = crate::sql::issue::list_entries(pool, repo).await?;
     entries.retain(|entry| {
-        filter.includes(entry.is_terminal)
+        filter.includes(entry.is_closed)
             && state_name.is_none_or(|state| entry.issue.state == state)
             && labelled
                 .as_ref()
@@ -215,9 +215,7 @@ async fn unblocked_numbers(pool: &SqlitePool, repo: i64) -> Result<HashSet<i64>>
         .collect::<HashSet<_>>();
     Ok(states
         .into_iter()
-        .filter_map(|(number, terminal)| {
-            (!terminal && !blocked.contains(&number)).then_some(number)
-        })
+        .filter_map(|(number, closed)| (!closed && !blocked.contains(&number)).then_some(number))
         .collect())
 }
 
@@ -499,19 +497,14 @@ pub async fn list_states(pool: &SqlitePool) -> Result<Vec<IssueState>> {
     crate::sql::issue::list_states(pool).await
 }
 
-pub async fn add_state(
-    pool: &SqlitePool,
-    name: &str,
-    starting: bool,
-    terminal: bool,
-) -> Result<()> {
-    if starting && terminal {
-        bail!("a terminal state cannot be the state new issues start in");
+pub async fn add_state(pool: &SqlitePool, name: &str, starting: bool, closed: bool) -> Result<()> {
+    if starting && closed {
+        bail!("a closed state cannot be the state new issues start in");
     }
     if crate::sql::issue::get_state(pool, name).await?.is_some() {
         bail!("a configured state named {name:?} already exists");
     }
-    crate::sql::issue::insert_state(pool, name, starting, terminal).await
+    crate::sql::issue::insert_state(pool, name, starting, closed).await
 }
 
 async fn require_state(pool: &SqlitePool, name: &str) -> Result<IssueState> {
@@ -520,7 +513,7 @@ async fn require_state(pool: &SqlitePool, name: &str) -> Result<IssueState> {
         .ok_or_else(|| anyhow!("no configured state named {name:?}"))
 }
 
-/// Update a state's name or terminal flag.
+/// Update a state's name or closed flag.
 ///
 /// Renaming repoints every issue in the state, so no issue is left pointing at
 /// a name that no longer exists.
@@ -528,16 +521,16 @@ pub async fn set_state_config(
     pool: &SqlitePool,
     name: &str,
     new_name: Option<&str>,
-    terminal: Option<bool>,
+    closed: Option<bool>,
 ) -> Result<()> {
     let state = require_state(pool, name).await?;
-    if new_name.is_none() && terminal.is_none() {
-        bail!("nothing to update; pass --name or --terminal");
+    if new_name.is_none() && closed.is_none() {
+        bail!("nothing to update; pass --name or --closed");
     }
 
-    let terminal = terminal.unwrap_or(state.is_terminal);
-    if state.is_starting && terminal {
-        bail!("{name:?} is the starting state and cannot become terminal");
+    let closed = closed.unwrap_or(state.is_closed);
+    if state.is_starting && closed {
+        bail!("{name:?} is the starting state and cannot become closed");
     }
 
     let mut name = name.to_string();
@@ -553,8 +546,8 @@ pub async fn set_state_config(
             name = new_name.to_string();
         }
     }
-    if terminal != state.is_terminal {
-        crate::sql::issue::update_state_flags(pool, &name, terminal).await?;
+    if closed != state.is_closed {
+        crate::sql::issue::update_state_flags(pool, &name, closed).await?;
     }
     Ok(())
 }
@@ -586,8 +579,8 @@ pub async fn delete_state(pool: &SqlitePool, name: &str, move_to: Option<&str>) 
 /// Make `name` the sole state new issues start in.
 pub async fn set_default_state(pool: &SqlitePool, name: &str) -> Result<()> {
     let state = require_state(pool, name).await?;
-    if state.is_terminal {
-        bail!("terminal state {name:?} cannot be the starting state");
+    if state.is_closed {
+        bail!("closed state {name:?} cannot be the starting state");
     }
     crate::sql::issue::set_starting_state(pool, name).await
 }

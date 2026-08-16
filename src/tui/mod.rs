@@ -574,7 +574,7 @@ mod tests {
     }
 
     #[test]
-    fn default_all_view_keeps_review_terminal_canceled_and_legacy_states_visible() {
+    fn default_all_view_keeps_review_closed_canceled_and_legacy_states_visible() {
         let states = ["In Progress", "In Review", "Done", "Canceled", "closed"];
         let issues = states
             .iter()

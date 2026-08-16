@@ -17,10 +17,10 @@ pub async fn create(
     summary: &str,
     description: &str,
     state: &str,
-    terminal: bool,
+    closed: bool,
 ) -> Result<i64> {
     validate_name(name)?;
-    crate::sql::project::insert(pool, repo, name, summary, description, state, terminal).await
+    crate::sql::project::insert(pool, repo, name, summary, description, state, closed).await
 }
 
 pub async fn list(
@@ -86,8 +86,8 @@ pub async fn set_state(
     repo: i64,
     reference: &str,
     state: &str,
-    terminal: bool,
+    closed: bool,
 ) -> Result<()> {
     let project = resolve(pool, repo, reference).await?;
-    crate::sql::project::set_state(pool, repo, project.id, state, terminal).await
+    crate::sql::project::set_state(pool, repo, project.id, state, closed).await
 }

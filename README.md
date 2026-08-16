@@ -126,8 +126,9 @@ octa issue list --all
 octa issue list --state "In Progress"
 ```
 
-引数なしと `--open` は非terminal状態、`--closed` はterminal状態、`--all` は
-両方を表示します。`--state <name>` は設定済みの状態名との完全一致です。
+引数なしと `--open` はopenなIssue、`--closed` はclosedなIssue、`--all` は
+両方を表示します。Issueがclosedかどうかは、その状態にcloseフラグが立っているかで
+決まります。`--state <name>` は設定済みの状態名との完全一致です。
 これら4つのselectorは同時に指定できません。
 
 Linear の Issue 一覧と詳細の代わりに、read-only の2ペインTUIも使えます。
@@ -148,10 +149,10 @@ octa issue tui
 
 有限の成果を Project としてまとめ、段階が必要な Project には順序付きの
 Milestone を作れます。Project と Milestone は名前または番号で参照できます。
-`project list` は既定で終端の Project も含む全 Project を返し、各 tally も
-終端状態の Issue を含む全 Issue を open / closed で数えます。作業中の Project
-だけが必要な場合は `project list --active` と明示します。Project の終端かどうかは
-`project create --terminal` と `project set-state <project> <state> --terminal`
+`project list` は既定でclosedな Project も含む全 Project を返し、各 tally も
+closedな Issue を含む全 Issue を open / closed で数えます。作業中の Project
+だけが必要な場合は `project list --active` と明示します。Project がclosedかどうかは
+`project create --closed` と `project set-state <project> <state> --closed`
 で設定します。Project は作成順に表示されます。優先度が必要な場合は、
 `single` のラベルグループを自分で定義してください。
 
@@ -218,8 +219,8 @@ unset してから Project を変更または解除します。
 | Todo | | |
 | In Progress | | |
 | In Review | | |
-| Done | terminal | 終端 |
-| Canceled | terminal | 終端 |
+| Done | closed | Issueはここでcloseする |
+| Canceled | closed | Issueはここでcloseする |
 
 seedが走るのは状態を1つも持たないリポジトリだけです。すでにworkflowを
 設定済みのリポジトリの状態構成は、そのまま保たれます。
@@ -229,7 +230,7 @@ seedが走るのは状態を1つも持たないリポジトリだけです。す
 ```sh
 octa config state create blocked
 octa config state set Todo --name Ready
-octa config state set Ready --terminal true
+octa config state set Ready --closed true
 octa config state delete blocked --move-to Ready
 octa config state set-default Ready
 octa config state list
@@ -244,8 +245,12 @@ octa config state list
 決まります。
 
 状態は並び順を持ちません。`config state list` の表示順は `is_starting` と
-`is_terminal` の2フラグと名前から導かれ、入口の状態、残りのopenな状態、終端の状態の
+`is_closed` の2フラグと名前から導かれ、入口の状態、残りのopenな状態、closedな状態の
 順に並びます。各グループの中は名前順です。
+
+Issueの状態は `closed` フラグひとつでopen/closedが決まります。`issue list --closed`
+や `project list` の `Open/Closed` 列が数えているのは、このフラグが立った状態にある
+Issueです。
 
 octaが状態について持つ分類はこの2フラグだけで、その間の段階を区別しません。
 状態名そのものには何の意味も与えないため、任意の状態名を使えます。

@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT i.number AS \"number!: i64\", COALESCE(s.is_terminal, 0) AS \"is_terminal!: i64\" FROM issues i LEFT JOIN issue_states s ON s.name = i.state WHERE i.repo_id = ?",
+  "query": "SELECT i.number AS \"number!: i64\", COALESCE(s.is_closed, 0) AS \"is_closed!: i64\" FROM issues i LEFT JOIN issue_states s ON s.name = i.state WHERE i.repo_id = ?",
   "describe": {
     "columns": [
       {
@@ -9,7 +9,7 @@
         "type_info": "Integer"
       },
       {
-        "name": "is_terminal!: i64",
+        "name": "is_closed!: i64",
         "ordinal": 1,
         "type_info": "Null"
       }
@@ -22,5 +22,5 @@
       null
     ]
   },
-  "hash": "1c1d82d7de1e03bd19d26a1721b8f3b566f3c37281bb8f45e9a5b5188b6c2a70"
+  "hash": "f957fdfaf267886f5b67f35744e33dc7c3f34421f5728613e3675f1875e446cc"
 }

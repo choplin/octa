@@ -258,13 +258,13 @@ pub(crate) enum IssueCommand {
 #[derive(Args)]
 #[group(multiple = false)]
 pub(crate) struct IssueListStateArgs {
-    /// List non-terminal issues (the default).
+    /// List open issues (the default).
     #[arg(long)]
     open: bool,
-    /// List terminal issues.
+    /// List closed issues.
     #[arg(long)]
     closed: bool,
-    /// List both terminal and non-terminal issues.
+    /// List both open and closed issues.
     #[arg(long)]
     all: bool,
     /// List issues whose configured state exactly matches this name.
@@ -303,13 +303,13 @@ pub(crate) enum ProjectCommand {
         state: String,
         /// Mark the Project closed: `project list --active` hides it.
         #[arg(long)]
-        terminal: bool,
+        closed: bool,
         #[arg(long)]
         json: bool,
     },
     /// List Projects and full issue lifecycle tallies.
     List {
-        /// Show only Projects that are not in a terminal state.
+        /// Show only Projects that are not closed.
         #[arg(long)]
         active: bool,
         #[arg(long)]
@@ -351,7 +351,7 @@ pub(crate) enum ProjectCommand {
         state: String,
         /// Mark the Project closed: `project list --active` hides it.
         #[arg(long)]
-        terminal: bool,
+        closed: bool,
         #[arg(long)]
         json: bool,
     },
@@ -440,8 +440,9 @@ pub(crate) enum StateCommand {
         /// Make this the state new issues start in, replacing the current one.
         #[arg(long)]
         starting: bool,
+        /// Issues in this state count as closed.
         #[arg(long)]
-        terminal: bool,
+        closed: bool,
     },
     /// Update a configured issue state. Renaming moves its issues with it.
     Set {
@@ -449,8 +450,9 @@ pub(crate) enum StateCommand {
         /// New name for the state.
         #[arg(long = "name")]
         new_name: Option<String>,
+        /// Whether issues in this state count as closed.
         #[arg(long)]
-        terminal: Option<bool>,
+        closed: Option<bool>,
     },
     /// Delete a configured issue state.
     Delete {

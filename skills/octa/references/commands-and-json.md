@@ -47,12 +47,12 @@ Important constraints:
 - `issue set-state`, `set`, `unset`, `add`, and `remove` require the target Issue's `--lease`. So do Issue–PR link changes through `pr create --issue`, `pr add`, and `pr remove`.
 - Normal `issue unlock` requires the matching `--lease`. `issue unlock --force` accepts no lease and invalidates the old credential immediately; use it only for recovery.
 - `issue create`, `issue comment`, unlinked `pr create`, `pr comment`, `pr set`, `pr set-state`, and Project, Milestone, Wiki, and config operations do not require an Issue lease. Read commands and lease acquisition also require no existing lease credential.
-- With no state selector or with `--open`, `issue list` returns non-terminal Issues. `--closed` returns terminal Issues, `--all` returns both, and `--state <name>` exactly matches a configured state name. These four selectors are mutually exclusive.
+- With no state selector or with `--open`, `issue list` returns open Issues. `--closed` returns closed Issues, `--all` returns both, and `--state <name>` exactly matches a configured state name. These four selectors are mutually exclusive.
 - A Milestone belongs to a Project. `issue create --milestone` requires `--project`.
 - Unset an Issue's Milestone before changing or unsetting its Project.
 - Parent/child relations are repository-local and independent of Project membership. Parent and child may belong to different Projects, or only one may have a Project.
 - Setting a parent initially inherits the parent's Project when the child has none. Later Project changes or removal do not propagate across the relation and are not blocked by it.
-- `issue list --related-to N` filters symmetric relations; `--unblocked` excludes Issues with non-terminal blockers.
+- `issue list --related-to N` filters symmetric relations; `--unblocked` excludes Issues with open blockers.
 - `issue tui` is an interactive read-only browser. For agent automation, prefer `issue list --json` and `issue show --json`.
 
 ## Project and Milestone
@@ -81,9 +81,9 @@ config label-group create|list --target issue|project
 config state create|set|delete|set-default|list
 ```
 
-Wiki bodies recognize `[[slug]]`; `wiki show` includes outgoing links and backlinks. Issue and Project labels have separate definitions selected by the required `--target`. Label and label-group names are opaque repository data with no reserved operational taxonomy. Label groups use `single` or `multi` selection; `single` only makes explicitly grouped labels for the same target mutually exclusive. `config state create <name>` takes optional `--starting` and `--terminal`, which are mutually exclusive. `config state set <name>` changes a state's `--name` or `--terminal`; renaming carries the state's Issues with it. `config state delete <name>` needs `--move-to <state>` while Issues still reference the state, and refuses the starting state. `config state set-default <name>` moves the starting flag.
+Wiki bodies recognize `[[slug]]`; `wiki show` includes outgoing links and backlinks. Issue and Project labels have separate definitions selected by the required `--target`. Label and label-group names are opaque repository data with no reserved operational taxonomy. Label groups use `single` or `multi` selection; `single` only makes explicitly grouped labels for the same target mutually exclusive. `config state create <name>` takes optional `--starting` and `--closed`, which are mutually exclusive. `config state set <name>` changes a state's `--name` or `--closed`; renaming carries the state's Issues with it. `config state delete <name>` needs `--move-to <state>` while Issues still reference the state, and refuses the starting state. `config state set-default <name>` moves the starting flag.
 
-New repositories seed Backlog, Todo, In Progress, In Review, Done, and Canceled — a six-state lifecycle covering capture, execution, review, and both terminal outcomes. Seeding happens only for a repository with no configured states, so an existing workflow is never extended behind your back. A state carries exactly two classifications: `is_starting` and `is_terminal`; octa models no gradation between them. Exactly one state carries the starting flag and receives new Issues; it is resolved from that flag alone. Issue states carry no stored ordinal — `config state list` derives its order from the two flags and then name (the starting state, then the remaining open states, then the terminal ones), so there is nothing to reorder. Existing custom and legacy states and their Issues are preserved.
+New repositories seed Backlog, Todo, In Progress, In Review, Done, and Canceled — a six-state lifecycle covering capture, execution, review, and both ways an Issue closes. Seeding happens only for a repository with no configured states, so an existing workflow is never extended behind your back. A state carries exactly two classifications: `is_starting` and `is_closed`; octa models no gradation between them. An Issue is open or closed according to its state's `is_closed` flag — one word for the classification everywhere it appears. Exactly one state carries the starting flag and receives new Issues; it is resolved from that flag alone. Issue states carry no stored ordinal — `config state list` derives its order from the two flags and then name (the starting state, then the remaining open states, then the closed ones), so there is nothing to reorder. Existing custom and legacy states and their Issues are preserved.
 
 ## JSON contracts
 
@@ -92,7 +92,7 @@ Commands exposing `--json` write one JSON value to stdout:
 - List commands return arrays.
 - `issue show` returns the Issue fields plus `labels`, `blocks`, `blocked_by`, `related`, `pull_requests`, `parent`, `sub_issues`, and `comments`.
 - An Issue includes `repo`, `number`, `title`, `body`, `state`, optional `project`, optional `milestone`, `leased`, `created_at`, and `updated_at`. The lease ID is never exposed by list, show, or query output.
-- `project list` includes every Project by default, including terminal ones. Use `--active` for the explicit non-terminal Project filter. A Project's terminal flag is set by `project create --terminal` and `project set-state <project> <state> --terminal`.
+- `project list` includes every Project by default, including closed ones. Use `--active` for the explicit open-Project filter. A Project's closed flag is set by `project create --closed` and `project set-state <project> <state> --closed`.
 - Project list/show tallies count all assigned Issues and expose open, closed, and total; closed work is never subtracted implicitly.
 - Projects are ordered by repository name, then by Project id. octa has no built-in priority; express one with a `single` label group when needed.
 - `project show` also includes `issue_numbers`, `labels`, and the full tally.

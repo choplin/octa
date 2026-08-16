@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "\n        SELECT\n            r.name AS \"repo!: String\",\n            i.number AS \"number!: i64\", i.title AS \"title!: String\",\n            i.body AS \"body!: String\", i.state AS \"state!: String\",\n            p.id AS \"project_id?: i64\", p.name AS \"project_name?: String\",\n            m.id AS \"milestone_id?: i64\", m.name AS \"milestone_name?: String\",\n            EXISTS (\n                SELECT 1 FROM issue_leases l\n                WHERE l.repo_id = i.repo_id AND l.issue_number = i.number\n            ) AS \"leased!: i64\",\n            i.created_at AS \"created_at!: String\", i.updated_at AS \"updated_at!: String\",\n            COALESCE(s.is_terminal, 0) AS \"is_terminal!: i64\"\n        FROM\n            issues i\n        JOIN\n            repos r ON r.id = i.repo_id\n        LEFT JOIN\n            issue_states s ON s.name = i.state\n        LEFT JOIN issue_projects ip\n            ON ip.repo_id = i.repo_id AND ip.issue_number = i.number\n        LEFT JOIN projects p\n            ON p.repo_id = ip.repo_id AND p.id = ip.project_id\n        LEFT JOIN issue_milestones im\n            ON im.repo_id = i.repo_id AND im.issue_number = i.number\n        LEFT JOIN project_milestones m\n            ON m.repo_id = im.repo_id AND m.project_id = im.project_id\n               AND m.id = im.milestone_id\n        WHERE\n            i.repo_id = ?\n        AND\n            i.number = ?\n    ",
+  "query": "\n        SELECT\n            r.name AS \"repo!: String\",\n            i.number AS \"number!: i64\", i.title AS \"title!: String\",\n            i.body AS \"body!: String\", i.state AS \"state!: String\",\n            p.id AS \"project_id?: i64\", p.name AS \"project_name?: String\",\n            m.id AS \"milestone_id?: i64\", m.name AS \"milestone_name?: String\",\n            EXISTS (\n                SELECT 1 FROM issue_leases l\n                WHERE l.repo_id = i.repo_id AND l.issue_number = i.number\n            ) AS \"leased!: i64\",\n            i.created_at AS \"created_at!: String\", i.updated_at AS \"updated_at!: String\",\n            COALESCE(s.is_closed, 0) AS \"is_closed!: i64\"\n        FROM\n            issues i\n        JOIN\n            repos r ON r.id = i.repo_id\n        LEFT JOIN\n            issue_states s ON s.name = i.state\n        LEFT JOIN issue_projects ip\n            ON ip.repo_id = i.repo_id AND ip.issue_number = i.number\n        LEFT JOIN projects p\n            ON p.repo_id = ip.repo_id AND p.id = ip.project_id\n        LEFT JOIN issue_milestones im\n            ON im.repo_id = i.repo_id AND im.issue_number = i.number\n        LEFT JOIN project_milestones m\n            ON m.repo_id = im.repo_id AND m.project_id = im.project_id\n               AND m.id = im.milestone_id\n        WHERE\n            i.repo_id = ?\n        AND\n            i.number = ?\n    ",
   "describe": {
     "columns": [
       {
@@ -64,7 +64,7 @@
         "type_info": "Text"
       },
       {
-        "name": "is_terminal!: i64",
+        "name": "is_closed!: i64",
         "ordinal": 12,
         "type_info": "Null"
       }
@@ -88,5 +88,5 @@
       null
     ]
   },
-  "hash": "e7850719db9e2de1d11e3e81d5d20935c1b4527d4644380be968a9c3ed5d9e4d"
+  "hash": "2572602ab32aefe72412fb45f91eb0d9c590c5272698eedece36efe89fa2fe95"
 }

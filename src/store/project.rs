@@ -9,7 +9,7 @@ impl Store {
         summary: &str,
         description: &str,
         state: &str,
-        terminal: bool,
+        closed: bool,
     ) -> Result<i64> {
         crate::app::project::create(
             &self.pool,
@@ -18,7 +18,7 @@ impl Store {
             summary,
             description,
             state,
-            terminal,
+            closed,
         )
         .await
     }
@@ -54,9 +54,8 @@ impl Store {
         &self,
         reference: &str,
         state: &str,
-        terminal: bool,
+        closed: bool,
     ) -> Result<()> {
-        crate::app::project::set_state(&self.pool, self.repo_id()?, reference, state, terminal)
-            .await
+        crate::app::project::set_state(&self.pool, self.repo_id()?, reference, state, closed).await
     }
 }

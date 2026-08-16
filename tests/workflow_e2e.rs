@@ -423,7 +423,7 @@ fn integrated_pr_completes_the_issue_and_reveals_unblocked_work() {
         r#"{
             issue(number: 1) {
                 state
-                blocks { number title state isTerminal }
+                blocks { number title state isClosed }
                 pullRequests { number state }
             }
         }"#,

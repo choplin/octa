@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT json_array(name, is_starting, is_terminal) AS \"state!: String\"\n               FROM issue_states ORDER BY name",
+  "query": "SELECT json_array(name, is_starting, is_closed) AS \"state!: String\"\n               FROM issue_states ORDER BY name",
   "describe": {
     "columns": [
       {
@@ -16,5 +16,5 @@
       null
     ]
   },
-  "hash": "9f9bb3798f3dc8742313376430915010e3a3d81d88838e18238e533c9a688e8d"
+  "hash": "b71c6e8b2bdf34679ccfff83e1a4c7c79bf6066241377f9d9edbc72114717dbe"
 }

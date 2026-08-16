@@ -21,7 +21,7 @@ pub struct Issue {
 /// directly into this type; SQL row records never escape the persistence layer.
 pub(crate) struct IssueListEntry {
     pub issue: Issue,
-    pub is_terminal: bool,
+    pub is_closed: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -48,14 +48,14 @@ pub struct IssueRef {
 pub struct IssueState {
     pub name: String,
     pub is_starting: bool,
-    pub is_terminal: bool,
+    pub is_closed: bool,
 }
 
 impl StateFilter {
-    pub fn includes(self, is_terminal: bool) -> bool {
+    pub fn includes(self, is_closed: bool) -> bool {
         match self {
-            Self::Open => !is_terminal,
-            Self::Closed => is_terminal,
+            Self::Open => !is_closed,
+            Self::Closed => is_closed,
             Self::All => true,
         }
     }

@@ -64,13 +64,13 @@ mod projection {
     }
 
     #[tokio::test]
-    async fn is_terminal_selection_adds_the_state_join() {
-        let sql = executed_sql("{ issue(number: 1) { number isTerminal } }").await;
+    async fn is_closed_selection_adds_the_state_join() {
+        let sql = executed_sql("{ issue(number: 1) { number isClosed } }").await;
 
         assert_contains_in_order(
             &sql,
             &[
-                "'$.isTerminal',json(COALESCE(json(CASE WHEN s.is_terminal=1 THEN 'true' ELSE 'false' END),'null'))",
+                "'$.isClosed',json(COALESCE(json(CASE WHEN s.is_closed=1 THEN 'true' ELSE 'false' END),'null'))",
                 "FROM issues i JOIN issue_states s",
                 "s.name=i.state",
             ],
@@ -374,7 +374,7 @@ mod filters_and_roots {
             r#"{
                 issues(filter: {
                     state: "active"
-                    isTerminal: false
+                    isClosed: false
                     label: "backend"
                     projectId: 7
                 }) { number }
@@ -383,7 +383,7 @@ mod filters_and_roots {
         .await;
         for predicate in [
             "i.state='active'",
-            "s.is_terminal=0",
+            "s.is_closed=0",
             "fx.label_name='backend'",
             "fp.project_id=7",
         ] {
@@ -395,9 +395,8 @@ mod filters_and_roots {
         assert!(issues.contains("FROM issues i JOIN issue_states s"));
 
         let projects =
-            executed_sql("{ projects(filter: { isTerminal: false, label: \"now\" }) { id } }")
-                .await;
-        for predicate in ["p.is_terminal=0", "fx.label_name='now'"] {
+            executed_sql("{ projects(filter: { isClosed: false, label: \"now\" }) { id } }").await;
+        for predicate in ["p.is_closed=0", "fx.label_name='now'"] {
             assert!(
                 projects.contains(predicate),
                 "missing {predicate} in:\n{projects}"
@@ -485,7 +484,7 @@ mod multi_hop {
             r#"{
                 project(id: 1) {
                     id
-                    issues(filter: { isTerminal: false }, limit: 5) {
+                    issues(filter: { isClosed: false }, limit: 5) {
                         number
                         labels(limit: 3) { name }
                     }
@@ -503,7 +502,7 @@ mod multi_hop {
                 "FROM issue_projects ip3 JOIN issues i1",
                 "JOIN issue_states s2",
                 "WHERE ip3.repo_id=p.repo_id AND ip3.project_id=p.id",
-                "s2.is_terminal=0",
+                "s2.is_closed=0",
                 "ORDER BY i1.number LIMIT 5 OFFSET 0",
                 "FROM projects p",
             ],

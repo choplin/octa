@@ -10,13 +10,13 @@ pub async fn insert(
     summary: &str,
     description: &str,
     state: &str,
-    terminal: bool,
+    closed: bool,
 ) -> Result<i64> {
-    let terminal = terminal as i64;
+    let closed = closed as i64;
     Ok(sqlx::query_scalar!(
         r#"
         INSERT INTO projects
-            (repo_id, id, name, summary, description, state, is_terminal)
+            (repo_id, id, name, summary, description, state, is_closed)
         VALUES (?, (SELECT COALESCE(MAX(id), 0) + 1 FROM projects WHERE repo_id = ?),
                 ?, ?, ?, ?, ?)
         RETURNING id AS "id!: i64"
@@ -27,7 +27,7 @@ pub async fn insert(
         summary,
         description,
         state,
-        terminal
+        closed
     )
     .fetch_one(pool)
     .await?)
@@ -39,7 +39,7 @@ pub async fn get_by_id(pool: &SqlitePool, repo: i64, id: i64) -> Result<Option<P
         r#"SELECT p.repo_id AS "repo_id!: i64", r.name AS "repo!: String",
                   p.id AS "id!: i64", p.name AS "name!: String",
                   p.summary AS "summary!: String", p.description AS "description!: String",
-                  p.state AS "state!: String", p.is_terminal AS "is_terminal!: bool",
+                  p.state AS "state!: String", p.is_closed AS "is_closed!: bool",
                   p.created_at AS "created_at!: String",
                   p.updated_at AS "updated_at!: String"
            FROM projects p JOIN repos r ON r.id = p.repo_id
@@ -57,7 +57,7 @@ pub async fn get_by_name(pool: &SqlitePool, repo: i64, name: &str) -> Result<Opt
         r#"SELECT p.repo_id AS "repo_id!: i64", r.name AS "repo!: String",
                   p.id AS "id!: i64", p.name AS "name!: String",
                   p.summary AS "summary!: String", p.description AS "description!: String",
-                  p.state AS "state!: String", p.is_terminal AS "is_terminal!: bool",
+                  p.state AS "state!: String", p.is_closed AS "is_closed!: bool",
                   p.created_at AS "created_at!: String",
                   p.updated_at AS "updated_at!: String"
            FROM projects p JOIN repos r ON r.id = p.repo_id
@@ -100,11 +100,11 @@ async fn project_list_for_repo_active(pool: &SqlitePool, repo: i64) -> Result<Ve
         r#"SELECT p.repo_id AS "repo_id!: i64", r.name AS "repo!: String",
                   p.id AS "id!: i64", p.name AS "name!: String",
                   p.summary AS "summary!: String", p.description AS "description!: String",
-                  p.state AS "state!: String", p.is_terminal AS "is_terminal!: bool",
+                  p.state AS "state!: String", p.is_closed AS "is_closed!: bool",
                   p.created_at AS "created_at!: String",
                   p.updated_at AS "updated_at!: String"
            FROM projects p JOIN repos r ON r.id = p.repo_id
-           WHERE p.repo_id = ? AND p.is_terminal = 0
+           WHERE p.repo_id = ? AND p.is_closed = 0
            ORDER BY r.name, p.id"#,
         repo
     )?)
@@ -116,7 +116,7 @@ async fn project_list_for_repo_all(pool: &SqlitePool, repo: i64) -> Result<Vec<P
         r#"SELECT p.repo_id AS "repo_id!: i64", r.name AS "repo!: String",
                   p.id AS "id!: i64", p.name AS "name!: String",
                   p.summary AS "summary!: String", p.description AS "description!: String",
-                  p.state AS "state!: String", p.is_terminal AS "is_terminal!: bool",
+                  p.state AS "state!: String", p.is_closed AS "is_closed!: bool",
                   p.created_at AS "created_at!: String",
                   p.updated_at AS "updated_at!: String"
            FROM projects p JOIN repos r ON r.id = p.repo_id
@@ -132,11 +132,11 @@ async fn project_list_all_repos_active(pool: &SqlitePool) -> Result<Vec<Project>
         r#"SELECT p.repo_id AS "repo_id!: i64", r.name AS "repo!: String",
                   p.id AS "id!: i64", p.name AS "name!: String",
                   p.summary AS "summary!: String", p.description AS "description!: String",
-                  p.state AS "state!: String", p.is_terminal AS "is_terminal!: bool",
+                  p.state AS "state!: String", p.is_closed AS "is_closed!: bool",
                   p.created_at AS "created_at!: String",
                   p.updated_at AS "updated_at!: String"
            FROM projects p JOIN repos r ON r.id = p.repo_id
-           WHERE p.is_terminal = 0
+           WHERE p.is_closed = 0
            ORDER BY r.name, p.id"#
     )?)
 }
@@ -147,7 +147,7 @@ async fn project_list_all_repos_all(pool: &SqlitePool) -> Result<Vec<Project>> {
         r#"SELECT p.repo_id AS "repo_id!: i64", r.name AS "repo!: String",
                   p.id AS "id!: i64", p.name AS "name!: String",
                   p.summary AS "summary!: String", p.description AS "description!: String",
-                  p.state AS "state!: String", p.is_terminal AS "is_terminal!: bool",
+                  p.state AS "state!: String", p.is_closed AS "is_closed!: bool",
                   p.created_at AS "created_at!: String",
                   p.updated_at AS "updated_at!: String"
            FROM projects p JOIN repos r ON r.id = p.repo_id
@@ -187,13 +187,13 @@ pub async fn set_state(
     repo: i64,
     id: i64,
     state: &str,
-    terminal: bool,
+    closed: bool,
 ) -> Result<()> {
-    let terminal = terminal as i64;
+    let closed = closed as i64;
     sqlx::query!(
-        "UPDATE projects SET state = ?, is_terminal = ?, updated_at = datetime('now') WHERE repo_id = ? AND id = ?",
+        "UPDATE projects SET state = ?, is_closed = ?, updated_at = datetime('now') WHERE repo_id = ? AND id = ?",
         state,
-        terminal,
+        closed,
         repo,
         id
     )
@@ -217,13 +217,13 @@ pub async fn issue_numbers(pool: &SqlitePool, repo: i64, id: i64) -> Result<Vec<
 
 pub async fn tally(pool: &SqlitePool, repo: i64, id: i64) -> Result<ProjectTally> {
     let rows = sqlx::query!(
-        r#"SELECT COALESCE(s.is_terminal, 0) AS "is_terminal!: bool",
+        r#"SELECT COALESCE(s.is_closed, 0) AS "is_closed!: bool",
                   COUNT(*) AS "count!: i64"
            FROM issue_projects ip
            JOIN issues i ON i.repo_id = ip.repo_id AND i.number = ip.issue_number
            LEFT JOIN issue_states s ON s.name = i.state
            WHERE ip.repo_id = ? AND ip.project_id = ?
-           GROUP BY COALESCE(s.is_terminal, 0)"#,
+           GROUP BY COALESCE(s.is_closed, 0)"#,
         repo,
         id
     )
@@ -231,7 +231,7 @@ pub async fn tally(pool: &SqlitePool, repo: i64, id: i64) -> Result<ProjectTally
     .await?;
     let mut tally = ProjectTally::default();
     for row in rows {
-        if row.is_terminal {
+        if row.is_closed {
             tally.closed = row.count;
         } else {
             tally.open = row.count;

@@ -16,7 +16,7 @@ CREATE TABLE repos (
 CREATE TABLE issue_states (
     name        TEXT NOT NULL PRIMARY KEY,
     is_starting INTEGER NOT NULL DEFAULT 0,
-    is_terminal INTEGER NOT NULL DEFAULT 0
+    is_closed   INTEGER NOT NULL DEFAULT 0
 );
 
 -- At most one starting state exists. Every indexed row shares the constant
@@ -149,7 +149,7 @@ CREATE TABLE projects (
     summary      TEXT NOT NULL DEFAULT '',
     description  TEXT NOT NULL DEFAULT '',
     state        TEXT NOT NULL DEFAULT 'planned',
-    is_terminal  INTEGER NOT NULL DEFAULT 0,
+    is_closed    INTEGER NOT NULL DEFAULT 0,
     created_at   TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at   TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (repo_id, id),

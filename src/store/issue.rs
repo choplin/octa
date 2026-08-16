@@ -211,17 +211,17 @@ impl Store {
         crate::app::issue::list_states(&self.pool).await
     }
 
-    pub async fn add_state(&self, name: &str, starting: bool, terminal: bool) -> Result<()> {
-        crate::app::issue::add_state(&self.pool, name, starting, terminal).await
+    pub async fn add_state(&self, name: &str, starting: bool, closed: bool) -> Result<()> {
+        crate::app::issue::add_state(&self.pool, name, starting, closed).await
     }
 
     pub async fn set_state_config(
         &self,
         name: &str,
         new_name: Option<&str>,
-        terminal: Option<bool>,
+        closed: Option<bool>,
     ) -> Result<()> {
-        crate::app::issue::set_state_config(&self.pool, name, new_name, terminal).await
+        crate::app::issue::set_state_config(&self.pool, name, new_name, closed).await
     }
 
     pub async fn delete_state(&self, name: &str, move_to: Option<&str>) -> Result<i64> {

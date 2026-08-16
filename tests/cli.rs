@@ -484,14 +484,7 @@ fn withdrawn_options_and_flag_conflicts_are_rejected() {
         .status
         .success());
     assert!(!env
-        .run(&[
-            "config",
-            "state",
-            "create",
-            "Odd",
-            "--starting",
-            "--terminal"
-        ])
+        .run(&["config", "state", "create", "Odd", "--starting", "--closed"])
         .status
         .success());
 }
@@ -563,9 +556,9 @@ fn project_lifecycle_tally_and_issue_context_roundtrip() {
     assert_eq!(overview[0]["tally"]["closed"], 1);
     assert_eq!(overview[0]["tally"]["total"], 3);
 
-    env.ok(&["project", "set-state", "1", "shipped", "--terminal"]);
+    env.ok(&["project", "set-state", "1", "shipped", "--closed"]);
     assert_eq!(
-        json(&env.ok(&["project", "list", "--json"]))[0]["is_terminal"],
+        json(&env.ok(&["project", "list", "--json"]))[0]["is_closed"],
         true
     );
     assert!(json(&env.ok(&["project", "list", "--active", "--json"]))
@@ -580,7 +573,7 @@ fn project_list_orders_by_id_and_filters_active_explicitly() {
     for name in ["First", "Second", "Third", "Fourth", "Fifth"] {
         env.ok(&["project", "create", "--name", name]);
     }
-    env.ok(&["project", "set-state", "Second", "canceled", "--terminal"]);
+    env.ok(&["project", "set-state", "Second", "canceled", "--closed"]);
 
     // Without priority the default order is creation order within a repository.
     let all = json(&env.ok(&["project", "list", "--json"]));
@@ -592,7 +585,7 @@ fn project_list_orders_by_id_and_filters_active_explicitly() {
             .collect::<Vec<_>>(),
         vec!["First", "Second", "Third", "Fourth", "Fifth"]
     );
-    assert_eq!(all[1]["is_terminal"], true);
+    assert_eq!(all[1]["is_closed"], true);
     let all_text = env.ok(&["project", "list"]);
     assert!(all_text.contains("Second"), "{all_text}");
     assert!(all_text.contains("Open/Closed"), "{all_text}");
@@ -976,7 +969,7 @@ fn custom_state_and_set() {
         );
     }
     // The listing carries no ordering column: the starting state comes first,
-    // then the remaining open states by name, then the terminal ones by name.
+    // then the remaining open states by name, then the closed ones by name.
     assert_eq!(
         names,
         vec![
@@ -988,6 +981,21 @@ fn custom_state_and_set() {
             "Done"
         ],
         "new repositories must be seeded with the default workflow"
+    );
+
+    // The rendered listing names each flag with the same word the rest of the
+    // CLI uses, so `closed` here and a closed issue are recognizably the same
+    // classification.
+    let rendered = env.ok(&["config", "state", "list"]);
+    for expected in ["Flags", "starting", "closed"] {
+        assert!(
+            rendered.contains(expected),
+            "missing {expected}:\n{rendered}"
+        );
+    }
+    assert!(
+        !rendered.contains("terminal"),
+        "the listing must not reintroduce a second word for closed:\n{rendered}"
     );
 
     env.ok(&["issue", "set-state", "1", "In Review"]);
@@ -1008,7 +1016,7 @@ fn custom_state_and_set() {
         .success());
 
     // A duplicate name is refused with an explanation, not a raw SQL error.
-    let duplicate = env.run(&["config", "state", "create", "Done", "--terminal"]);
+    let duplicate = env.run(&["config", "state", "create", "Done", "--closed"]);
     assert!(!duplicate.status.success());
     assert!(String::from_utf8_lossy(&duplicate.stderr).contains("already exists"));
 }
@@ -1093,7 +1101,7 @@ fn set_default_state_moves_the_starting_flag_and_stays_unique() {
         .collect();
     assert_eq!(starting, vec!["Triage"]);
 
-    // A terminal state cannot receive new issues.
+    // A closed state cannot receive new issues.
     assert!(!env
         .run(&["config", "state", "set-default", "Done"])
         .status

@@ -6,14 +6,14 @@ use serde_json::{Map, Value as JsonValue};
 #[derive(InputObject, Default, Clone)]
 pub(super) struct IssueFilter {
     pub(super) state: Option<String>,
-    pub(super) is_terminal: Option<bool>,
+    pub(super) is_closed: Option<bool>,
     pub(super) label: Option<String>,
     pub(super) project_id: Option<i64>,
 }
 
 #[derive(InputObject, Default, Clone)]
 pub(super) struct ProjectFilter {
-    pub(super) is_terminal: Option<bool>,
+    pub(super) is_closed: Option<bool>,
     pub(super) label: Option<String>,
 }
 
@@ -129,7 +129,7 @@ impl IssueObject {
     async fn state<'a>(&'a self, ctx: &Context<'_>) -> async_graphql::Result<&'a str> {
         self.0.string(ctx)
     }
-    async fn is_terminal(&self, ctx: &Context<'_>) -> async_graphql::Result<bool> {
+    async fn is_closed(&self, ctx: &Context<'_>) -> async_graphql::Result<bool> {
         self.0.boolean(ctx)
     }
     async fn leased(&self, ctx: &Context<'_>) -> async_graphql::Result<bool> {
@@ -221,7 +221,7 @@ impl ProjectObject {
     async fn state<'a>(&'a self, ctx: &Context<'_>) -> async_graphql::Result<&'a str> {
         self.0.string(ctx)
     }
-    async fn is_terminal(&self, ctx: &Context<'_>) -> async_graphql::Result<bool> {
+    async fn is_closed(&self, ctx: &Context<'_>) -> async_graphql::Result<bool> {
         self.0.boolean(ctx)
     }
     async fn created_at<'a>(&'a self, ctx: &Context<'_>) -> async_graphql::Result<&'a str> {

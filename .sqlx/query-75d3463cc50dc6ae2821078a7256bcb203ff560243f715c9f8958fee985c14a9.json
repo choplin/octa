@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT name AS \"name!: String\", is_terminal AS \"is_terminal!: bool\"\n               FROM issue_states ORDER BY name",
+  "query": "SELECT name AS \"name!: String\", is_closed AS \"is_closed!: bool\"\n               FROM issue_states ORDER BY name",
   "describe": {
     "columns": [
       {
@@ -9,7 +9,7 @@
         "type_info": "Text"
       },
       {
-        "name": "is_terminal!: bool",
+        "name": "is_closed!: bool",
         "ordinal": 1,
         "type_info": "Integer"
       }
@@ -22,5 +22,5 @@
       false
     ]
   },
-  "hash": "815720f19fd8fb748b812a4056a43f02d104fbbb7d54a30e865fdb59492bc9e2"
+  "hash": "75d3463cc50dc6ae2821078a7256bcb203ff560243f715c9f8958fee985c14a9"
 }

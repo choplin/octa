@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT p.repo_id AS \"repo_id!: i64\", r.name AS \"repo!: String\",\n                  p.id AS \"id!: i64\", p.name AS \"name!: String\",\n                  p.summary AS \"summary!: String\", p.description AS \"description!: String\",\n                  p.state AS \"state!: String\", p.is_terminal AS \"is_terminal!: bool\",\n                  p.created_at AS \"created_at!: String\",\n                  p.updated_at AS \"updated_at!: String\"\n           FROM projects p JOIN repos r ON r.id = p.repo_id\n           WHERE p.repo_id = ? AND p.name = ? COLLATE NOCASE",
+  "query": "SELECT p.repo_id AS \"repo_id!: i64\", r.name AS \"repo!: String\",\n                  p.id AS \"id!: i64\", p.name AS \"name!: String\",\n                  p.summary AS \"summary!: String\", p.description AS \"description!: String\",\n                  p.state AS \"state!: String\", p.is_closed AS \"is_closed!: bool\",\n                  p.created_at AS \"created_at!: String\",\n                  p.updated_at AS \"updated_at!: String\"\n           FROM projects p JOIN repos r ON r.id = p.repo_id\n           WHERE p.repo_id = ? AND p.id = ?",
   "describe": {
     "columns": [
       {
@@ -39,7 +39,7 @@
         "type_info": "Text"
       },
       {
-        "name": "is_terminal!: bool",
+        "name": "is_closed!: bool",
         "ordinal": 7,
         "type_info": "Integer"
       },
@@ -70,5 +70,5 @@
       false
     ]
   },
-  "hash": "1cc1001ec3b23d0ebe356cefec1d56617c7d3e12a6cbc10481adce641ce922b3"
+  "hash": "d58534d1abbe7bc42b46892fcda594df8cc5a66f778731a1d68dc86fab413619"
 }

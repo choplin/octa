@@ -36,9 +36,9 @@ impl Planner {
                     format!("{issue}.{}", snake(field.name()))
                 }
                 "state" => format!("{issue}.state"),
-                "isTerminal" => format!(
-                    "json(CASE WHEN {}.is_terminal=1 THEN 'true' ELSE 'false' END)",
-                    state.expect("isTerminal requires state join")
+                "isClosed" => format!(
+                    "json(CASE WHEN {}.is_closed=1 THEN 'true' ELSE 'false' END)",
+                    state.expect("isClosed requires state join")
                 ),
                 "leased" => {
                     let lease = self.next("lease");
@@ -132,20 +132,16 @@ impl Planner {
                 "id" | "name" | "summary" | "description" | "state" | "createdAt" | "updatedAt" => {
                     format!("{project}.{}", snake(field.name()))
                 }
-                "isTerminal" => {
-                    format!("json(CASE WHEN {project}.is_terminal=1 THEN 'true' ELSE 'false' END)")
+                "isClosed" => {
+                    format!("json(CASE WHEN {project}.is_closed=1 THEN 'true' ELSE 'false' END)")
                 }
                 "issues" => {
                     let i = self.next("i");
                     let s = self.next("s");
                     let x = self.next("ip");
                     let filter_args = issue_filter(field)?;
-                    let state = issue_state_join(
-                        &merged.children,
-                        &i,
-                        &s,
-                        filter_args.is_terminal.is_some(),
-                    );
+                    let state =
+                        issue_state_join(&merged.children, &i, &s, filter_args.is_closed.is_some());
                     let nested = self.issue(&merged.children, &i, state.alias())?;
                     let filter = issue_filter_sql(&i, state.alias(), &filter_args);
                     let page = Page::from_field(field)?;
@@ -379,7 +375,7 @@ pub(super) fn issue_state_join<'a>(
 ) -> StateJoin<'a> {
     let selected = merged_fields(fields)
         .iter()
-        .any(|field| field.field.name() == "isTerminal");
+        .any(|field| field.field.name() == "isClosed");
     StateJoin {
         issue,
         alias,
@@ -512,7 +508,7 @@ fn issue_filter(field: &SelectionField<'_>) -> async_graphql::Result<IssueFilter
     };
     Ok(IssueFilter {
         state: object_string(&object, "state")?,
-        is_terminal: object_boolean(&object, "isTerminal")?,
+        is_closed: object_boolean(&object, "isClosed")?,
         label: object_string(&object, "label")?,
         project_id: object_integer(&object, "projectId")?,
     })
@@ -522,10 +518,10 @@ pub(super) fn issue_filter_sql(issue: &str, state: Option<&str>, filter: &IssueF
     if let Some(value) = &filter.state {
         sql.push(format!("{issue}.state={}", quote(value)));
     }
-    if let Some(value) = filter.is_terminal {
+    if let Some(value) = filter.is_closed {
         sql.push(format!(
-            "{}.is_terminal={}",
-            state.expect("isTerminal filter requires state join"),
+            "{}.is_closed={}",
+            state.expect("isClosed filter requires state join"),
             value as i64
         ));
     }
@@ -543,8 +539,8 @@ pub(super) fn issue_filter_sql(issue: &str, state: Option<&str>, filter: &IssueF
 }
 pub(super) fn project_filter_sql(project: &str, filter: &ProjectFilter) -> String {
     let mut sql = Vec::new();
-    if let Some(value) = filter.is_terminal {
-        sql.push(format!("{project}.is_terminal={}", value as i64));
+    if let Some(value) = filter.is_closed {
+        sql.push(format!("{project}.is_closed={}", value as i64));
     }
     if let Some(value) = &filter.label {
         sql.push(format!("EXISTS(SELECT 1 FROM project_label_links fx WHERE fx.repo_id={project}.repo_id AND fx.project_id={project}.id AND fx.label_name={})", quote(value)));

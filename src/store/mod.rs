@@ -191,7 +191,7 @@ mod migration_tests {
             (
                 "issue_states",
                 rows!(
-                    r#"SELECT json_array(name, is_starting, is_terminal) AS "row!: String" FROM issue_states ORDER BY name"#
+                    r#"SELECT json_array(name, is_starting, is_closed) AS "row!: String" FROM issue_states ORDER BY name"#
                 ),
             ),
             (
@@ -275,7 +275,7 @@ mod migration_tests {
             (
                 "projects",
                 rows!(
-                    r#"SELECT json_array(repo_id, id, name, summary, description, state, is_terminal, created_at, updated_at) AS "row!: String" FROM projects ORDER BY repo_id, id"#
+                    r#"SELECT json_array(repo_id, id, name, summary, description, state, is_closed, created_at, updated_at) AS "row!: String" FROM projects ORDER BY repo_id, id"#
                 ),
             ),
             (
@@ -430,7 +430,7 @@ mod migration_tests {
             .into_iter()
             .map(|row| row.name)
             .collect();
-        assert_eq!(state_columns, ["name", "is_starting", "is_terminal"]);
+        assert_eq!(state_columns, ["name", "is_starting", "is_closed"]);
 
         // The schema itself, not just the application layer, keeps the store to
         // one starting state.
@@ -502,14 +502,14 @@ mod migration_tests {
             .unwrap();
 
         let initial: Vec<(String, bool)> = sqlx::query!(
-            r#"SELECT name AS "name!: String", is_terminal AS "is_terminal!: bool"
+            r#"SELECT name AS "name!: String", is_closed AS "is_closed!: bool"
                FROM issue_states ORDER BY name"#
         )
         .fetch_all(&pool)
         .await
         .unwrap()
         .into_iter()
-        .map(|row| (row.name, row.is_terminal))
+        .map(|row| (row.name, row.is_closed))
         .collect();
         // Ordered by name: the table stores no ordering of its own.
         assert_eq!(
@@ -546,7 +546,7 @@ mod migration_tests {
         .unwrap();
 
         let states_before: Vec<String> = sqlx::query_scalar!(
-            r#"SELECT json_array(name, is_starting, is_terminal) AS "state!: String"
+            r#"SELECT json_array(name, is_starting, is_closed) AS "state!: String"
                FROM issue_states ORDER BY name"#
         )
         .fetch_all(&pool)
@@ -567,7 +567,7 @@ mod migration_tests {
         crate::sql::issue::seed_default_states(&pool).await.unwrap();
 
         let states_after: Vec<String> = sqlx::query_scalar!(
-            r#"SELECT json_array(name, is_starting, is_terminal) AS "state!: String"
+            r#"SELECT json_array(name, is_starting, is_closed) AS "state!: String"
                FROM issue_states ORDER BY name"#
         )
         .fetch_all(&pool)

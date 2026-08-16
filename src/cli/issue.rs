@@ -12,7 +12,7 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             // `--all-repos` before entering raw terminal mode.
             store.repo_id()?;
             // The TUI is a general-purpose issue browser, so it shows review,
-            // terminal, canceled, and legacy states.
+            // closed, canceled, and legacy states.
             let details = store.list_all_issue_details().await?;
             crate::tui::run(details)?;
         }

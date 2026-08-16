@@ -17,7 +17,7 @@ pub struct Project {
     pub summary: String,
     pub description: String,
     pub state: String,
-    pub is_terminal: bool,
+    pub is_closed: bool,
     pub created_at: String,
     pub updated_at: String,
 }
