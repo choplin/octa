@@ -32,7 +32,6 @@ CREATE TABLE issues (
     title      TEXT NOT NULL,
     body       TEXT NOT NULL DEFAULT '',
     state      TEXT NOT NULL,
-    priority   INTEGER NOT NULL DEFAULT 0 CHECK (priority BETWEEN 0 AND 4),
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (repo_id, number)
@@ -151,7 +150,6 @@ CREATE TABLE projects (
     description  TEXT NOT NULL DEFAULT '',
     state        TEXT NOT NULL DEFAULT 'planned',
     is_terminal  INTEGER NOT NULL DEFAULT 0,
-    priority     INTEGER NOT NULL DEFAULT 0 CHECK (priority BETWEEN 0 AND 4),
     created_at   TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at   TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (repo_id, id),

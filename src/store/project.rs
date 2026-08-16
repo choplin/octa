@@ -10,7 +10,6 @@ impl Store {
         description: &str,
         state: &str,
         terminal: bool,
-        priority: i64,
     ) -> Result<i64> {
         crate::app::project::create(
             &self.pool,
@@ -20,7 +19,6 @@ impl Store {
             description,
             state,
             terminal,
-            priority,
         )
         .await
     }
@@ -40,7 +38,6 @@ impl Store {
         name: Option<&str>,
         summary: Option<&str>,
         description: Option<&str>,
-        priority: Option<i64>,
     ) -> Result<()> {
         crate::app::project::edit(
             &self.pool,
@@ -49,7 +46,6 @@ impl Store {
             name,
             summary,
             description,
-            priority,
         )
         .await
     }

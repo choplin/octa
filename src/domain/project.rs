@@ -18,7 +18,6 @@ pub struct Project {
     pub description: String,
     pub state: String,
     pub is_terminal: bool,
-    pub priority: i64,
     pub created_at: String,
     pub updated_at: String,
 }

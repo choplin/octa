@@ -47,7 +47,6 @@ Important constraints:
 - `issue set-state`, `set`, `unset`, `add`, and `remove` require the target Issue's `--lease`. So do Issue–PR link changes through `pr create --issue`, `pr add`, and `pr remove`.
 - Normal `issue unlock` requires the matching `--lease`. `issue unlock --force` accepts no lease and invalidates the old credential immediately; use it only for recovery.
 - `issue create`, `issue comment`, unlinked `pr create`, `pr comment`, `pr set`, `pr set-state`, and Project, Milestone, Wiki, and config operations do not require an Issue lease. Read commands and lease acquisition also require no existing lease credential.
-- Priority is `0` (none), `1` (urgent), `2` (high), `3` (medium), or `4` (low).
 - With no state selector or with `--open`, `issue list` returns non-terminal Issues. `--closed` returns terminal Issues, `--all` returns both, and `--state <name>` exactly matches a configured state name. These four selectors are mutually exclusive.
 - A Milestone belongs to a Project. `issue create --milestone` requires `--project`.
 - Unset an Issue's Milestone before changing or unsetting its Project.
@@ -92,10 +91,10 @@ Commands exposing `--json` write one JSON value to stdout:
 
 - List commands return arrays.
 - `issue show` returns the Issue fields plus `labels`, `blocks`, `blocked_by`, `related`, `pull_requests`, `parent`, `sub_issues`, and `comments`.
-- An Issue includes `repo`, `number`, `title`, `body`, `state`, `priority`, optional `project`, optional `milestone`, `leased`, `created_at`, and `updated_at`. The lease ID is never exposed by list, show, or query output.
+- An Issue includes `repo`, `number`, `title`, `body`, `state`, optional `project`, optional `milestone`, `leased`, `created_at`, and `updated_at`. The lease ID is never exposed by list, show, or query output.
 - `project list` includes every Project by default, including terminal ones. Use `--active` for the explicit non-terminal Project filter. A Project's terminal flag is set by `project create --terminal` and `project set-state <project> <state> --terminal`.
 - Project list/show tallies count all assigned Issues and expose open, closed, and total; closed work is never subtracted implicitly.
-- Projects are ordered by priority 1 through 4, then priority 0 (None).
+- Projects are ordered by repository name, then by Project id. octa has no built-in priority; express one with a `single` label group when needed.
 - `project show` also includes `issue_numbers`, `labels`, and the full tally.
 - `pr show` includes PR fields and `comments`.
 - `wiki show` includes page fields, `links_to`, and `backlinks`.

@@ -380,19 +380,17 @@ fn json_outputs_have_expected_fields() {
     assert_eq!(arr[0]["number"], 1);
     assert_eq!(arr[0]["title"], "JSON");
     assert_eq!(arr[0]["state"], "Backlog");
-    assert_eq!(arr[0]["priority"], 0);
 
     let show = json(&env.ok(&["issue", "show", "1", "--json"]));
     assert_eq!(show["number"], 1);
     assert_eq!(show["title"], "JSON");
-    assert_eq!(show["priority"], 0);
     let comments = show["comments"].as_array().expect("comments not an array");
     assert_eq!(comments.len(), 1);
     assert_eq!(comments[0]["body"], "a note");
 }
 
 #[test]
-fn state_and_priority_filters_preserve_stable_issue_order() {
+fn state_filters_preserve_stable_issue_order() {
     let env = Env::new();
     env.ok(&[
         "issue",
@@ -401,8 +399,6 @@ fn state_and_priority_filters_preserve_stable_issue_order() {
         "Backlog low",
         "--state",
         "Backlog",
-        "--priority",
-        "4",
     ]); // #1
     env.ok(&["issue", "create", "--title", "Todo none", "--state", "Todo"]); // #2
     env.ok(&[
@@ -412,8 +408,6 @@ fn state_and_priority_filters_preserve_stable_issue_order() {
         "Backlog urgent",
         "--state",
         "Backlog",
-        "--priority",
-        "1",
     ]); // #3
     env.ok(&[
         "issue",
@@ -422,8 +416,6 @@ fn state_and_priority_filters_preserve_stable_issue_order() {
         "Todo urgent",
         "--state",
         "Todo",
-        "--priority",
-        "1",
     ]); // #4
     env.ok(&[
         "issue",
@@ -432,8 +424,6 @@ fn state_and_priority_filters_preserve_stable_issue_order() {
         "In flight",
         "--state",
         "In Progress",
-        "--priority",
-        "4",
     ]); // #5
     env.ok(&[
         "issue",
@@ -442,8 +432,6 @@ fn state_and_priority_filters_preserve_stable_issue_order() {
         "Awaiting review",
         "--state",
         "In Review",
-        "--priority",
-        "1",
     ]); // #6
     env.ok(&[
         "issue",
@@ -452,8 +440,6 @@ fn state_and_priority_filters_preserve_stable_issue_order() {
         "Already done",
         "--state",
         "Done",
-        "--priority",
-        "1",
     ]); // #7
 
     let listed = json(&env.ok(&["issue", "list", "--json"]));
@@ -466,45 +452,33 @@ fn state_and_priority_filters_preserve_stable_issue_order() {
     // The general list and TUI keep stable issue-number order.
     assert_eq!(numbers, vec![1, 2, 3, 4, 5, 6]);
 
-    let backlog = json(&env.ok(&[
-        "issue",
-        "list",
-        "--state",
-        "Backlog",
-        "--priority",
-        "1",
-        "--json",
-    ]));
-    assert_eq!(backlog.as_array().unwrap().len(), 1);
-    assert_eq!(backlog[0]["number"], 3);
+    let backlog = json(&env.ok(&["issue", "list", "--state", "Backlog", "--json"]));
+    assert_eq!(backlog.as_array().unwrap().len(), 2);
+    assert_eq!(backlog[0]["number"], 1);
+    assert_eq!(backlog[1]["number"], 3);
 }
 
 #[test]
-fn priority_validation_and_edit_roundtrip() {
+fn withdrawn_options_and_flag_conflicts_are_rejected() {
     let env = Env::new();
-    let created = env.ok(&[
-        "issue",
-        "create",
-        "--title",
-        "Prioritized",
-        "--state",
-        "Todo",
-        "--priority",
-        "2",
-    ]);
-    assert_eq!(created.trim(), "#1");
-    let show = json(&env.ok(&["issue", "show", "1", "--json"]));
-    assert_eq!(show["state"], "Todo");
-    assert_eq!(show["priority"], 2);
+    env.ok(&["issue", "create", "--title", "Plain", "--state", "Todo"]);
+    env.ok(&["project", "create", "--name", "Ship"]);
 
-    env.ok(&["issue", "set", "1", "--priority", "1"]);
-    let show = json(&env.ok(&["issue", "show", "1", "--json"]));
-    assert_eq!(show["priority"], 1);
+    // Priority left the data model; every surface that used to accept it must
+    // now reject the option outright rather than silently ignore it.
+    for withdrawn in [
+        vec!["issue", "create", "--title", "Bad", "--priority", "2"],
+        vec!["issue", "set", "1", "--priority", "1"],
+        vec!["issue", "list", "--priority", "1"],
+        vec!["project", "create", "--name", "Bad", "--priority", "2"],
+        vec!["project", "set", "Ship", "--priority", "2"],
+    ] {
+        assert!(
+            !env.run(&withdrawn).status.success(),
+            "{withdrawn:?} should be rejected"
+        );
+    }
 
-    assert!(!env
-        .run(&["issue", "create", "--title", "Bad", "--priority", "5"])
-        .status
-        .success());
     assert!(!env
         .run(&["issue", "list", "--status-type", "backlog"])
         .status
@@ -534,8 +508,6 @@ fn project_lifecycle_tally_and_issue_context_roundtrip() {
         "Finite outcome",
         "--description",
         "Deliver the CLI.",
-        "--priority",
-        "2",
         "--json",
     ]));
     assert_eq!(created["id"], 1);
@@ -603,32 +575,28 @@ fn project_lifecycle_tally_and_issue_context_roundtrip() {
 }
 
 #[test]
-fn project_list_orders_priorities_with_none_last_and_filters_active_explicitly() {
+fn project_list_orders_by_id_and_filters_active_explicitly() {
     let env = Env::new();
-    for (name, priority) in [
-        ("None", "0"),
-        ("Low", "4"),
-        ("Urgent", "1"),
-        ("Medium", "3"),
-        ("High", "2"),
-    ] {
-        env.ok(&["project", "create", "--name", name, "--priority", priority]);
+    for name in ["First", "Second", "Third", "Fourth", "Fifth"] {
+        env.ok(&["project", "create", "--name", name]);
     }
-    env.ok(&["project", "set-state", "Urgent", "canceled", "--terminal"]);
+    env.ok(&["project", "set-state", "Second", "canceled", "--terminal"]);
 
+    // Without priority the default order is creation order within a repository.
     let all = json(&env.ok(&["project", "list", "--json"]));
     assert_eq!(
         all.as_array()
             .unwrap()
             .iter()
-            .map(|project| project["priority"].as_i64().unwrap())
+            .map(|project| project["name"].as_str().unwrap().to_owned())
             .collect::<Vec<_>>(),
-        vec![1, 2, 3, 4, 0]
+        vec!["First", "Second", "Third", "Fourth", "Fifth"]
     );
-    assert_eq!(all[0]["is_terminal"], true);
+    assert_eq!(all[1]["is_terminal"], true);
     let all_text = env.ok(&["project", "list"]);
-    assert!(all_text.contains("Urgent"), "{all_text}");
+    assert!(all_text.contains("Second"), "{all_text}");
     assert!(all_text.contains("Open/Closed"), "{all_text}");
+    assert!(!all_text.contains("Priority"), "{all_text}");
 
     let active = json(&env.ok(&["project", "list", "--active", "--json"]));
     assert_eq!(
@@ -636,9 +604,9 @@ fn project_list_orders_priorities_with_none_last_and_filters_active_explicitly()
             .as_array()
             .unwrap()
             .iter()
-            .map(|project| project["priority"].as_i64().unwrap())
+            .map(|project| project["name"].as_str().unwrap().to_owned())
             .collect::<Vec<_>>(),
-        vec![2, 3, 4, 0]
+        vec!["First", "Third", "Fourth", "Fifth"]
     );
 }
 

@@ -272,10 +272,7 @@ fn draw_list(frame: &mut Frame<'_>, app: &mut App, area: Rect) {
                 Style::default().fg(Color::Yellow),
             ),
             Span::styled(
-                format!(
-                    "{} · P{} · {} · {} ",
-                    detail.issue.state, detail.issue.priority, project, milestone
-                ),
+                format!("{} · {} · {} ", detail.issue.state, project, milestone),
                 Style::default().fg(Color::DarkGray),
             ),
             Span::raw(&detail.issue.title),
@@ -375,7 +372,6 @@ fn detail_text(detail: &IssueDetail) -> Text<'static> {
             Span::styled("State: ", Style::default().fg(Color::DarkGray)),
             Span::raw(issue.state.clone()),
         ]),
-        Line::from(format!("Priority: {}", issue.priority)),
         Line::from(format!("Project: {project}")),
         Line::from(format!("Milestone: {milestone}")),
         Line::from(format!("Lease: {lease}")),
@@ -472,7 +468,6 @@ mod tests {
                 title: title.into(),
                 body: "A body that can be read.".into(),
                 state: "in_progress".into(),
-                priority: 2,
                 project: Some(ProjectRef {
                     id: 1,
                     name: "CLI launch".into(),
@@ -536,7 +531,6 @@ mod tests {
         for expected in [
             "Build the TUI",
             "State: in_progress",
-            "Priority: 2",
             "Project: CLI launch",
             "Milestone: Public beta",
             "Lease: active",
@@ -654,7 +648,7 @@ mod tests {
         )]);
         let screen = rendered(&mut app, 60, 14);
 
-        assert!(screen.contains("#7 in_progress · P2"), "{screen}");
+        assert!(screen.contains("#7 in_progress · CLI launch"), "{screen}");
     }
 
     #[test]

@@ -1,7 +1,4 @@
-use crate::domain::{
-    issue::validate_priority,
-    project::{Project, ProjectDetail, ProjectOverview},
-};
+use crate::domain::project::{Project, ProjectDetail, ProjectOverview};
 use anyhow::{anyhow, bail, Result};
 use sqlx::SqlitePool;
 
@@ -13,7 +10,6 @@ pub async fn resolve(pool: &SqlitePool, repo: i64, reference: &str) -> Result<Pr
     project.ok_or_else(|| anyhow!("project {reference:?} not found"))
 }
 
-#[allow(clippy::too_many_arguments)]
 pub async fn create(
     pool: &SqlitePool,
     repo: i64,
@@ -22,20 +18,9 @@ pub async fn create(
     description: &str,
     state: &str,
     terminal: bool,
-    priority: i64,
 ) -> Result<i64> {
     validate_name(name)?;
-    crate::sql::project::insert(
-        pool,
-        repo,
-        name,
-        summary,
-        description,
-        state,
-        terminal,
-        validate_priority(priority)?,
-    )
-    .await
+    crate::sql::project::insert(pool, repo, name, summary, description, state, terminal).await
 }
 
 pub async fn list(
@@ -85,17 +70,15 @@ pub async fn edit(
     name: Option<&str>,
     summary: Option<&str>,
     description: Option<&str>,
-    priority: Option<i64>,
 ) -> Result<()> {
-    if name.is_none() && summary.is_none() && description.is_none() && priority.is_none() {
-        bail!("nothing to update: pass --name, --summary, --description and/or --priority");
+    if name.is_none() && summary.is_none() && description.is_none() {
+        bail!("nothing to update: pass --name, --summary and/or --description");
     }
     let project = resolve(pool, repo, reference).await?;
     if let Some(name) = name {
         validate_name(name)?;
     }
-    let priority = priority.map(validate_priority).transpose()?;
-    crate::sql::project::update(pool, repo, project.id, name, summary, description, priority).await
+    crate::sql::project::update(pool, repo, project.id, name, summary, description).await
 }
 
 pub async fn set_state(

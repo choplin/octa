@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT p.repo_id AS \"repo_id!: i64\", r.name AS \"repo!: String\",\n                  p.id AS \"id!: i64\", p.name AS \"name!: String\",\n                  p.summary AS \"summary!: String\", p.description AS \"description!: String\",\n                  p.state AS \"state!: String\", p.is_terminal AS \"is_terminal!: bool\",\n                  p.priority AS \"priority!: i64\", p.created_at AS \"created_at!: String\",\n                  p.updated_at AS \"updated_at!: String\"\n           FROM projects p JOIN repos r ON r.id = p.repo_id\n           WHERE p.repo_id = ? AND p.is_terminal = 0\n           ORDER BY r.name, CASE WHEN p.priority = 0 THEN 5 ELSE p.priority END, p.id",
+  "query": "SELECT p.repo_id AS \"repo_id!: i64\", r.name AS \"repo!: String\",\n                  p.id AS \"id!: i64\", p.name AS \"name!: String\",\n                  p.summary AS \"summary!: String\", p.description AS \"description!: String\",\n                  p.state AS \"state!: String\", p.is_terminal AS \"is_terminal!: bool\",\n                  p.created_at AS \"created_at!: String\",\n                  p.updated_at AS \"updated_at!: String\"\n           FROM projects p JOIN repos r ON r.id = p.repo_id\n           WHERE p.repo_id = ? AND p.is_terminal = 0\n           ORDER BY r.name, p.id",
   "describe": {
     "columns": [
       {
@@ -44,18 +44,13 @@
         "type_info": "Integer"
       },
       {
-        "name": "priority!: i64",
-        "ordinal": 8,
-        "type_info": "Integer"
-      },
-      {
         "name": "created_at!: String",
-        "ordinal": 9,
+        "ordinal": 8,
         "type_info": "Text"
       },
       {
         "name": "updated_at!: String",
-        "ordinal": 10,
+        "ordinal": 9,
         "type_info": "Text"
       }
     ],
@@ -72,9 +67,8 @@
       false,
       false,
       false,
-      false,
       false
     ]
   },
-  "hash": "8b66aacfd016e3329231fb9d6a53546fc58fd58506162fcc49f38a1eda9be5f8"
+  "hash": "59dea7f35618837bb352d1a299fdbad11736e94bf2c5ba599ba58be33d183d68"
 }

@@ -122,7 +122,11 @@ impl QueryRoot {
             Planner::new(db.repo).project(&ctx.field().selection_set().collect::<Vec<_>>(), "p")?;
         let filter = project_filter_sql("p", &filter.unwrap_or_default());
         let page = Page::new(offset, limit)?;
-        let sql = format!("SELECT {projection} FROM projects p WHERE p.repo_id={} {filter} ORDER BY CASE p.priority WHEN 0 THEN 5 ELSE p.priority END,p.id {}", db.repo, page.sql());
+        let sql = format!(
+            "SELECT {projection} FROM projects p WHERE p.repo_id={} {filter} ORDER BY p.id {}",
+            db.repo,
+            page.sql()
+        );
         db.rows(&sql, ProjectObject).await
     }
 

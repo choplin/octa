@@ -45,7 +45,6 @@ struct IssueListRow {
     title: String,
     body: String,
     state: String,
-    priority: i64,
     project_id: Option<i64>,
     project_name: Option<String>,
     milestone_id: Option<i64>,
@@ -62,18 +61,16 @@ pub async fn insert(
     title: &str,
     body: &str,
     state: &str,
-    priority: i64,
 ) -> Result<i64> {
     Ok(sqlx::query_scalar!(
-        r#"INSERT INTO issues (repo_id, number, title, body, state, priority)
-           VALUES (?, (SELECT COALESCE(MAX(number), 0) + 1 FROM issues WHERE repo_id = ?), ?, ?, ?, ?)
+        r#"INSERT INTO issues (repo_id, number, title, body, state)
+           VALUES (?, (SELECT COALESCE(MAX(number), 0) + 1 FROM issues WHERE repo_id = ?), ?, ?, ?)
            RETURNING number AS "number!: i64""#,
         repo,
         repo,
         title,
         body,
-        state,
-        priority
+        state
     )
     .fetch_one(pool)
     .await?)
@@ -87,7 +84,6 @@ pub async fn get(pool: &SqlitePool, repo: i64, number: i64) -> Result<Option<Iss
             r.name AS "repo!: String",
             i.number AS "number!: i64", i.title AS "title!: String",
             i.body AS "body!: String", i.state AS "state!: String",
-            i.priority AS "priority!: i64",
             p.id AS "project_id?: i64", p.name AS "project_name?: String",
             m.id AS "milestone_id?: i64", m.name AS "milestone_name?: String",
             EXISTS (
@@ -134,7 +130,6 @@ pub async fn list_entries(pool: &SqlitePool, repo: Option<i64>) -> Result<Vec<Is
                 r.name AS "repo!: String",
                 i.number AS "number!: i64", i.title AS "title!: String",
                 i.body AS "body!: String", i.state AS "state!: String",
-                    i.priority AS "priority!: i64",
                 p.id AS "project_id?: i64", p.name AS "project_name?: String",
                 m.id AS "milestone_id?: i64", m.name AS "milestone_name?: String",
                 EXISTS (
@@ -176,7 +171,6 @@ pub async fn list_entries(pool: &SqlitePool, repo: Option<i64>) -> Result<Vec<Is
                 r.name AS "repo!: String",
                 i.number AS "number!: i64", i.title AS "title!: String",
                 i.body AS "body!: String", i.state AS "state!: String",
-                    i.priority AS "priority!: i64",
                 p.id AS "project_id?: i64", p.name AS "project_name?: String",
                 m.id AS "milestone_id?: i64", m.name AS "milestone_name?: String",
                 EXISTS (
@@ -219,7 +213,6 @@ fn into_entry(row: IssueListRow) -> IssueListEntry {
             title: row.title,
             body: row.body,
             state: row.state,
-            priority: row.priority,
             project: row
                 .project_id
                 .zip(row.project_name)
@@ -540,7 +533,6 @@ pub async fn edit(
     number: i64,
     title: Option<&str>,
     body: Option<&str>,
-    priority: Option<i64>,
 ) -> Result<()> {
     if let Some(title) = title {
         sqlx::query!(
@@ -556,16 +548,6 @@ pub async fn edit(
         sqlx::query!(
             "UPDATE issues SET body = ? WHERE repo_id = ? AND number = ?",
             body,
-            repo,
-            number
-        )
-        .execute(&mut **tx)
-        .await?;
-    }
-    if let Some(priority) = priority {
-        sqlx::query!(
-            "UPDATE issues SET priority = ? WHERE repo_id = ? AND number = ?",
-            priority,
             repo,
             number
         )

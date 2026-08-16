@@ -130,9 +130,6 @@ pub(crate) enum IssueCommand {
         /// Initial configured state (defaults to the repo's starting state).
         #[arg(long)]
         state: Option<String>,
-        /// Priority: 0=None, 1=Urgent, 2=High, 3=Medium, 4=Low.
-        #[arg(long, default_value_t = 0)]
-        priority: i64,
         /// Project id or name.
         #[arg(long)]
         project: Option<String>,
@@ -151,9 +148,6 @@ pub(crate) enum IssueCommand {
         state_filter: IssueListStateArgs,
         #[arg(long)]
         label: Option<String>,
-        /// Filter by priority (0 through 4).
-        #[arg(long)]
-        priority: Option<i64>,
         /// Filter by Project id or name.
         #[arg(long)]
         project: Option<String>,
@@ -194,9 +188,6 @@ pub(crate) enum IssueCommand {
         title: Option<String>,
         #[arg(long)]
         body: Option<String>,
-        /// Priority: 0=None, 1=Urgent, 2=High, 3=Medium, 4=Low.
-        #[arg(long)]
-        priority: Option<i64>,
         #[arg(long)]
         project: Option<String>,
         #[arg(long)]
@@ -313,8 +304,6 @@ pub(crate) enum ProjectCommand {
         /// Mark the Project closed: `project list --active` hides it.
         #[arg(long)]
         terminal: bool,
-        #[arg(long, default_value_t = 0)]
-        priority: i64,
         #[arg(long)]
         json: bool,
     },
@@ -341,8 +330,6 @@ pub(crate) enum ProjectCommand {
         summary: Option<String>,
         #[arg(long)]
         description: Option<String>,
-        #[arg(long)]
-        priority: Option<i64>,
         #[arg(long)]
         json: bool,
     },

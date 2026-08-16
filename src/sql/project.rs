@@ -11,15 +11,14 @@ pub async fn insert(
     description: &str,
     state: &str,
     terminal: bool,
-    priority: i64,
 ) -> Result<i64> {
     let terminal = terminal as i64;
     Ok(sqlx::query_scalar!(
         r#"
         INSERT INTO projects
-            (repo_id, id, name, summary, description, state, is_terminal, priority)
+            (repo_id, id, name, summary, description, state, is_terminal)
         VALUES (?, (SELECT COALESCE(MAX(id), 0) + 1 FROM projects WHERE repo_id = ?),
-                ?, ?, ?, ?, ?, ?)
+                ?, ?, ?, ?, ?)
         RETURNING id AS "id!: i64"
         "#,
         repo,
@@ -28,8 +27,7 @@ pub async fn insert(
         summary,
         description,
         state,
-        terminal,
-        priority
+        terminal
     )
     .fetch_one(pool)
     .await?)
@@ -42,7 +40,7 @@ pub async fn get_by_id(pool: &SqlitePool, repo: i64, id: i64) -> Result<Option<P
                   p.id AS "id!: i64", p.name AS "name!: String",
                   p.summary AS "summary!: String", p.description AS "description!: String",
                   p.state AS "state!: String", p.is_terminal AS "is_terminal!: bool",
-                  p.priority AS "priority!: i64", p.created_at AS "created_at!: String",
+                  p.created_at AS "created_at!: String",
                   p.updated_at AS "updated_at!: String"
            FROM projects p JOIN repos r ON r.id = p.repo_id
            WHERE p.repo_id = ? AND p.id = ?"#,
@@ -60,7 +58,7 @@ pub async fn get_by_name(pool: &SqlitePool, repo: i64, name: &str) -> Result<Opt
                   p.id AS "id!: i64", p.name AS "name!: String",
                   p.summary AS "summary!: String", p.description AS "description!: String",
                   p.state AS "state!: String", p.is_terminal AS "is_terminal!: bool",
-                  p.priority AS "priority!: i64", p.created_at AS "created_at!: String",
+                  p.created_at AS "created_at!: String",
                   p.updated_at AS "updated_at!: String"
            FROM projects p JOIN repos r ON r.id = p.repo_id
            WHERE p.repo_id = ? AND p.name = ? COLLATE NOCASE"#,
@@ -103,11 +101,11 @@ async fn project_list_for_repo_active(pool: &SqlitePool, repo: i64) -> Result<Ve
                   p.id AS "id!: i64", p.name AS "name!: String",
                   p.summary AS "summary!: String", p.description AS "description!: String",
                   p.state AS "state!: String", p.is_terminal AS "is_terminal!: bool",
-                  p.priority AS "priority!: i64", p.created_at AS "created_at!: String",
+                  p.created_at AS "created_at!: String",
                   p.updated_at AS "updated_at!: String"
            FROM projects p JOIN repos r ON r.id = p.repo_id
            WHERE p.repo_id = ? AND p.is_terminal = 0
-           ORDER BY r.name, CASE WHEN p.priority = 0 THEN 5 ELSE p.priority END, p.id"#,
+           ORDER BY r.name, p.id"#,
         repo
     )?)
 }
@@ -119,11 +117,11 @@ async fn project_list_for_repo_all(pool: &SqlitePool, repo: i64) -> Result<Vec<P
                   p.id AS "id!: i64", p.name AS "name!: String",
                   p.summary AS "summary!: String", p.description AS "description!: String",
                   p.state AS "state!: String", p.is_terminal AS "is_terminal!: bool",
-                  p.priority AS "priority!: i64", p.created_at AS "created_at!: String",
+                  p.created_at AS "created_at!: String",
                   p.updated_at AS "updated_at!: String"
            FROM projects p JOIN repos r ON r.id = p.repo_id
            WHERE p.repo_id = ?
-           ORDER BY r.name, CASE WHEN p.priority = 0 THEN 5 ELSE p.priority END, p.id"#,
+           ORDER BY r.name, p.id"#,
         repo
     )?)
 }
@@ -135,11 +133,11 @@ async fn project_list_all_repos_active(pool: &SqlitePool) -> Result<Vec<Project>
                   p.id AS "id!: i64", p.name AS "name!: String",
                   p.summary AS "summary!: String", p.description AS "description!: String",
                   p.state AS "state!: String", p.is_terminal AS "is_terminal!: bool",
-                  p.priority AS "priority!: i64", p.created_at AS "created_at!: String",
+                  p.created_at AS "created_at!: String",
                   p.updated_at AS "updated_at!: String"
            FROM projects p JOIN repos r ON r.id = p.repo_id
            WHERE p.is_terminal = 0
-           ORDER BY r.name, CASE WHEN p.priority = 0 THEN 5 ELSE p.priority END, p.id"#
+           ORDER BY r.name, p.id"#
     )?)
 }
 
@@ -150,11 +148,11 @@ async fn project_list_all_repos_all(pool: &SqlitePool) -> Result<Vec<Project>> {
                   p.id AS "id!: i64", p.name AS "name!: String",
                   p.summary AS "summary!: String", p.description AS "description!: String",
                   p.state AS "state!: String", p.is_terminal AS "is_terminal!: bool",
-                  p.priority AS "priority!: i64", p.created_at AS "created_at!: String",
+                  p.created_at AS "created_at!: String",
                   p.updated_at AS "updated_at!: String"
            FROM projects p JOIN repos r ON r.id = p.repo_id
            WHERE 1 = 1
-           ORDER BY r.name, CASE WHEN p.priority = 0 THEN 5 ELSE p.priority END, p.id"#
+           ORDER BY r.name, p.id"#
     )?)
 }
 
@@ -165,20 +163,17 @@ pub async fn update(
     name: Option<&str>,
     summary: Option<&str>,
     description: Option<&str>,
-    priority: Option<i64>,
 ) -> Result<()> {
     sqlx::query!(
         r#"UPDATE projects SET
                name = COALESCE(?, name),
                summary = COALESCE(?, summary),
                description = COALESCE(?, description),
-               priority = COALESCE(?, priority),
                updated_at = datetime('now')
            WHERE repo_id = ? AND id = ?"#,
         name,
         summary,
         description,
-        priority,
         repo,
         id
     )

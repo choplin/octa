@@ -1,7 +1,7 @@
 //! Issue workflows: validation, policy, and composition of the SQL repository.
 
 use crate::domain::{
-    issue::{validate_priority, Issue, IssueDetail, IssueState, LeaseOutcome},
+    issue::{Issue, IssueDetail, IssueState, LeaseOutcome},
     StateFilter,
 };
 use anyhow::{anyhow, bail, Result};
@@ -28,7 +28,6 @@ async fn starting(pool: &SqlitePool) -> Result<String> {
 pub(crate) struct ListQuery<'a> {
     pub filter: StateFilter,
     pub state_name: Option<&'a str>,
-    pub priority: Option<i64>,
     pub label: Option<&'a str>,
     pub project: Option<&'a str>,
     pub milestone: Option<&'a str>,
@@ -43,12 +42,10 @@ pub async fn create(
     title: &str,
     body: &str,
     state: Option<&str>,
-    priority: i64,
     project: Option<&str>,
     milestone: Option<&str>,
     parent: Option<i64>,
 ) -> Result<i64> {
-    let priority = validate_priority(priority)?;
     let state = match state {
         Some(state) => {
             if !crate::sql::issue::state_exists(pool, state).await? {
@@ -85,7 +82,7 @@ pub async fn create(
         }
         _ => None,
     };
-    let number = crate::sql::issue::insert(pool, repo, title, body, &state, priority).await?;
+    let number = crate::sql::issue::insert(pool, repo, title, body, &state).await?;
     if let Some(project_id) = inherited_project_id {
         crate::sql::issue::set_project(pool, repo, number, project_id).await?;
     }
@@ -107,7 +104,6 @@ pub async fn list(
     let ListQuery {
         filter,
         state_name,
-        priority,
         label,
         project,
         milestone,
@@ -129,7 +125,6 @@ pub async fn list(
     if milestone.is_some() && project.is_none() {
         bail!("--milestone requires --project so names and ids resolve within a Project");
     }
-    let priority = priority.map(validate_priority).transpose()?;
     let labelled = match label {
         Some(label) => Some(
             crate::sql::issue::labelled_numbers(
@@ -189,7 +184,6 @@ pub async fn list(
     entries.retain(|entry| {
         filter.includes(entry.is_terminal)
             && state_name.is_none_or(|state| entry.issue.state == state)
-            && priority.is_none_or(|priority| entry.issue.priority == priority)
             && labelled
                 .as_ref()
                 .is_none_or(|set| set.contains(&entry.issue.number))
@@ -435,16 +429,14 @@ pub async fn edit(
     number: i64,
     title: Option<&str>,
     body: Option<&str>,
-    priority: Option<i64>,
     lease: Option<&str>,
 ) -> Result<()> {
     require(pool, repo, number).await?;
-    if title.is_none() && body.is_none() && priority.is_none() {
-        bail!("nothing to update: pass --title, --body and/or --priority");
+    if title.is_none() && body.is_none() {
+        bail!("nothing to update: pass --title and/or --body");
     }
-    let priority = priority.map(validate_priority).transpose()?;
     let mut tx = crate::sql::issue::begin_lease_mutation(pool, repo, number, lease).await?;
-    crate::sql::issue::edit(&mut tx, repo, number, title, body, priority).await?;
+    crate::sql::issue::edit(&mut tx, repo, number, title, body).await?;
     tx.commit().await?;
     Ok(())
 }

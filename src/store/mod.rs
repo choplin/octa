@@ -197,7 +197,7 @@ mod migration_tests {
             (
                 "issues",
                 rows!(
-                    r#"SELECT json_array(repo_id, number, title, body, state, priority, created_at, updated_at) AS "row!: String" FROM issues ORDER BY repo_id, number"#
+                    r#"SELECT json_array(repo_id, number, title, body, state, created_at, updated_at) AS "row!: String" FROM issues ORDER BY repo_id, number"#
                 ),
             ),
             (
@@ -275,7 +275,7 @@ mod migration_tests {
             (
                 "projects",
                 rows!(
-                    r#"SELECT json_array(repo_id, id, name, summary, description, state, is_terminal, priority, created_at, updated_at) AS "row!: String" FROM projects ORDER BY repo_id, id"#
+                    r#"SELECT json_array(repo_id, id, name, summary, description, state, is_terminal, created_at, updated_at) AS "row!: String" FROM projects ORDER BY repo_id, id"#
                 ),
             ),
             (
@@ -329,7 +329,7 @@ mod migration_tests {
         };
         // Todo, In Progress, In Review, Done, and Canceled come from the seed.
         let first = store
-            .create_issue("First", "first body", Some("Todo"), 2, None, None, None)
+            .create_issue("First", "first body", Some("Todo"), None, None, None)
             .await
             .unwrap();
         let second = store
@@ -337,7 +337,6 @@ mod migration_tests {
                 "Second",
                 "second body",
                 Some("In Progress"),
-                1,
                 None,
                 None,
                 None,
@@ -345,19 +344,11 @@ mod migration_tests {
             .await
             .unwrap();
         let review = store
-            .create_issue(
-                "Review",
-                "review body",
-                Some("In Review"),
-                2,
-                None,
-                None,
-                None,
-            )
+            .create_issue("Review", "review body", Some("In Review"), None, None, None)
             .await
             .unwrap();
         let done = store
-            .create_issue("Done", "done body", Some("Done"), 3, None, None, None)
+            .create_issue("Done", "done body", Some("Done"), None, None, None)
             .await
             .unwrap();
         let canceled = store
@@ -365,7 +356,6 @@ mod migration_tests {
                 "Canceled",
                 "canceled body",
                 Some("Canceled"),
-                4,
                 None,
                 None,
                 None,
@@ -379,7 +369,6 @@ mod migration_tests {
                 "Legacy closed",
                 "legacy body",
                 Some("closed"),
-                0,
                 None,
                 None,
                 None,
@@ -469,7 +458,7 @@ mod migration_tests {
             .into_iter()
             .map(|row| row.name)
             .collect();
-        assert!(issue_columns.iter().any(|name| name == "priority"));
+        assert!(!issue_columns.iter().any(|name| name == "priority"));
         assert!(!issue_columns.iter().any(|name| name == "lease_id"));
         assert!(!issue_columns.iter().any(|name| name == "acquired_at"));
 
@@ -549,7 +538,6 @@ mod migration_tests {
             "Preserved",
             "body",
             Some("In Review"),
-            2,
             None,
             None,
             None,
@@ -565,7 +553,7 @@ mod migration_tests {
         .await
         .unwrap();
         let issues_before: Vec<String> = sqlx::query_scalar!(
-            r#"SELECT json_array(number, title, body, state, priority) AS "issue!: String"
+            r#"SELECT json_array(number, title, body, state) AS "issue!: String"
                FROM issues WHERE repo_id = ? ORDER BY number"#,
             repo
         )
@@ -586,7 +574,7 @@ mod migration_tests {
         .await
         .unwrap();
         let issues_after: Vec<String> = sqlx::query_scalar!(
-            r#"SELECT json_array(number, title, body, state, priority) AS "issue!: String"
+            r#"SELECT json_array(number, title, body, state) AS "issue!: String"
                FROM issues WHERE repo_id = ? ORDER BY number"#,
             repo
         )
@@ -612,7 +600,7 @@ mod migration_tests {
         let second_repo = crate::sql::repo::upsert(&pool, "/second/.git", "second")
             .await
             .unwrap();
-        crate::app::issue::create(&pool, first_repo, "First", "", None, 0, None, None, None)
+        crate::app::issue::create(&pool, first_repo, "First", "", None, None, None, None)
             .await
             .unwrap();
         crate::app::issue::create(
@@ -621,14 +609,13 @@ mod migration_tests {
             "First repo second issue",
             "",
             None,
-            0,
             None,
             None,
             None,
         )
         .await
         .unwrap();
-        crate::app::issue::create(&pool, second_repo, "Second", "", None, 0, None, None, None)
+        crate::app::issue::create(&pool, second_repo, "Second", "", None, None, None, None)
             .await
             .unwrap();
         crate::app::pr::create(&pool, first_repo, "One", "", "one", None, None)

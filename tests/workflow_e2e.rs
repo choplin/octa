@@ -502,8 +502,6 @@ fn repository_local_collaboration_runs_end_to_end_without_losing_context() {
         "Provide repository-local collaboration",
         "--description",
         "A finite CLI outcome.",
-        "--priority",
-        "2",
     ]);
     env.ok(&[
         "milestone",
@@ -531,8 +529,6 @@ fn repository_local_collaboration_runs_end_to_end_without_losing_context() {
         "Prepare the prerequisite.",
         "--state",
         "Todo",
-        "--priority",
-        "2",
         "--project",
         "Workflow parity",
         "--milestone",
@@ -547,8 +543,6 @@ fn repository_local_collaboration_runs_end_to_end_without_losing_context() {
         "Rough capture",
         "--state",
         "Backlog",
-        "--priority",
-        "1",
         "--project",
         "Workflow parity",
         "--milestone",
@@ -561,8 +555,6 @@ fn repository_local_collaboration_runs_end_to_end_without_losing_context() {
         "Related follow-up",
         "--state",
         "Todo",
-        "--priority",
-        "3",
         "--project",
         "Workflow parity",
         "--milestone",
@@ -575,8 +567,6 @@ fn repository_local_collaboration_runs_end_to_end_without_losing_context() {
         "Fallback follow-up",
         "--state",
         "Todo",
-        "--priority",
-        "1",
     ]);
     let foundation_lease = env.ok(&["issue", "lock", "1"]).trim().to_string();
     let target_lease = env.ok(&["issue", "lock", "2"]).trim().to_string();
@@ -618,15 +608,7 @@ Where: src/tui and issue CLI entry point.\n\
 Acceptance: list and complete detail are visible; q exits cleanly.\n\
 Constraints: view-only; no mutation keys.";
     env.ok_with_lease(
-        &[
-            "issue",
-            "set",
-            "2",
-            "--body",
-            groomed_body,
-            "--priority",
-            "1",
-        ],
+        &["issue", "set", "2", "--body", groomed_body],
         &target_lease,
     );
     env.ok_with_lease(&["issue", "add", "2", "--label", "client"], &target_lease);

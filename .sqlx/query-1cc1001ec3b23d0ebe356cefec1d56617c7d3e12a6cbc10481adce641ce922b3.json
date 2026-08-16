@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT p.repo_id AS \"repo_id!: i64\", r.name AS \"repo!: String\",\n                  p.id AS \"id!: i64\", p.name AS \"name!: String\",\n                  p.summary AS \"summary!: String\", p.description AS \"description!: String\",\n                  p.state AS \"state!: String\", p.is_terminal AS \"is_terminal!: bool\",\n                  p.priority AS \"priority!: i64\", p.created_at AS \"created_at!: String\",\n                  p.updated_at AS \"updated_at!: String\"\n           FROM projects p JOIN repos r ON r.id = p.repo_id\n           WHERE 1 = 1\n           ORDER BY r.name, CASE WHEN p.priority = 0 THEN 5 ELSE p.priority END, p.id",
+  "query": "SELECT p.repo_id AS \"repo_id!: i64\", r.name AS \"repo!: String\",\n                  p.id AS \"id!: i64\", p.name AS \"name!: String\",\n                  p.summary AS \"summary!: String\", p.description AS \"description!: String\",\n                  p.state AS \"state!: String\", p.is_terminal AS \"is_terminal!: bool\",\n                  p.created_at AS \"created_at!: String\",\n                  p.updated_at AS \"updated_at!: String\"\n           FROM projects p JOIN repos r ON r.id = p.repo_id\n           WHERE p.repo_id = ? AND p.name = ? COLLATE NOCASE",
   "describe": {
     "columns": [
       {
@@ -44,26 +44,20 @@
         "type_info": "Integer"
       },
       {
-        "name": "priority!: i64",
-        "ordinal": 8,
-        "type_info": "Integer"
-      },
-      {
         "name": "created_at!: String",
-        "ordinal": 9,
+        "ordinal": 8,
         "type_info": "Text"
       },
       {
         "name": "updated_at!: String",
-        "ordinal": 10,
+        "ordinal": 9,
         "type_info": "Text"
       }
     ],
     "parameters": {
-      "Right": 0
+      "Right": 2
     },
     "nullable": [
-      false,
       false,
       false,
       false,
@@ -76,5 +70,5 @@
       false
     ]
   },
-  "hash": "d5b8f0951e1c16927d136670b345852188caebab3a3a53f5011c924365e6fe37"
+  "hash": "1cc1001ec3b23d0ebe356cefec1d56617c7d3e12a6cbc10481adce641ce922b3"
 }

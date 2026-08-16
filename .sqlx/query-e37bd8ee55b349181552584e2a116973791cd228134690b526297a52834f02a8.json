@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT p.repo_id AS \"repo_id!: i64\", r.name AS \"repo!: String\",\n                  p.id AS \"id!: i64\", p.name AS \"name!: String\",\n                  p.summary AS \"summary!: String\", p.description AS \"description!: String\",\n                  p.state AS \"state!: String\", p.is_terminal AS \"is_terminal!: bool\",\n                  p.priority AS \"priority!: i64\", p.created_at AS \"created_at!: String\",\n                  p.updated_at AS \"updated_at!: String\"\n           FROM projects p JOIN repos r ON r.id = p.repo_id\n           WHERE p.repo_id = ? AND p.name = ? COLLATE NOCASE",
+  "query": "SELECT p.repo_id AS \"repo_id!: i64\", r.name AS \"repo!: String\",\n                  p.id AS \"id!: i64\", p.name AS \"name!: String\",\n                  p.summary AS \"summary!: String\", p.description AS \"description!: String\",\n                  p.state AS \"state!: String\", p.is_terminal AS \"is_terminal!: bool\",\n                  p.created_at AS \"created_at!: String\",\n                  p.updated_at AS \"updated_at!: String\"\n           FROM projects p JOIN repos r ON r.id = p.repo_id\n           WHERE 1 = 1\n           ORDER BY r.name, p.id",
   "describe": {
     "columns": [
       {
@@ -44,26 +44,20 @@
         "type_info": "Integer"
       },
       {
-        "name": "priority!: i64",
-        "ordinal": 8,
-        "type_info": "Integer"
-      },
-      {
         "name": "created_at!: String",
-        "ordinal": 9,
+        "ordinal": 8,
         "type_info": "Text"
       },
       {
         "name": "updated_at!: String",
-        "ordinal": 10,
+        "ordinal": 9,
         "type_info": "Text"
       }
     ],
     "parameters": {
-      "Right": 2
+      "Right": 0
     },
     "nullable": [
-      false,
       false,
       false,
       false,
@@ -76,5 +70,5 @@
       false
     ]
   },
-  "hash": "78558fb6305018db4b07839dfbd0209d19ad6c9d08e275e4df7d6ae68a4da07e"
+  "hash": "e37bd8ee55b349181552584e2a116973791cd228134690b526297a52834f02a8"
 }

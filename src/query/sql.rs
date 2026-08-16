@@ -32,7 +32,7 @@ impl Planner {
             let field = &merged.field;
             let key = response_key(field);
             let value = match field.name() {
-                "number" | "title" | "body" | "priority" | "createdAt" | "updatedAt" => {
+                "number" | "title" | "body" | "createdAt" | "updatedAt" => {
                     format!("{issue}.{}", snake(field.name()))
                 }
                 "state" => format!("{issue}.state"),
@@ -129,8 +129,9 @@ impl Planner {
             let field = &merged.field;
             let key = response_key(field);
             let value = match field.name() {
-                "id" | "name" | "summary" | "description" | "state" | "priority" | "createdAt"
-                | "updatedAt" => format!("{project}.{}", snake(field.name())),
+                "id" | "name" | "summary" | "description" | "state" | "createdAt" | "updatedAt" => {
+                    format!("{project}.{}", snake(field.name()))
+                }
                 "isTerminal" => {
                     format!("json(CASE WHEN {project}.is_terminal=1 THEN 'true' ELSE 'false' END)")
                 }
@@ -512,7 +513,6 @@ fn issue_filter(field: &SelectionField<'_>) -> async_graphql::Result<IssueFilter
     Ok(IssueFilter {
         state: object_string(&object, "state")?,
         is_terminal: object_boolean(&object, "isTerminal")?,
-        priority: object_integer(&object, "priority")?,
         label: object_string(&object, "label")?,
         project_id: object_integer(&object, "projectId")?,
     })
@@ -528,9 +528,6 @@ pub(super) fn issue_filter_sql(issue: &str, state: Option<&str>, filter: &IssueF
             state.expect("isTerminal filter requires state join"),
             value as i64
         ));
-    }
-    if let Some(value) = filter.priority {
-        sql.push(format!("{issue}.priority={value}"));
     }
     if let Some(value) = &filter.label {
         sql.push(format!("EXISTS(SELECT 1 FROM issue_labels fx WHERE fx.repo_id={issue}.repo_id AND fx.issue_number={issue}.number AND fx.label_name={})", quote(value)));
@@ -548,9 +545,6 @@ pub(super) fn project_filter_sql(project: &str, filter: &ProjectFilter) -> Strin
     let mut sql = Vec::new();
     if let Some(value) = filter.is_terminal {
         sql.push(format!("{project}.is_terminal={}", value as i64));
-    }
-    if let Some(value) = filter.priority {
-        sql.push(format!("{project}.priority={value}"));
     }
     if let Some(value) = &filter.label {
         sql.push(format!("EXISTS(SELECT 1 FROM project_label_links fx WHERE fx.repo_id={project}.repo_id AND fx.project_id={project}.id AND fx.label_name={})", quote(value)));

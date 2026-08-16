@@ -9,13 +9,11 @@ use crate::domain::{
 use anyhow::Result;
 
 impl Store {
-    #[allow(clippy::too_many_arguments)]
     pub async fn create_issue(
         &self,
         title: &str,
         body: &str,
         state: Option<&str>,
-        priority: i64,
         project: Option<&str>,
         milestone: Option<&str>,
         parent: Option<i64>,
@@ -26,7 +24,6 @@ impl Store {
             title,
             body,
             state,
-            priority,
             project,
             milestone,
             parent,
@@ -39,7 +36,6 @@ impl Store {
         &self,
         filter: StateFilter,
         state_name: Option<&str>,
-        priority: Option<i64>,
         label: Option<&str>,
         project: Option<&str>,
         milestone: Option<&str>,
@@ -53,7 +49,6 @@ impl Store {
             crate::app::issue::ListQuery {
                 filter,
                 state_name,
-                priority,
                 label,
                 project,
                 milestone,
@@ -77,7 +72,6 @@ impl Store {
             crate::app::issue::ListQuery {
                 filter: StateFilter::All,
                 state_name: None,
-                priority: None,
                 label: None,
                 project: None,
                 milestone: None,
@@ -151,19 +145,9 @@ impl Store {
         number: i64,
         title: Option<&str>,
         body: Option<&str>,
-        priority: Option<i64>,
         lease: Option<&str>,
     ) -> Result<()> {
-        crate::app::issue::edit(
-            &self.pool,
-            self.repo_id()?,
-            number,
-            title,
-            body,
-            priority,
-            lease,
-        )
-        .await
+        crate::app::issue::edit(&self.pool, self.repo_id()?, number, title, body, lease).await
     }
 
     pub async fn add_dependency(

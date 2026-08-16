@@ -3,14 +3,6 @@ use crate::domain::{
 };
 use serde::Serialize;
 
-pub fn validate_priority(priority: i64) -> anyhow::Result<i64> {
-    if (0..=4).contains(&priority) {
-        Ok(priority)
-    } else {
-        anyhow::bail!("priority must be between 0 and 4")
-    }
-}
-
 #[derive(Debug, Serialize)]
 pub struct Issue {
     pub repo: String,
@@ -18,7 +10,6 @@ pub struct Issue {
     pub title: String,
     pub body: String,
     pub state: String,
-    pub priority: i64,
     pub project: Option<ProjectRef>,
     pub milestone: Option<MilestoneRef>,
     pub leased: bool,

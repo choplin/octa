@@ -20,7 +20,6 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             title,
             body,
             state,
-            priority,
             project,
             milestone,
             parent,
@@ -31,7 +30,6 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                     &title,
                     &body,
                     state.as_deref(),
-                    priority,
                     project.as_deref(),
                     milestone.as_deref(),
                     parent,
@@ -46,7 +44,6 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
         IssueCommand::List {
             state_filter,
             label,
-            priority,
             project,
             milestone,
             related_to,
@@ -58,7 +55,6 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                 .list_issues(
                     filter,
                     state_name.as_deref(),
-                    priority,
                     label.as_deref(),
                     project.as_deref(),
                     milestone.as_deref(),
@@ -75,7 +71,6 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                     [
                         format!("#{}", issue.number),
                         issue.state.clone(),
-                        format!("P{}", issue.priority),
                         issue.title.clone(),
                         issue
                             .project
@@ -91,15 +86,7 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                     ]
                 });
                 output.print(output.table(
-                    [
-                        "Issue",
-                        "State",
-                        "Priority",
-                        "Title",
-                        "Project",
-                        "Milestone",
-                        "Leased",
-                    ],
+                    ["Issue", "State", "Title", "Project", "Milestone", "Leased"],
                     rows,
                 ));
             }
@@ -115,7 +102,6 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                         format!("#{}", issue.number),
                         format!(" {} ({})", issue.title, issue.state),
                     ),
-                    output.field("priority: ", issue.priority.to_string()),
                     output.field(
                         "project: ",
                         issue
@@ -211,7 +197,6 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             number,
             title,
             body,
-            priority,
             project,
             milestone,
             parent,
@@ -219,22 +204,15 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
         } => {
             if title.is_none()
                 && body.is_none()
-                && priority.is_none()
                 && project.is_none()
                 && milestone.is_none()
                 && parent.is_none()
             {
                 anyhow::bail!("specify at least one property to set");
             }
-            if title.is_some() || body.is_some() || priority.is_some() {
+            if title.is_some() || body.is_some() {
                 store
-                    .edit_issue(
-                        number,
-                        title.as_deref(),
-                        body.as_deref(),
-                        priority,
-                        lease.as_deref(),
-                    )
+                    .edit_issue(number, title.as_deref(), body.as_deref(), lease.as_deref())
                     .await?;
             }
             if let Some(project) = project {

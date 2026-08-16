@@ -152,7 +152,8 @@ Milestone を作れます。Project と Milestone は名前または番号で参
 終端状態の Issue を含む全 Issue を open / closed で数えます。作業中の Project
 だけが必要な場合は `project list --active` と明示します。Project の終端かどうかは
 `project create --terminal` と `project set-state <project> <state> --terminal`
-で設定します。Project は priority 1〜4 の順、その後に 0（None）の順で表示されます。
+で設定します。Project は作成順に表示されます。優先度が必要な場合は、
+`single` のラベルグループを自分で定義してください。
 
 ```sh
 octa project create --name "CLI を公開する"

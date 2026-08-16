@@ -55,7 +55,7 @@ mod projection {
         assert!(sql.contains("'$.title',json(json_quote(i.title))"));
         assert!(sql.ends_with("FROM issues i  WHERE i.repo_id=1 AND i.number=7"));
         assert!(!sql.contains(" JOIN "));
-        for unselected in ["i.body", "i.priority", "i.created_at", "i.updated_at"] {
+        for unselected in ["i.body", "i.created_at", "i.updated_at"] {
             assert!(
                 !sql.contains(unselected),
                 "unexpected {unselected} in:\n{sql}"
@@ -375,7 +375,6 @@ mod filters_and_roots {
                 issues(filter: {
                     state: "active"
                     isTerminal: false
-                    priority: 2
                     label: "backend"
                     projectId: 7
                 }) { number }
@@ -385,7 +384,6 @@ mod filters_and_roots {
         for predicate in [
             "i.state='active'",
             "s.is_terminal=0",
-            "i.priority=2",
             "fx.label_name='backend'",
             "fp.project_id=7",
         ] {
@@ -396,11 +394,10 @@ mod filters_and_roots {
         }
         assert!(issues.contains("FROM issues i JOIN issue_states s"));
 
-        let projects = executed_sql(
-            "{ projects(filter: { isTerminal: false, priority: 3, label: \"now\" }) { id } }",
-        )
-        .await;
-        for predicate in ["p.is_terminal=0", "p.priority=3", "fx.label_name='now'"] {
+        let projects =
+            executed_sql("{ projects(filter: { isTerminal: false, label: \"now\" }) { id } }")
+                .await;
+        for predicate in ["p.is_terminal=0", "fx.label_name='now'"] {
             assert!(
                 projects.contains(predicate),
                 "missing {predicate} in:\n{projects}"

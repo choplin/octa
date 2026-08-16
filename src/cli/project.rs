@@ -12,11 +12,10 @@ pub(crate) async fn run(store: &Store, command: ProjectCommand) -> Result<()> {
             description,
             state,
             terminal,
-            priority,
             json,
         } => {
             let id = store
-                .create_project(&name, &summary, &description, &state, terminal, priority)
+                .create_project(&name, &summary, &description, &state, terminal)
                 .await?;
             if json {
                 println!("{}", serde_json::json!({ "id": id, "name": name }));
@@ -46,23 +45,14 @@ pub(crate) async fn run(store: &Store, command: ProjectCommand) -> Result<()> {
                     [
                         project.project.id.to_string(),
                         project.project.state.clone(),
-                        format!("P{}", project.project.priority),
                         format!("{}/{}", project.tally.open, project.tally.closed),
                         project.project.name.clone(),
                         milestones,
                     ]
                 });
-                output.print(output.table(
-                    [
-                        "ID",
-                        "State",
-                        "Priority",
-                        "Open/Closed",
-                        "Name",
-                        "Milestones",
-                    ],
-                    rows,
-                ));
+                output.print(
+                    output.table(["ID", "State", "Open/Closed", "Name", "Milestones"], rows),
+                );
             }
         }
         ProjectCommand::Show { project, json } => {
@@ -75,7 +65,6 @@ pub(crate) async fn run(store: &Store, command: ProjectCommand) -> Result<()> {
                         format!("{}", detail.project.id),
                         format!(": {} ({})", detail.project.name, detail.project.state),
                     ),
-                    output.field("priority: ", detail.project.priority.to_string()),
                     output.field("summary: ", &detail.project.summary),
                 ];
                 if !detail.labels.is_empty() {
@@ -127,7 +116,6 @@ pub(crate) async fn run(store: &Store, command: ProjectCommand) -> Result<()> {
             name,
             summary,
             description,
-            priority,
             json,
         } => {
             store
@@ -136,7 +124,6 @@ pub(crate) async fn run(store: &Store, command: ProjectCommand) -> Result<()> {
                     name.as_deref(),
                     summary.as_deref(),
                     description.as_deref(),
-                    priority,
                 )
                 .await?;
             if json {
