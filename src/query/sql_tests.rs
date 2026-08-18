@@ -64,13 +64,13 @@ mod projection {
     }
 
     #[tokio::test]
-    async fn is_closed_selection_adds_the_state_join() {
-        let sql = executed_sql("{ issue(number: 1) { number isClosed } }").await;
+    async fn state_type_selection_adds_the_state_join() {
+        let sql = executed_sql("{ issue(number: 1) { number stateType } }").await;
 
         assert_contains_in_order(
             &sql,
             &[
-                "'$.isClosed',json(COALESCE(json(CASE WHEN s.is_closed=1 THEN 'true' ELSE 'false' END),'null'))",
+                "'$.stateType',json(json_quote(s.type))",
                 "FROM issues i JOIN issue_states s",
                 "s.name=i.state",
             ],
@@ -373,8 +373,8 @@ mod filters_and_roots {
         let issues = executed_sql(
             r#"{
                 issues(filter: {
-                    state: "active"
-                    isClosed: false
+                    state: ["active", "blocked"]
+                    stateType: "in progress"
                     label: "backend"
                     projectId: 7
                 }) { number }
@@ -382,8 +382,8 @@ mod filters_and_roots {
         )
         .await;
         for predicate in [
-            "i.state='active'",
-            "s.is_closed=0",
+            "i.state IN ('active','blocked')",
+            "s.type='in progress'",
             "fx.label_name='backend'",
             "fp.project_id=7",
         ] {
@@ -484,7 +484,7 @@ mod multi_hop {
             r#"{
                 project(id: 1) {
                     id
-                    issues(filter: { isClosed: false }, limit: 5) {
+                    issues(filter: { stateType: ["open", "in progress"] }, limit: 5) {
                         number
                         labels(limit: 3) { name }
                     }
@@ -502,7 +502,7 @@ mod multi_hop {
                 "FROM issue_projects ip3 JOIN issues i1",
                 "JOIN issue_states s2",
                 "WHERE ip3.repo_id=p.repo_id AND ip3.project_id=p.id",
-                "s2.is_closed=0",
+                "s2.type IN ('open','in progress')",
                 "ORDER BY i1.number LIMIT 5 OFFSET 0",
                 "FROM projects p",
             ],

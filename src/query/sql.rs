@@ -2,6 +2,7 @@
 
 use super::model::{IssueFilter, LabelTarget, ProjectFilter};
 use super::{DEFAULT_LIMIT, MAX_LIMIT};
+use crate::domain::issue::StateType;
 use async_graphql::{Name, SelectionField, Value};
 
 pub(super) struct Planner {
@@ -36,10 +37,9 @@ impl Planner {
                     format!("{issue}.{}", snake(field.name()))
                 }
                 "state" => format!("{issue}.state"),
-                "isClosed" => format!(
-                    "json(CASE WHEN {}.is_closed=1 THEN 'true' ELSE 'false' END)",
-                    state.expect("isClosed requires state join")
-                ),
+                "stateType" => {
+                    format!("{}.type", state.expect("stateType requires state join"))
+                }
                 "leased" => {
                     let lease = self.next("lease");
                     format!(
@@ -140,8 +140,12 @@ impl Planner {
                     let s = self.next("s");
                     let x = self.next("ip");
                     let filter_args = issue_filter(field)?;
-                    let state =
-                        issue_state_join(&merged.children, &i, &s, filter_args.is_closed.is_some());
+                    let state = issue_state_join(
+                        &merged.children,
+                        &i,
+                        &s,
+                        filter_args.state_type.is_some(),
+                    );
                     let nested = self.issue(&merged.children, &i, state.alias())?;
                     let filter = issue_filter_sql(&i, state.alias(), &filter_args);
                     let page = Page::from_field(field)?;
@@ -375,7 +379,7 @@ pub(super) fn issue_state_join<'a>(
 ) -> StateJoin<'a> {
     let selected = merged_fields(fields)
         .iter()
-        .any(|field| field.field.name() == "isClosed");
+        .any(|field| field.field.name() == "stateType");
     StateJoin {
         issue,
         alias,
@@ -479,16 +483,6 @@ fn object_string(
         Some(_) => Err(format!("{name} must be a string").into()),
     }
 }
-fn object_boolean(
-    object: &async_graphql::indexmap::IndexMap<Name, Value>,
-    name: &str,
-) -> async_graphql::Result<Option<bool>> {
-    match object.get(name) {
-        None | Some(Value::Null) => Ok(None),
-        Some(Value::Boolean(value)) => Ok(Some(*value)),
-        Some(_) => Err(format!("{name} must be a boolean").into()),
-    }
-}
 fn object_integer(
     object: &async_graphql::indexmap::IndexMap<Name, Value>,
     name: &str,
@@ -507,22 +501,63 @@ fn issue_filter(field: &SelectionField<'_>) -> async_graphql::Result<IssueFilter
         return Ok(IssueFilter::default());
     };
     Ok(IssueFilter {
-        state: object_string(&object, "state")?,
-        is_closed: object_boolean(&object, "isClosed")?,
+        state: object_strings(&object, "state")?,
+        state_type: object_state_types(&object, "stateType")?,
         label: object_string(&object, "label")?,
         project_id: object_integer(&object, "projectId")?,
     })
 }
+
+/// Read a filter entry that accepts either one string or a list of them.
+///
+/// A single value is the common case and stays writable without brackets; the
+/// list form is what lets one query span several states or types.
+fn object_strings(
+    object: &async_graphql::indexmap::IndexMap<Name, Value>,
+    name: &str,
+) -> async_graphql::Result<Option<Vec<String>>> {
+    match object.get(name) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(value)) => Ok(Some(vec![value.clone()])),
+        Some(Value::List(values)) => values
+            .iter()
+            .map(|value| match value {
+                Value::String(value) => Ok(value.clone()),
+                _ => Err(format!("{name} must contain strings").into()),
+            })
+            .collect::<async_graphql::Result<Vec<_>>>()
+            .map(Some),
+        Some(_) => Err(format!("{name} must be a string or a list of strings").into()),
+    }
+}
+
+/// Read a state-type filter entry, rejecting values outside the three-value
+/// axis up front rather than letting them silently match nothing.
+fn object_state_types(
+    object: &async_graphql::indexmap::IndexMap<Name, Value>,
+    name: &str,
+) -> async_graphql::Result<Option<Vec<String>>> {
+    let Some(values) = object_strings(object, name)? else {
+        return Ok(None);
+    };
+    for value in &values {
+        StateType::parse(value).map_err(|error| async_graphql::Error::new(error.to_string()))?;
+    }
+    Ok(Some(values))
+}
 pub(super) fn issue_filter_sql(issue: &str, state: Option<&str>, filter: &IssueFilter) -> String {
     let mut sql = Vec::new();
-    if let Some(value) = &filter.state {
-        sql.push(format!("{issue}.state={}", quote(value)));
+    if let Some(values) = &filter.state {
+        sql.push(any_of(
+            &format!("{issue}.state"),
+            values.iter().map(|value| quote(value)),
+        ));
     }
-    if let Some(value) = filter.is_closed {
-        sql.push(format!(
-            "{}.is_closed={}",
-            state.expect("isClosed filter requires state join"),
-            value as i64
+    if let Some(values) = &filter.state_type {
+        let state = state.expect("stateType filter requires state join");
+        sql.push(any_of(
+            &format!("{state}.type"),
+            values.iter().map(|value| quote(value)),
         ));
     }
     if let Some(value) = &filter.label {
@@ -537,6 +572,19 @@ pub(super) fn issue_filter_sql(issue: &str, state: Option<&str>, filter: &IssueF
         format!("AND {}", sql.join(" AND "))
     }
 }
+/// Render "column matches any of these values".
+///
+/// An empty list matches nothing, which is what an explicitly empty filter
+/// asks for.
+fn any_of(column: &str, values: impl Iterator<Item = String>) -> String {
+    let values = values.collect::<Vec<_>>();
+    match values.len() {
+        0 => "0".to_string(),
+        1 => format!("{column}={}", values[0]),
+        _ => format!("{column} IN ({})", values.join(",")),
+    }
+}
+
 pub(super) fn project_filter_sql(project: &str, filter: &ProjectFilter) -> String {
     let mut sql = Vec::new();
     if let Some(value) = filter.is_closed {

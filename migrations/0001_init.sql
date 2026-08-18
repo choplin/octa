@@ -10,28 +10,97 @@ CREATE TABLE repos (
     created_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- A state is classified by two flags only: whether new issues start in it and
--- whether it closes the issue. octa deliberately models no intermediate
--- gradation between them.
+-- A state is classified on one axis: its type. The three values are the
+-- distinctions a user already holds before meeting octa -- not yet resolved,
+-- picked up, resolved -- so octa deliberately models no finer gradation.
+-- Whether a state closes an issue is read from `type = 'closed'`; it is not a
+-- second stored flag.
 CREATE TABLE issue_states (
-    name        TEXT NOT NULL PRIMARY KEY,
-    is_starting INTEGER NOT NULL DEFAULT 0,
-    is_closed   INTEGER NOT NULL DEFAULT 0
+    name TEXT NOT NULL PRIMARY KEY,
+    type TEXT NOT NULL CHECK (type IN ('open', 'in progress', 'closed'))
 );
 
--- At most one starting state exists. Every indexed row shares the constant
--- value 1, so the unique index admits a single one. It leaves zero starting
--- states legal; that case is a configuration error the application reports
--- with the command that fixes it, not something to reject on write.
-CREATE UNIQUE INDEX issue_states_one_starting_idx
-    ON issue_states (is_starting) WHERE is_starting = 1;
+-- Which state each type hands out when a verb is invoked without an explicit
+-- target: `issue open` resolves the open default, `start` the in-progress one,
+-- `close` the closed one.
+--
+-- The default is one fact per type, so it is one row per type rather than a
+-- flag spread across `issue_states`. That is what makes it constrainable:
+-- `PRIMARY KEY (type)` admits at most one, the reference keeps it pointing at a
+-- state that exists, and changing it is a single-row write with no moment in
+-- between where the type has none.
+CREATE TABLE issue_state_defaults (
+    type TEXT NOT NULL PRIMARY KEY CHECK (type IN ('open', 'in progress', 'closed')),
+    name TEXT NOT NULL UNIQUE
+        REFERENCES issue_states(name) ON UPDATE CASCADE ON DELETE CASCADE
+);
 
+-- A CHECK constraint cannot see other rows, so the rules that relate the two
+-- tables are triggers. Together they hold one invariant: a type with any states
+-- has exactly one default, and that default is a state of that same type.
+
+-- The reference alone allows a default of one type to name a state of another.
+CREATE TRIGGER issue_state_defaults_belong_to_their_type_insert
+AFTER INSERT ON issue_state_defaults
+WHEN NOT EXISTS (
+    SELECT 1 FROM issue_states s WHERE s.name = NEW.name AND s.type = NEW.type)
+BEGIN
+    SELECT RAISE(ABORT, 'a default state must belong to the type it is default for');
+END;
+
+CREATE TRIGGER issue_state_defaults_belong_to_their_type_update
+AFTER UPDATE ON issue_state_defaults
+WHEN NOT EXISTS (
+    SELECT 1 FROM issue_states s WHERE s.name = NEW.name AND s.type = NEW.type)
+BEGIN
+    SELECT RAISE(ABORT, 'a default state must belong to the type it is default for');
+END;
+
+-- A type gains its default the moment it gains a state, so a populated type is
+-- never left with a verb that has nowhere to go.
+CREATE TRIGGER issue_states_first_of_a_type_becomes_its_default
+AFTER INSERT ON issue_states
+WHEN NOT EXISTS (SELECT 1 FROM issue_state_defaults d WHERE d.type = NEW.type)
+BEGIN
+    INSERT INTO issue_state_defaults (type, name) VALUES (NEW.type, NEW.name);
+END;
+
+-- A state that changes type stops being the old type's default and, when the
+-- new type had none, becomes its default. The delete is what asks whether the
+-- old type was allowed to lose it: by now the state has already left, so a type
+-- emptied by the move is free to go without one.
+CREATE TRIGGER issue_states_retype_hands_over_the_default
+AFTER UPDATE OF type ON issue_states
+BEGIN
+    DELETE FROM issue_state_defaults WHERE name = NEW.name AND type = OLD.type;
+    INSERT INTO issue_state_defaults (type, name)
+    SELECT NEW.type, NEW.name
+    WHERE NOT EXISTS (SELECT 1 FROM issue_state_defaults d WHERE d.type = NEW.type);
+END;
+
+-- Deleting a state cascades its default row away. Losing it is only legal when
+-- the state was the last of its type; otherwise the type would be left with
+-- states and no default.
+CREATE TRIGGER issue_state_defaults_a_populated_type_keeps_one
+AFTER DELETE ON issue_state_defaults
+WHEN EXISTS (SELECT 1 FROM issue_states s WHERE s.type = OLD.type)
+BEGIN
+    SELECT RAISE(ABORT, 'a state type that still has states must keep a default state');
+END;
+
+-- `state` references a configured state by name rather than by id, so the name
+-- is the only handle the rest of the system needs. The two referential actions
+-- carry that choice: renaming a state moves its issues with it, and a state
+-- that still has issues cannot be deleted out from under them. Together they
+-- make an issue in an unconfigured state unrepresentable, which is why every
+-- read joins `issue_states` directly instead of guarding against a missing row.
 CREATE TABLE issues (
     repo_id    INTEGER NOT NULL REFERENCES repos(id),
     number     INTEGER NOT NULL,
     title      TEXT NOT NULL,
     body       TEXT NOT NULL DEFAULT '',
-    state      TEXT NOT NULL,
+    state      TEXT NOT NULL
+        REFERENCES issue_states(name) ON UPDATE CASCADE ON DELETE RESTRICT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (repo_id, number)

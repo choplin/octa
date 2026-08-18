@@ -3,10 +3,12 @@
 use async_graphql::{Context, Enum, InputObject, Object};
 use serde_json::{Map, Value as JsonValue};
 
+/// `state` and `stateType` both accept one value or a list of them, and match
+/// an issue carrying any of the listed values.
 #[derive(InputObject, Default, Clone)]
 pub(super) struct IssueFilter {
-    pub(super) state: Option<String>,
-    pub(super) is_closed: Option<bool>,
+    pub(super) state: Option<Vec<String>>,
+    pub(super) state_type: Option<Vec<String>>,
     pub(super) label: Option<String>,
     pub(super) project_id: Option<i64>,
 }
@@ -129,8 +131,9 @@ impl IssueObject {
     async fn state<'a>(&'a self, ctx: &Context<'_>) -> async_graphql::Result<&'a str> {
         self.0.string(ctx)
     }
-    async fn is_closed(&self, ctx: &Context<'_>) -> async_graphql::Result<bool> {
-        self.0.boolean(ctx)
+    /// The type of the issue's configured state: open, in progress, or closed.
+    async fn state_type<'a>(&'a self, ctx: &Context<'_>) -> async_graphql::Result<&'a str> {
+        self.0.string(ctx)
     }
     async fn leased(&self, ctx: &Context<'_>) -> async_graphql::Result<bool> {
         self.0.boolean(ctx)

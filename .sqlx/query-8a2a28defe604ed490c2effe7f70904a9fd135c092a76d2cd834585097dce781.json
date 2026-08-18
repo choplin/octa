@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT name FROM issue_states WHERE is_starting = 1 ORDER BY name",
+  "query": "SELECT name FROM issue_state_defaults WHERE type = ?",
   "describe": {
     "columns": [
       {
@@ -10,11 +10,11 @@
       }
     ],
     "parameters": {
-      "Right": 0
+      "Right": 1
     },
     "nullable": [
       false
     ]
   },
-  "hash": "4503ee9f7dac482aad328e0961c4456808af3bb8318b5cb5bd0c73fb0a48fa95"
+  "hash": "8a2a28defe604ed490c2effe7f70904a9fd135c092a76d2cd834585097dce781"
 }

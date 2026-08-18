@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT s.type = 'closed' AS \"is_closed!: bool\",\n                  COUNT(*) AS \"count!: i64\"\n           FROM issue_projects ip\n           JOIN issues i ON i.repo_id = ip.repo_id AND i.number = ip.issue_number\n           JOIN issue_states s ON s.name = i.state\n           WHERE ip.repo_id = ? AND ip.project_id = ?\n           GROUP BY s.type = 'closed'",
+  "describe": {
+    "columns": [
+      {
+        "name": "is_closed!: bool",
+        "ordinal": 0,
+        "type_info": "Null"
+      },
+      {
+        "name": "count!: i64",
+        "ordinal": 1,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "5126a0e2bb1819a5224ef5f3f1e47fad62107c1cfcda4cc9630c5ce18fc7ec6f"
+}

@@ -1,5 +1,5 @@
 //! CLI schema and top-level dispatch.
-use crate::store::{RepoScope, StateFilter, Store};
+use crate::store::{IssueListSelector, RepoScope, StateFilter, StateType, Store};
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
@@ -121,26 +121,15 @@ pub(crate) enum LabelTarget {
 pub(crate) enum IssueCommand {
     /// Browse issues in a read-only terminal interface.
     Tui,
-    /// Create a new issue.
+    /// Open a new issue.
+    Open {
+        #[command(flatten)]
+        args: IssueOpenArgs,
+    },
+    /// Open a new issue. Alias of `open`.
     Create {
-        #[arg(long)]
-        title: String,
-        #[arg(long, default_value = "")]
-        body: String,
-        /// Initial configured state (defaults to the repo's starting state).
-        #[arg(long)]
-        state: Option<String>,
-        /// Project id or name.
-        #[arg(long)]
-        project: Option<String>,
-        /// Milestone id or name; requires an explicit --project.
-        #[arg(long, requires = "project")]
-        milestone: Option<String>,
-        /// Parent issue number. The parent's Project is inherited when omitted.
-        #[arg(long)]
-        parent: Option<i64>,
-        #[arg(long)]
-        json: bool,
+        #[command(flatten)]
+        args: IssueOpenArgs,
     },
     /// List issues.
     List {
@@ -174,16 +163,40 @@ pub(crate) enum IssueCommand {
         #[arg(long)]
         body: String,
     },
-    /// Set an issue state.
-    SetState {
+    /// Move an issue to the `in progress` default state.
+    ///
+    /// `start` takes no `--as`: picking work up says nothing yet about where it
+    /// will land.
+    Start {
         number: i64,
-        state: String,
+        #[arg(long)]
+        lease: Option<String>,
+    },
+    /// Close an issue.
+    Close {
+        number: i64,
+        /// A `closed` state other than the default, such as a not-planned one.
+        #[arg(long = "as", value_name = "STATE")]
+        as_state: Option<String>,
+        #[arg(long)]
+        lease: Option<String>,
+    },
+    /// Reopen a closed issue.
+    Reopen {
+        number: i64,
+        /// An `open` state other than the default.
+        #[arg(long = "as", value_name = "STATE")]
+        as_state: Option<String>,
         #[arg(long)]
         lease: Option<String>,
     },
     /// Set scalar Issue properties.
     Set {
         number: i64,
+        /// Move the issue to any configured state, of any type. This is the
+        /// only unconstrained move; every other verb is narrowed to its type.
+        #[arg(long = "as", value_name = "STATE")]
+        as_state: Option<String>,
         #[arg(long)]
         title: Option<String>,
         #[arg(long)]
@@ -256,35 +269,62 @@ pub(crate) enum IssueCommand {
 }
 
 #[derive(Args)]
+pub(crate) struct IssueOpenArgs {
+    #[arg(long)]
+    title: String,
+    #[arg(long, default_value = "")]
+    body: String,
+    /// An `open` state other than the type's default.
+    #[arg(long = "as", value_name = "STATE")]
+    as_state: Option<String>,
+    /// Project id or name.
+    #[arg(long)]
+    project: Option<String>,
+    /// Milestone id or name; requires an explicit --project.
+    #[arg(long, requires = "project")]
+    milestone: Option<String>,
+    /// Parent issue number. The parent's Project is inherited when omitted.
+    #[arg(long)]
+    parent: Option<i64>,
+    #[arg(long)]
+    json: bool,
+}
+
+/// The `issue list` state selectors.
+///
+/// The three are mutually exclusive. A state name already determines its type,
+/// so combining `--state` with `--state-type` could only be redundant or empty.
+#[derive(Args)]
 #[group(multiple = false)]
 pub(crate) struct IssueListStateArgs {
-    /// List open issues (the default).
-    #[arg(long)]
-    open: bool,
-    /// List closed issues.
-    #[arg(long)]
-    closed: bool,
-    /// List both open and closed issues.
+    /// Configured state names, comma-separated. Matches any of them.
+    #[arg(long, value_name = "NAMES", value_delimiter = ',')]
+    state: Vec<String>,
+    /// State types, comma-separated: open, in progress, closed.
+    #[arg(long, value_name = "TYPES", value_delimiter = ',')]
+    state_type: Vec<String>,
+    /// List issues in every state, including closed ones.
     #[arg(long)]
     all: bool,
-    /// List issues whose configured state exactly matches this name.
-    #[arg(long, value_name = "NAME")]
-    state: Option<String>,
 }
 
 impl IssueListStateArgs {
-    fn into_filter(self) -> (StateFilter, Option<String>) {
-        if self.open {
-            (StateFilter::Open, None)
-        } else if self.closed {
-            (StateFilter::Closed, None)
-        } else if self.all {
-            (StateFilter::All, None)
-        } else if let Some(state) = self.state {
-            (StateFilter::All, Some(state))
+    fn into_selector(self) -> Result<IssueListSelector> {
+        if self.all {
+            Ok(IssueListSelector::All)
+        } else if !self.state.is_empty() {
+            Ok(IssueListSelector::States(self.state))
+        } else if !self.state_type.is_empty() {
+            let types = self
+                .state_type
+                .iter()
+                .map(|value| StateType::parse(value))
+                .collect::<Result<Vec<_>>>()?;
+            Ok(IssueListSelector::Types(types))
         } else {
-            // Explicit --open and no selector have the same safe default.
-            (StateFilter::Open, None)
+            // Omitting a selector hides closed work. Perfect orthogonality with
+            // --all would cost more than it buys in a listing read every day.
+            Ok(IssueListSelector::default())
         }
     }
 }
@@ -437,12 +477,12 @@ pub(crate) enum StateCommand {
     /// Create a configured issue state.
     Create {
         name: String,
-        /// Make this the state new issues start in, replacing the current one.
+        /// State type: open, in progress, or closed.
+        #[arg(long = "type", value_name = "TYPE", default_value = "open")]
+        state_type: String,
+        /// Make this its type's default, replacing the current one.
         #[arg(long)]
-        starting: bool,
-        /// Issues in this state count as closed.
-        #[arg(long)]
-        closed: bool,
+        default: bool,
     },
     /// Update a configured issue state. Renaming moves its issues with it.
     Set {
@@ -450,9 +490,12 @@ pub(crate) enum StateCommand {
         /// New name for the state.
         #[arg(long = "name")]
         new_name: Option<String>,
-        /// Whether issues in this state count as closed.
+        /// New state type: open, in progress, or closed.
+        #[arg(long = "type", value_name = "TYPE")]
+        state_type: Option<String>,
+        /// Make this its type's default, replacing the current one.
         #[arg(long)]
-        closed: Option<bool>,
+        default: bool,
     },
     /// Delete a configured issue state.
     Delete {
@@ -461,8 +504,6 @@ pub(crate) enum StateCommand {
         #[arg(long)]
         move_to: Option<String>,
     },
-    /// Set the state new issues start in.
-    SetDefault { name: String },
 }
 
 #[derive(Subcommand)]

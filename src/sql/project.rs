@@ -217,13 +217,13 @@ pub async fn issue_numbers(pool: &SqlitePool, repo: i64, id: i64) -> Result<Vec<
 
 pub async fn tally(pool: &SqlitePool, repo: i64, id: i64) -> Result<ProjectTally> {
     let rows = sqlx::query!(
-        r#"SELECT COALESCE(s.is_closed, 0) AS "is_closed!: bool",
+        r#"SELECT s.type = 'closed' AS "is_closed!: bool",
                   COUNT(*) AS "count!: i64"
            FROM issue_projects ip
            JOIN issues i ON i.repo_id = ip.repo_id AND i.number = ip.issue_number
-           LEFT JOIN issue_states s ON s.name = i.state
+           JOIN issue_states s ON s.name = i.state
            WHERE ip.repo_id = ? AND ip.project_id = ?
-           GROUP BY COALESCE(s.is_closed, 0)"#,
+           GROUP BY s.type = 'closed'"#,
         repo,
         id
     )

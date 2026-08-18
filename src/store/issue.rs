@@ -2,9 +2,8 @@
 //! persistence to `crate::sql::issue`; this module intentionally has no SQL.
 
 use super::Store;
-use crate::domain::{
-    issue::{Issue, IssueDetail, IssueState, LeaseOutcome},
-    StateFilter,
+use crate::domain::issue::{
+    Issue, IssueDetail, IssueListSelector, IssueState, LeaseOutcome, StateType,
 };
 use anyhow::Result;
 
@@ -31,11 +30,9 @@ impl Store {
         .await
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub async fn list_issues(
         &self,
-        filter: StateFilter,
-        state_name: Option<&str>,
+        selector: IssueListSelector,
         label: Option<&str>,
         project: Option<&str>,
         milestone: Option<&str>,
@@ -47,8 +44,7 @@ impl Store {
             &self.pool,
             repo,
             crate::app::issue::ListQuery {
-                filter,
-                state_name,
+                selector,
                 label,
                 project,
                 milestone,
@@ -70,8 +66,7 @@ impl Store {
             &self.pool,
             Some(repo),
             crate::app::issue::ListQuery {
-                filter: StateFilter::All,
-                state_name: None,
+                selector: IssueListSelector::All,
                 label: None,
                 project: None,
                 milestone: None,
@@ -211,24 +206,48 @@ impl Store {
         crate::app::issue::list_states(&self.pool).await
     }
 
-    pub async fn add_state(&self, name: &str, starting: bool, closed: bool) -> Result<()> {
-        crate::app::issue::add_state(&self.pool, name, starting, closed).await
+    pub async fn add_state(
+        &self,
+        name: &str,
+        state_type: StateType,
+        default: bool,
+    ) -> Result<bool> {
+        crate::app::issue::add_state(&self.pool, name, state_type, default).await
     }
 
     pub async fn set_state_config(
         &self,
         name: &str,
         new_name: Option<&str>,
-        closed: Option<bool>,
-    ) -> Result<()> {
-        crate::app::issue::set_state_config(&self.pool, name, new_name, closed).await
+        state_type: Option<StateType>,
+        default: bool,
+    ) -> Result<bool> {
+        crate::app::issue::set_state_config(&self.pool, name, new_name, state_type, default).await
     }
 
     pub async fn delete_state(&self, name: &str, move_to: Option<&str>) -> Result<i64> {
         crate::app::issue::delete_state(&self.pool, name, move_to).await
     }
 
-    pub async fn set_default_state(&self, name: &str) -> Result<()> {
-        crate::app::issue::set_default_state(&self.pool, name).await
+    pub async fn start_issue(&self, number: i64, lease: Option<&str>) -> Result<String> {
+        crate::app::issue::start(&self.pool, self.repo_id()?, number, lease).await
+    }
+
+    pub async fn close_issue(
+        &self,
+        number: i64,
+        as_state: Option<&str>,
+        lease: Option<&str>,
+    ) -> Result<String> {
+        crate::app::issue::close(&self.pool, self.repo_id()?, number, as_state, lease).await
+    }
+
+    pub async fn reopen_issue(
+        &self,
+        number: i64,
+        as_state: Option<&str>,
+        lease: Option<&str>,
+    ) -> Result<String> {
+        crate::app::issue::reopen(&self.pool, self.repo_id()?, number, as_state, lease).await
     }
 }

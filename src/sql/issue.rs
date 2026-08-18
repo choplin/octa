@@ -1,7 +1,7 @@
 //! SQLite repository operations for Issue. This module owns SQLx and converts
 //! database rows to domain values immediately; workflow policy lives in app.
 
-use crate::domain::issue::{Issue, IssueListEntry, IssueRef, IssueState};
+use crate::domain::issue::{Issue, IssueListEntry, IssueRef, IssueState, StateType};
 use crate::domain::milestone::MilestoneRef;
 use crate::domain::Comment;
 use crate::domain::{pr::PrRef, project::ProjectRef};
@@ -52,7 +52,7 @@ struct IssueListRow {
     leased: i64,
     created_at: String,
     updated_at: String,
-    is_closed: i64,
+    state_type: String,
 }
 
 pub async fn insert(
@@ -91,12 +91,12 @@ pub async fn get(pool: &SqlitePool, repo: i64, number: i64) -> Result<Option<Iss
                 WHERE l.repo_id = i.repo_id AND l.issue_number = i.number
             ) AS "leased!: i64",
             i.created_at AS "created_at!: String", i.updated_at AS "updated_at!: String",
-            COALESCE(s.is_closed, 0) AS "is_closed!: i64"
+            s.type AS "state_type!: String"
         FROM
             issues i
         JOIN
             repos r ON r.id = i.repo_id
-        LEFT JOIN
+        JOIN
             issue_states s ON s.name = i.state
         LEFT JOIN issue_projects ip
             ON ip.repo_id = i.repo_id AND ip.issue_number = i.number
@@ -117,7 +117,7 @@ pub async fn get(pool: &SqlitePool, repo: i64, number: i64) -> Result<Option<Iss
     )
     .fetch_optional(pool)
     .await?;
-    Ok(row.map(|row| into_entry(row).issue))
+    row.map(|row| Ok(into_entry(row)?.issue)).transpose()
 }
 
 pub async fn list_entries(pool: &SqlitePool, repo: Option<i64>) -> Result<Vec<IssueListEntry>> {
@@ -137,12 +137,12 @@ pub async fn list_entries(pool: &SqlitePool, repo: Option<i64>) -> Result<Vec<Is
                     WHERE l.repo_id = i.repo_id AND l.issue_number = i.number
                 ) AS "leased!: i64",
                 i.created_at AS "created_at!: String", i.updated_at AS "updated_at!: String",
-                COALESCE(s.is_closed, 0) AS "is_closed!: i64"
+                s.type AS "state_type!: String"
             FROM
                 issues i
             JOIN
                 repos r ON r.id = i.repo_id
-            LEFT JOIN
+            JOIN
                 issue_states s ON s.name = i.state
             LEFT JOIN issue_projects ip
                 ON ip.repo_id = i.repo_id AND ip.issue_number = i.number
@@ -178,12 +178,12 @@ pub async fn list_entries(pool: &SqlitePool, repo: Option<i64>) -> Result<Vec<Is
                     WHERE l.repo_id = i.repo_id AND l.issue_number = i.number
                 ) AS "leased!: i64",
                 i.created_at AS "created_at!: String", i.updated_at AS "updated_at!: String",
-                COALESCE(s.is_closed, 0) AS "is_closed!: i64"
+                s.type AS "state_type!: String"
             FROM
                 issues i
             JOIN
                 repos r ON r.id = i.repo_id
-            LEFT JOIN
+            JOIN
                 issue_states s ON s.name = i.state
             LEFT JOIN issue_projects ip
                 ON ip.repo_id = i.repo_id AND ip.issue_number = i.number
@@ -202,11 +202,12 @@ pub async fn list_entries(pool: &SqlitePool, repo: Option<i64>) -> Result<Vec<Is
             .await?
         }
     };
-    Ok(rows.into_iter().map(into_entry).collect())
+    rows.into_iter().map(into_entry).collect()
 }
 
-fn into_entry(row: IssueListRow) -> IssueListEntry {
-    IssueListEntry {
+fn into_entry(row: IssueListRow) -> Result<IssueListEntry> {
+    let state_type = state_type_of(&row.state_type)?;
+    Ok(IssueListEntry {
         issue: Issue {
             repo: row.repo,
             number: row.number,
@@ -225,16 +226,26 @@ fn into_entry(row: IssueListRow) -> IssueListEntry {
             created_at: row.created_at,
             updated_at: row.updated_at,
         },
-        is_closed: row.is_closed != 0,
-    }
+        state_type,
+    })
+}
+
+/// Classify a `type` column read back from the database.
+///
+/// The column is constrained to the three known values, and every issue joins
+/// to a configured state, so anything else means the database was written
+/// outside octa. Report it rather than guessing a type on the caller's behalf.
+fn state_type_of(value: &str) -> Result<StateType> {
+    StateType::parse(value)
 }
 
 pub async fn labelled_numbers(pool: &SqlitePool, repo: i64, label: &str) -> Result<HashSet<i64>> {
     Ok(sqlx::query_scalar!(r#"SELECT issue_number AS "n!: i64" FROM issue_labels WHERE repo_id = ? AND label_name = ?"#, repo, label).fetch_all(pool).await?.into_iter().collect())
 }
 
-pub async fn state_flags(pool: &SqlitePool, repo: i64) -> Result<Vec<(i64, bool)>> {
-    Ok(sqlx::query!(r#"SELECT i.number AS "number!: i64", COALESCE(s.is_closed, 0) AS "is_closed!: i64" FROM issues i LEFT JOIN issue_states s ON s.name = i.state WHERE i.repo_id = ?"#, repo).fetch_all(pool).await?.into_iter().map(|row| (row.number, row.is_closed != 0)).collect())
+/// Whether each issue in the repository sits in a closed-type state.
+pub async fn closed_flags(pool: &SqlitePool, repo: i64) -> Result<Vec<(i64, bool)>> {
+    sqlx::query!(r#"SELECT i.number AS "number!: i64", s.type AS "state_type!: String" FROM issues i JOIN issue_states s ON s.name = i.state WHERE i.repo_id = ?"#, repo).fetch_all(pool).await?.into_iter().map(|row| Ok((row.number, state_type_of(&row.state_type)?.is_closed()))).collect()
 }
 
 pub async fn dependencies(pool: &SqlitePool, repo: i64) -> Result<Vec<(i64, i64)>> {
@@ -746,21 +757,22 @@ pub async fn seed_default_states(pool: &SqlitePool) -> Result<()> {
     if configured != 0 {
         return Ok(());
     }
-    // A six-state lifecycle covering capture, execution, review, and both ways
-    // an issue closes. New issues start in Backlog.
-    for (state, starting, closed) in [
-        ("Backlog", 1, 0),
-        ("Todo", 0, 0),
-        ("In Progress", 0, 0),
-        ("In Review", 0, 0),
-        ("Done", 0, 1),
-        ("Canceled", 0, 1),
+    // One state per type, plus the second way work ends. `not planned` is a
+    // reason rather than a fourth type, so it shares the closed type with
+    // `closed` instead of extending the axis. Names are lower case to match
+    // `prs.state` and the GitHub API's own value spelling.
+    // The first state of each type becomes that type's default by trigger, so
+    // seeding names the defaults simply by inserting them first.
+    for (state, state_type) in [
+        ("open", "open"),
+        ("in progress", "in progress"),
+        ("closed", "closed"),
+        ("not planned", "closed"),
     ] {
         sqlx::query!(
-            "INSERT OR IGNORE INTO issue_states (name, is_starting, is_closed) VALUES (?, ?, ?)",
+            "INSERT OR IGNORE INTO issue_states (name, type) VALUES (?, ?)",
             state,
-            starting,
-            closed
+            state_type
         )
         .execute(pool)
         .await?;
@@ -768,54 +780,88 @@ pub async fn seed_default_states(pool: &SqlitePool) -> Result<()> {
     Ok(())
 }
 
+/// List every configured state in lifecycle order.
+///
+/// States carry no stored ordinal, so the order is derived: by type, then the
+/// type's default first, then by name.
 pub async fn list_states(pool: &SqlitePool) -> Result<Vec<IssueState>> {
-    // Without an ordering column the listing is derived from the two flags:
-    // the starting state, then the remaining open states, then the closed
-    // ones, each group by name.
-    Ok(sqlx::query!(r#"SELECT name AS "name!: String", is_starting AS "is_starting!: i64", is_closed AS "is_closed!: i64" FROM issue_states ORDER BY is_starting DESC, is_closed ASC, name"#).fetch_all(pool).await?.into_iter().map(|row| IssueState { name: row.name, is_starting: row.is_starting != 0, is_closed: row.is_closed != 0 }).collect())
+    sqlx::query!(r#"SELECT s.name AS "name!: String", s.type AS "state_type!: String", (d.name IS NOT NULL) AS "is_default!: i64" FROM issue_states s LEFT JOIN issue_state_defaults d ON d.name = s.name ORDER BY CASE s.type WHEN 'open' THEN 0 WHEN 'in progress' THEN 1 ELSE 2 END, (d.name IS NOT NULL) DESC, s.name"#)
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .map(|row| {
+            Ok(IssueState {
+                name: row.name,
+                state_type: state_type_of(&row.state_type)?,
+                is_default: row.is_default != 0,
+            })
+        })
+        .collect()
 }
 
+/// Create a state, optionally taking its type's default.
+///
+/// The state alone is enough when the type is empty: a trigger makes the first
+/// state of a type its default.
 pub async fn insert_state(
     pool: &SqlitePool,
     name: &str,
-    starting: bool,
-    closed: bool,
+    state_type: StateType,
+    default: bool,
 ) -> Result<()> {
-    let starting_flag = starting as i64;
-    let closed = closed as i64;
+    let type_value = state_type.as_str();
     let mut tx = pool.begin().await?;
-    if starting {
-        sqlx::query!("UPDATE issue_states SET is_starting = 0")
-            .execute(&mut *tx)
-            .await?;
-    }
     sqlx::query!(
-        "INSERT INTO issue_states (name, is_starting, is_closed) VALUES (?, ?, ?)",
+        "INSERT INTO issue_states (name, type) VALUES (?, ?)",
         name,
-        starting_flag,
-        closed
+        type_value
     )
     .execute(&mut *tx)
     .await?;
+    if default {
+        set_default_state_tx(&mut tx, name, state_type).await?;
+    }
     tx.commit().await?;
     Ok(())
 }
 
-/// Names of every state flagged as the starting state.
+/// The state `state_type` hands out when a verb is given no explicit target.
 ///
-/// The invariant is that at most one state carries the flag, but legacy data
-/// can carry more. Callers resolve the ambiguity rather than silently picking
-/// one.
-pub async fn starting_states(pool: &SqlitePool) -> Result<Vec<String>> {
-    Ok(
-        sqlx::query_scalar!("SELECT name FROM issue_states WHERE is_starting = 1 ORDER BY name")
-            .fetch_all(pool)
-            .await?,
+/// The default is keyed by type, so this is a primary-key lookup returning one
+/// state or none. None means the type has no states at all.
+pub async fn default_state(pool: &SqlitePool, state_type: StateType) -> Result<Option<String>> {
+    let type_value = state_type.as_str();
+    Ok(sqlx::query_scalar!(
+        "SELECT name FROM issue_state_defaults WHERE type = ?",
+        type_value
     )
+    .fetch_optional(pool)
+    .await?)
+}
+
+/// Every configured state of one type, in listing order.
+pub async fn states_of_type(pool: &SqlitePool, state_type: StateType) -> Result<Vec<String>> {
+    let type_value = state_type.as_str();
+    Ok(sqlx::query_scalar!(
+        "SELECT s.name FROM issue_states s LEFT JOIN issue_state_defaults d ON d.name = s.name WHERE s.type = ? ORDER BY (d.name IS NOT NULL) DESC, s.name",
+        type_value
+    )
+    .fetch_all(pool)
+    .await?)
 }
 
 pub async fn get_state(pool: &SqlitePool, name: &str) -> Result<Option<IssueState>> {
-    Ok(sqlx::query!(r#"SELECT name AS "name!: String", is_starting AS "is_starting!: i64", is_closed AS "is_closed!: i64" FROM issue_states WHERE name = ?"#, name).fetch_optional(pool).await?.map(|row| IssueState { name: row.name, is_starting: row.is_starting != 0, is_closed: row.is_closed != 0 }))
+    sqlx::query!(r#"SELECT s.name AS "name!: String", s.type AS "state_type!: String", (d.name IS NOT NULL) AS "is_default!: i64" FROM issue_states s LEFT JOIN issue_state_defaults d ON d.name = s.name WHERE s.name = ?"#, name)
+        .fetch_optional(pool)
+        .await?
+        .map(|row| {
+            Ok(IssueState {
+                name: row.name,
+                state_type: state_type_of(&row.state_type)?,
+                is_default: row.is_default != 0,
+            })
+        })
+        .transpose()
 }
 
 /// Count issues in a state across every repository.
@@ -831,28 +877,22 @@ pub async fn count_issues_in_state(pool: &SqlitePool, name: &str) -> Result<i64>
     .await?)
 }
 
-/// Rename a state and repoint every issue that referenced the old name.
+/// Rename a state.
 ///
-/// `issues.state` stores the state name without a foreign key, so both tables
-/// have to move together. The state is global, so this repoints issues in
-/// every repository.
+/// `issues.state` references the name with `ON UPDATE CASCADE`, so every issue
+/// in the state follows in the same statement, across every repository.
 pub async fn rename_state(pool: &SqlitePool, from: &str, to: &str) -> Result<()> {
-    let mut tx = pool.begin().await?;
     sqlx::query!("UPDATE issue_states SET name = ? WHERE name = ?", to, from)
-        .execute(&mut *tx)
+        .execute(pool)
         .await?;
-    sqlx::query!("UPDATE issues SET state = ? WHERE state = ?", to, from)
-        .execute(&mut *tx)
-        .await?;
-    tx.commit().await?;
     Ok(())
 }
 
-pub async fn update_state_flags(pool: &SqlitePool, name: &str, closed: bool) -> Result<()> {
-    let closed = closed as i64;
+pub async fn update_state_type(pool: &SqlitePool, name: &str, state_type: StateType) -> Result<()> {
+    let type_value = state_type.as_str();
     sqlx::query!(
-        "UPDATE issue_states SET is_closed = ? WHERE name = ?",
-        closed,
+        "UPDATE issue_states SET type = ? WHERE name = ?",
+        type_value,
         name
     )
     .execute(pool)
@@ -862,7 +902,9 @@ pub async fn update_state_flags(pool: &SqlitePool, name: &str, closed: bool) -> 
 
 /// Delete a state, first moving any issues that reference it to `move_to`.
 ///
-/// The state is global, so this reaches every repository's issues.
+/// The state is global, so this reaches every repository's issues. Both
+/// statements share one transaction because `ON DELETE RESTRICT` rejects the
+/// delete until the last issue has left the state.
 pub async fn delete_state(pool: &SqlitePool, name: &str, move_to: Option<&str>) -> Result<()> {
     let mut tx = pool.begin().await?;
     if let Some(move_to) = move_to {
@@ -881,22 +923,31 @@ pub async fn delete_state(pool: &SqlitePool, name: &str, move_to: Option<&str>) 
     Ok(())
 }
 
-/// Make `name` the sole starting state.
-pub async fn set_starting_state(pool: &SqlitePool, name: &str) -> Result<()> {
+/// Make `name` the default state of its own type.
+///
+/// One row per type means one write: the previous default is replaced in place
+/// rather than cleared and re-set, so the type is never momentarily without one.
+pub async fn set_default_state(pool: &SqlitePool, name: &str, state_type: StateType) -> Result<()> {
     let mut tx = pool.begin().await?;
-    sqlx::query!(
-        "UPDATE issue_states SET is_starting = 0 WHERE name <> ?",
-        name
-    )
-    .execute(&mut *tx)
-    .await?;
-    sqlx::query!(
-        "UPDATE issue_states SET is_starting = 1 WHERE name = ?",
-        name
-    )
-    .execute(&mut *tx)
-    .await?;
+    set_default_state_tx(&mut tx, name, state_type).await?;
     tx.commit().await?;
+    Ok(())
+}
+
+async fn set_default_state_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    name: &str,
+    state_type: StateType,
+) -> Result<()> {
+    let type_value = state_type.as_str();
+    sqlx::query!(
+        "INSERT INTO issue_state_defaults (type, name) VALUES (?, ?)
+         ON CONFLICT(type) DO UPDATE SET name = excluded.name",
+        type_value,
+        name
+    )
+    .execute(&mut **tx)
+    .await?;
     Ok(())
 }
 
@@ -920,6 +971,7 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
+        super::seed_default_states(&pool).await.unwrap();
         for number in [1_i64, 2] {
             sqlx::query(
                 "INSERT INTO issues (repo_id, number, title, state) VALUES (1, ?, 'Issue', 'open')",

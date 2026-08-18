@@ -162,6 +162,27 @@ fn assert_command_fails_at(stage: &str, output: &Output, expected_error: &str) {
     );
 }
 
+/// Install the richer workflow these scenarios assume.
+///
+/// The seeded set is deliberately minimal -- one state per type plus a second
+/// way to close -- so a workflow that separates capture from grooming, or
+/// execution from review, configures the extra states itself. Every one of
+/// them still carries exactly one type, which is what the lifecycle queries
+/// select on.
+fn install_workflow_states(env: &Env) {
+    for (name, state_type) in [
+        ("Backlog", "open"),
+        ("Todo", "open"),
+        ("In Progress", "in progress"),
+        ("In Review", "in progress"),
+        ("Done", "closed"),
+        ("Canceled", "closed"),
+    ] {
+        env.ok(&["config", "state", "create", name, "--type", state_type]);
+    }
+    env.ok(&["config", "state", "set", "Backlog", "--default"]);
+}
+
 struct AgentLifecycle {
     env: Env,
 }
@@ -169,6 +190,7 @@ struct AgentLifecycle {
 impl AgentLifecycle {
     fn new() -> Self {
         let env = Env::new();
+        install_workflow_states(&env);
 
         env.ok(&[
             "project",
@@ -180,20 +202,20 @@ impl AgentLifecycle {
         ]);
         env.ok(&[
             "issue",
-            "create",
+            "open",
             "--title",
             "Implement lifecycle scenario",
-            "--state",
+            "--as",
             "Backlog",
             "--project",
             "Agent lifecycle",
         ]);
         env.ok(&[
             "issue",
-            "create",
+            "open",
             "--title",
             "Run the follow-up",
-            "--state",
+            "--as",
             "Backlog",
             "--project",
             "Agent lifecycle",
@@ -222,7 +244,7 @@ impl AgentLifecycle {
     fn start_as_agent_a(&self) -> String {
         let lease = self.env.ok(&["issue", "lock", "1"]).trim().to_string();
         self.env
-            .ok_with_lease(&["issue", "set-state", "1", "In Progress"], &lease);
+            .ok_with_lease(&["issue", "set", "1", "--as", "In Progress"], &lease);
         lease
     }
 
@@ -282,7 +304,9 @@ fn leased_issue_rejects_a_competing_agent_and_unleased_mutation() {
     let competing_lock = scenario.env.run(&["issue", "lock", "1"]);
     assert_command_fails_at("agent B competing lease", &competing_lock, "already leased");
 
-    let unleased_write = scenario.env.run(&["issue", "set-state", "1", "In Review"]);
+    let unleased_write = scenario
+        .env
+        .run(&["issue", "set", "1", "--as", "In Review"]);
     assert_command_fails_at(
         "agent B write without lease",
         &unleased_write,
@@ -343,8 +367,9 @@ fn handoff_gives_the_next_agent_fresh_ownership_and_complete_context() {
     );
     let stale_agent_a_write = scenario.env.run(&[
         "issue",
-        "set-state",
+        "set",
         "1",
+        "--as",
         "In Review",
         "--lease",
         &agent_a_lease,
@@ -386,7 +411,7 @@ fn integrated_pr_completes_the_issue_and_reveals_unblocked_work() {
     scenario.env.ok(&["pr", "set-state", "1", "review"]);
     scenario
         .env
-        .ok_with_lease(&["issue", "set-state", "1", "In Review"], &agent_b_lease);
+        .ok_with_lease(&["issue", "set", "1", "--as", "In Review"], &agent_b_lease);
     let review = scenario.env.json(&["issue", "show", "1", "--json"]);
     assert_eq!(review["state"], "In Review", "review: issue state drifted");
     assert_eq!(
@@ -405,7 +430,7 @@ fn integrated_pr_completes_the_issue_and_reveals_unblocked_work() {
     scenario.env.ok(&["pr", "set-state", "1", "closed"]);
     scenario
         .env
-        .ok_with_lease(&["issue", "set-state", "1", "Done"], &agent_b_lease);
+        .ok_with_lease(&["issue", "set", "1", "--as", "Done"], &agent_b_lease);
     scenario
         .env
         .ok(&["issue", "unlock", "1", "--lease", &agent_b_lease]);
@@ -423,7 +448,7 @@ fn integrated_pr_completes_the_issue_and_reveals_unblocked_work() {
         r#"{
             issue(number: 1) {
                 state
-                blocks { number title state isClosed }
+                blocks { number title state stateType }
                 pullRequests { number state }
             }
         }"#,
@@ -448,6 +473,7 @@ fn integrated_pr_completes_the_issue_and_reveals_unblocked_work() {
 #[test]
 fn repository_local_collaboration_runs_end_to_end_without_losing_context() {
     let env = Env::new();
+    install_workflow_states(&env);
 
     // Labels and their grouping are repository-local, user-defined data.
     env.ok(&[
@@ -522,12 +548,12 @@ fn repository_local_collaboration_runs_end_to_end_without_losing_context() {
     // capture. #3 and #4 exercise related and unrelated follow-up data.
     env.ok(&[
         "issue",
-        "create",
+        "open",
         "--title",
         "Foundation",
         "--body",
         "Prepare the prerequisite.",
-        "--state",
+        "--as",
         "Todo",
         "--project",
         "Workflow parity",
@@ -536,12 +562,12 @@ fn repository_local_collaboration_runs_end_to_end_without_losing_context() {
     ]);
     env.ok(&[
         "issue",
-        "create",
+        "open",
         "--title",
         "Read-only issue browser",
         "--body",
         "Rough capture",
-        "--state",
+        "--as",
         "Backlog",
         "--project",
         "Workflow parity",
@@ -550,10 +576,10 @@ fn repository_local_collaboration_runs_end_to_end_without_losing_context() {
     ]);
     env.ok(&[
         "issue",
-        "create",
+        "open",
         "--title",
         "Related follow-up",
-        "--state",
+        "--as",
         "Todo",
         "--project",
         "Workflow parity",
@@ -562,10 +588,10 @@ fn repository_local_collaboration_runs_end_to_end_without_losing_context() {
     ]);
     env.ok(&[
         "issue",
-        "create",
+        "open",
         "--title",
         "Fallback follow-up",
-        "--state",
+        "--as",
         "Todo",
     ]);
     let foundation_lease = env.ok(&["issue", "lock", "1"]).trim().to_string();
@@ -591,7 +617,7 @@ fn repository_local_collaboration_runs_end_to_end_without_losing_context() {
         "--body",
         "Foundation shipped as planned.",
     ]);
-    env.ok_with_lease(&["issue", "set-state", "1", "Done"], &foundation_lease);
+    env.ok_with_lease(&["issue", "set", "1", "--as", "Done"], &foundation_lease);
     let unblocked_after = env.json(&[
         "issue",
         "list",
@@ -612,7 +638,7 @@ Constraints: view-only; no mutation keys.";
         &target_lease,
     );
     env.ok_with_lease(&["issue", "add", "2", "--label", "client"], &target_lease);
-    env.ok_with_lease(&["issue", "set-state", "2", "Todo"], &target_lease);
+    env.ok_with_lease(&["issue", "set", "2", "--as", "Todo"], &target_lease);
 
     // The generic detail projection retains the complete issue context.
     let target = env.json(&["issue", "show", "2", "--json"]);
@@ -625,7 +651,7 @@ Constraints: view-only; no mutation keys.";
     let contended = env.run(&["issue", "lock", "2"]);
     assert!(!contended.status.success());
     assert!(String::from_utf8_lossy(&contended.stderr).contains("already leased"));
-    env.ok_with_lease(&["issue", "set-state", "2", "In Progress"], &target_lease);
+    env.ok_with_lease(&["issue", "set", "2", "--as", "In Progress"], &target_lease);
 
     // A handoff is append-only and must not change the active state or lock.
     env.ok(&[
@@ -742,12 +768,12 @@ Constraints: view-only; no mutation keys.";
         "--body",
         "Completion: followed the groomed plan without deviation; PR is ready.",
     ]);
-    env.ok_with_lease(&["issue", "set-state", "2", "In Review"], &target_lease);
+    env.ok_with_lease(&["issue", "set", "2", "--as", "In Review"], &target_lease);
     let reviewing = env.json(&["issue", "show", "2", "--json"]);
     assert_eq!(reviewing["state"], "In Review");
     assert_eq!(reviewing["comments"].as_array().unwrap().len(), 2);
     env.ok(&["issue", "comment", "2", "--body", "Merged and shipped."]);
-    env.ok_with_lease(&["issue", "set-state", "2", "Done"], &target_lease);
+    env.ok_with_lease(&["issue", "set", "2", "--as", "Done"], &target_lease);
 
     let project = env.json(&["project", "show", "Workflow parity", "--json"]);
     assert_eq!(project["tally"]["closed"], 2);
@@ -769,10 +795,10 @@ Constraints: view-only; no mutation keys.";
         repo2.path(),
         &[
             "issue",
-            "create",
+            "open",
             "--title",
             "Repository two issue one",
-            "--state",
+            "--as",
             "Backlog",
             "--project",
             "Workflow parity",

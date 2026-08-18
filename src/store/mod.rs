@@ -19,7 +19,10 @@ mod pr;
 mod project;
 mod wiki;
 
-pub use crate::domain::{issue::LeaseOutcome, StateFilter};
+pub use crate::domain::{
+    issue::{IssueListSelector, LeaseOutcome, StateType},
+    StateFilter,
+};
 
 use anyhow::{bail, Context, Result};
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqlitePoolOptions};
@@ -167,7 +170,29 @@ impl Store {
 
 #[cfg(test)]
 mod migration_tests {
-    use super::{Resolved, Store};
+    use super::{Resolved, StateType, Store};
+
+    /// Move an issue through a lease-protected verb, acquiring and releasing the
+    /// lease around it. `None` starts the issue; `Some` closes it, optionally
+    /// into a named closed state.
+    async fn transition(store: &Store, number: i64, close: Option<(&str, Option<&str>)>) {
+        let lease = match store.lock_issue(number).await.unwrap() {
+            crate::domain::issue::LeaseOutcome::Acquired(lease) => lease,
+            crate::domain::issue::LeaseOutcome::AlreadyLeased => panic!("unexpected lease"),
+        };
+        match close {
+            None => store.start_issue(number, Some(&lease)).await.unwrap(),
+            Some((_, as_state)) => store
+                .close_issue(number, as_state, Some(&lease))
+                .await
+                .unwrap(),
+        };
+        store
+            .unlock_issue(number, Some(&lease), false)
+            .await
+            .unwrap();
+    }
+
     use sqlx::sqlite::SqlitePoolOptions;
     use sqlx::SqlitePool;
 
@@ -191,7 +216,13 @@ mod migration_tests {
             (
                 "issue_states",
                 rows!(
-                    r#"SELECT json_array(name, is_starting, is_closed) AS "row!: String" FROM issue_states ORDER BY name"#
+                    r#"SELECT json_array(name, type) AS "row!: String" FROM issue_states ORDER BY name"#
+                ),
+            ),
+            (
+                "issue_state_defaults",
+                rows!(
+                    r#"SELECT json_array(type, name) AS "row!: String" FROM issue_state_defaults ORDER BY type"#
                 ),
             ),
             (
@@ -327,54 +358,42 @@ mod migration_tests {
             pool,
             scope: Resolved::One(repo),
         };
-        // Todo, In Progress, In Review, Done, and Canceled come from the seed.
+        // open, in progress, closed, and not planned come from the seed. Issues
+        // reach the non-open types through the verbs, which is the only way in.
         let first = store
-            .create_issue("First", "first body", Some("Todo"), None, None, None)
+            .create_issue("First", "first body", None, None, None, None)
             .await
             .unwrap();
         let second = store
-            .create_issue(
-                "Second",
-                "second body",
-                Some("In Progress"),
-                None,
-                None,
-                None,
-            )
+            .create_issue("Second", "second body", None, None, None, None)
             .await
             .unwrap();
+        transition(&store, second, None).await;
         let review = store
-            .create_issue("Review", "review body", Some("In Review"), None, None, None)
+            .create_issue("Review", "review body", None, None, None, None)
             .await
             .unwrap();
+        transition(&store, review, None).await;
         let done = store
-            .create_issue("Done", "done body", Some("Done"), None, None, None)
+            .create_issue("Done", "done body", None, None, None, None)
             .await
             .unwrap();
+        transition(&store, done, Some(("closed", None))).await;
         let canceled = store
-            .create_issue(
-                "Canceled",
-                "canceled body",
-                Some("Canceled"),
-                None,
-                None,
-                None,
-            )
+            .create_issue("Not planned", "not planned body", None, None, None, None)
             .await
             .unwrap();
+        transition(&store, canceled, Some(("closed", Some("not planned")))).await;
         // A state left over from an older workflow, still referenced by issues.
-        store.add_state("closed", false, true).await.unwrap();
-        let legacy_closed = store
-            .create_issue(
-                "Legacy closed",
-                "legacy body",
-                Some("closed"),
-                None,
-                None,
-                None,
-            )
+        store
+            .add_state("archived", StateType::Closed, false)
             .await
             .unwrap();
+        let legacy_closed = store
+            .create_issue("Legacy closed", "legacy body", None, None, None, None)
+            .await
+            .unwrap();
+        transition(&store, legacy_closed, Some(("closed", Some("archived")))).await;
         store
             .add_issue_comment(second, "still read-only")
             .await
@@ -423,33 +442,190 @@ mod migration_tests {
         assert_eq!(migrator.migrations.len(), 1);
         migrator.run(&pool).await.unwrap();
 
-        let state_columns: Vec<String> = sqlx::query!("PRAGMA table_info('issue_states')")
-            .fetch_all(&pool)
-            .await
-            .unwrap()
-            .into_iter()
-            .map(|row| row.name)
-            .collect();
-        assert_eq!(state_columns, ["name", "is_starting", "is_closed"]);
+        // Runtime-checked: `PRAGMA table_info` types no longer resolve offline
+        // now that the table declares no column defaults.
+        let state_columns: Vec<String> =
+            sqlx::query_scalar("SELECT name FROM pragma_table_info('issue_states')")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(state_columns, ["name", "type"]);
 
-        // The schema itself, not just the application layer, keeps the store to
-        // one starting state.
+        // The invariant the schema holds is "a type with any states has exactly
+        // one default, and that default is a state of that same type". Each
+        // clause below is checked against the database, not the app layer.
         crate::sql::issue::seed_default_states(&pool).await.unwrap();
         // Runtime-checked queries: these assert schema behavior and have no
         // place in the offline query cache the application's own queries use.
-        let promote = "UPDATE issue_states SET is_starting = 1 WHERE name = 'Todo'";
-        let second_starting = sqlx::query(promote).execute(&pool).await;
-        assert!(
-            second_starting.is_err(),
-            "a second starting state must be rejected by the schema"
+        let seeded: Vec<(String, String)> =
+            sqlx::query_as("SELECT type, name FROM issue_state_defaults ORDER BY type")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            seeded,
+            vec![
+                ("closed".to_string(), "closed".to_string()),
+                ("in progress".to_string(), "in progress".to_string()),
+                ("open".to_string(), "open".to_string()),
+            ],
+            "the first state of each type must become that type's default"
         );
-        // Clearing the flag everywhere first is what the application does, and
-        // it stays legal — including the intermediate state with none set.
-        sqlx::query("UPDATE issue_states SET is_starting = 0")
+
+        let unknown_type =
+            sqlx::query("INSERT INTO issue_states (name, type) VALUES ('blocked', 'waiting')")
+                .execute(&pool)
+                .await;
+        assert!(
+            unknown_type.is_err(),
+            "a type outside the three-value axis must be rejected by the schema"
+        );
+
+        // A second state of a populated type does not take the default.
+        sqlx::query("INSERT INTO issue_states (name, type) VALUES ('triage', 'open')")
             .execute(&pool)
             .await
             .unwrap();
-        sqlx::query(promote).execute(&pool).await.unwrap();
+        let open_default: String =
+            sqlx::query_scalar("SELECT name FROM issue_state_defaults WHERE type = 'open'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(open_default, "open");
+
+        // The default of a type is one row, so there is no second one to add.
+        let second_default =
+            sqlx::query("INSERT INTO issue_state_defaults (type, name) VALUES ('open', 'triage')")
+                .execute(&pool)
+                .await;
+        assert!(
+            second_default.is_err(),
+            "a type must not carry two default states"
+        );
+
+        // Replacing it in place is the only way to move it, and it stays a
+        // single write with no moment where the type has none.
+        sqlx::query(
+            "INSERT INTO issue_state_defaults (type, name) VALUES ('open', 'triage')
+             ON CONFLICT(type) DO UPDATE SET name = excluded.name",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // A default must be a state of the type it is default for.
+        let foreign_type = sqlx::query(
+            "INSERT INTO issue_state_defaults (type, name) VALUES ('in progress', 'triage')
+             ON CONFLICT(type) DO UPDATE SET name = excluded.name",
+        )
+        .execute(&pool)
+        .await;
+        assert!(
+            foreign_type.is_err(),
+            "a default must belong to the type it is default for"
+        );
+
+        // ...and must be a state that exists.
+        let absent = sqlx::query(
+            "INSERT INTO issue_state_defaults (type, name) VALUES ('open', 'ghost')
+             ON CONFLICT(type) DO UPDATE SET name = excluded.name",
+        )
+        .execute(&pool)
+        .await;
+        assert!(absent.is_err(), "a default must name a state that exists");
+
+        // A type that still has states cannot lose its default, whether the row
+        // is removed directly or by deleting the state it names.
+        for statement in [
+            "DELETE FROM issue_state_defaults WHERE type = 'open'",
+            "DELETE FROM issue_states WHERE name = 'triage'",
+        ] {
+            assert!(
+                sqlx::query(statement).execute(&pool).await.is_err(),
+                "a populated type must keep a default: {statement}"
+            );
+        }
+
+        // Emptying a type is how its default legitimately goes away, which is
+        // what lets the optional `in progress` type be empty.
+        sqlx::query("DELETE FROM issue_states WHERE name = 'in progress'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let in_progress_defaults: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM issue_state_defaults WHERE type = 'in progress'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(in_progress_defaults, 0);
+
+        // Refilling it hands the default straight to the state that arrives,
+        // by creation or by retyping one in.
+        sqlx::query("UPDATE issue_states SET type = 'in progress' WHERE name = 'not planned'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let refilled: String =
+            sqlx::query_scalar("SELECT name FROM issue_state_defaults WHERE type = 'in progress'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(refilled, "not planned");
+
+        // `issues.state` is a real reference, so an issue in an unconfigured
+        // state is unrepresentable rather than merely unexpected.
+        sqlx::query("INSERT INTO repos (id, identity_key, name) VALUES (1, 'fk', 'fk')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let unconfigured = sqlx::query(
+            "INSERT INTO issues (repo_id, number, title, state) VALUES (1, 1, 'Orphan', 'nowhere')",
+        )
+        .execute(&pool)
+        .await;
+        assert!(
+            unconfigured.is_err(),
+            "an issue must not reference a state that is not configured"
+        );
+        sqlx::query(
+            "INSERT INTO issues (repo_id, number, title, state) VALUES (1, 1, 'Real', 'open')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Deleting an occupied state is refused rather than taking its issues
+        // with it.
+        let occupied = sqlx::query("DELETE FROM issue_states WHERE name = 'open'")
+            .execute(&pool)
+            .await;
+        assert!(
+            occupied.is_err(),
+            "a state with issues in it must not be deletable"
+        );
+        let survivors: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM issues")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            survivors, 1,
+            "the refused delete must not have removed issues"
+        );
+
+        // Renaming carries the issues instead, in one statement.
+        sqlx::query("UPDATE issue_states SET name = 'ready' WHERE name = 'open'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let moved: String = sqlx::query_scalar("SELECT state FROM issues WHERE number = 1")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            moved, "ready",
+            "rename must carry the state's issues with it"
+        );
 
         let issue_columns: Vec<String> = sqlx::query!("PRAGMA table_info('issues')")
             .fetch_all(&pool)
@@ -501,35 +677,40 @@ mod migration_tests {
             .await
             .unwrap();
 
-        let initial: Vec<(String, bool)> = sqlx::query!(
-            r#"SELECT name AS "name!: String", is_closed AS "is_closed!: bool"
-               FROM issue_states ORDER BY name"#
+        let initial: Vec<(String, String, bool)> = sqlx::query!(
+            r#"SELECT s.name AS "name!: String", s.type AS "state_type!: String",
+                      (d.name IS NOT NULL) AS "is_default!: bool"
+               FROM issue_states s
+               LEFT JOIN issue_state_defaults d ON d.name = s.name
+               ORDER BY s.name"#
         )
         .fetch_all(&pool)
         .await
         .unwrap()
         .into_iter()
-        .map(|row| (row.name, row.is_closed))
+        .map(|row| (row.name, row.state_type, row.is_default))
         .collect();
         // Ordered by name: the table stores no ordering of its own.
         assert_eq!(
             initial,
             vec![
-                ("Backlog".to_string(), false),
-                ("Canceled".to_string(), true),
-                ("Done".to_string(), true),
-                ("In Progress".to_string(), false),
-                ("In Review".to_string(), false),
-                ("Todo".to_string(), false),
+                ("closed".to_string(), "closed".to_string(), true),
+                ("in progress".to_string(), "in progress".to_string(), true),
+                ("not planned".to_string(), "closed".to_string(), false),
+                ("open".to_string(), "open".to_string(), true),
             ]
         );
-        let starting = crate::sql::issue::starting_states(&pool).await.unwrap();
-        assert_eq!(starting, vec!["Backlog".to_string()]);
+        for state_type in [StateType::Open, StateType::InProgress, StateType::Closed] {
+            let default = crate::sql::issue::default_state(&pool, state_type)
+                .await
+                .unwrap();
+            assert_eq!(default.as_deref(), Some(state_type.as_str()));
+        }
 
-        crate::app::issue::add_state(&pool, "Custom", false, false)
+        crate::app::issue::add_state(&pool, "Custom", StateType::Open, false)
             .await
             .unwrap();
-        crate::app::issue::delete_state(&pool, "Todo", None)
+        crate::app::issue::delete_state(&pool, "not planned", None)
             .await
             .unwrap();
         crate::app::issue::create(
@@ -537,7 +718,7 @@ mod migration_tests {
             repo,
             "Preserved",
             "body",
-            Some("In Review"),
+            Some("Custom"),
             None,
             None,
             None,
@@ -546,8 +727,10 @@ mod migration_tests {
         .unwrap();
 
         let states_before: Vec<String> = sqlx::query_scalar!(
-            r#"SELECT json_array(name, is_starting, is_closed) AS "state!: String"
-               FROM issue_states ORDER BY name"#
+            r#"SELECT json_array(s.name, s.type, d.name IS NOT NULL) AS "state!: String"
+               FROM issue_states s
+               LEFT JOIN issue_state_defaults d ON d.name = s.name
+               ORDER BY s.name"#
         )
         .fetch_all(&pool)
         .await
@@ -567,8 +750,10 @@ mod migration_tests {
         crate::sql::issue::seed_default_states(&pool).await.unwrap();
 
         let states_after: Vec<String> = sqlx::query_scalar!(
-            r#"SELECT json_array(name, is_starting, is_closed) AS "state!: String"
-               FROM issue_states ORDER BY name"#
+            r#"SELECT json_array(s.name, s.type, d.name IS NOT NULL) AS "state!: String"
+               FROM issue_states s
+               LEFT JOIN issue_state_defaults d ON d.name = s.name
+               ORDER BY s.name"#
         )
         .fetch_all(&pool)
         .await

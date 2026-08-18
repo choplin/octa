@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT i.number AS \"number!: i64\", s.type AS \"state_type!: String\" FROM issues i JOIN issue_states s ON s.name = i.state WHERE i.repo_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "number!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "state_type!: String",
+        "ordinal": 1,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "1eee1a45eabee7d677e8fdba7919a8995f6dc028760fb5f3120bd53f57c46f07"
+}

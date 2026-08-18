@@ -33,22 +33,39 @@ A file uses the same execution path:
 octa query --file issue.graphql --variables '{"number": 1}'
 ```
 
+An Issue exposes `stateType` alongside `state`, and `IssueFilter` takes `state`
+and `stateType`. Both filter entries accept one value or a list, and match an
+Issue carrying any listed value:
+
+```sh
+octa query <<'GRAPHQL'
+{
+  issues(filter: { stateType: ["open", "in progress"] }) {
+    number
+    state
+    stateType
+  }
+}
+GRAPHQL
+```
+
 The selection set is compiled into a SQLite query that projects only selected columns and relations. Singular relations use correlated joins; collection relations use aggregate subqueries containing joins. Unselected relations are not queried. The command writes a standard GraphQL JSON response to stdout, with the executed query count in `extensions.dbAccesses`. Successful responses contain `data`; validation and execution failures contain `errors` in the envelope and may still exit successfully. Consumers must inspect the envelope rather than relying only on process status. Use `query --schema` or GraphQL introspection to inspect the available public fields rather than depending on SQLite tables.
 
 ## Issue
 
 ```text
-issue create|list|show|set|unset|add|remove|comment|set-state|lock|unlock|tui
+issue open|create|list|show|start|close|reopen|set|unset|add|remove|comment|lock|unlock|tui
 ```
 
 Important constraints:
 
 - `issue lock N` returns a random opaque non-expiring lease ID once. A second acquisition fails while the Issue is leased.
-- `issue set-state`, `set`, `unset`, `add`, and `remove` require the target Issue's `--lease`. So do Issue–PR link changes through `pr create --issue`, `pr add`, and `pr remove`.
+- `issue start`, `close`, `reopen`, `set`, `unset`, `add`, and `remove` require the target Issue's `--lease`. So do Issue–PR link changes through `pr create --issue`, `pr add`, and `pr remove`.
 - Normal `issue unlock` requires the matching `--lease`. `issue unlock --force` accepts no lease and invalidates the old credential immediately; use it only for recovery.
-- `issue create`, `issue comment`, unlinked `pr create`, `pr comment`, `pr set`, `pr set-state`, and Project, Milestone, Wiki, and config operations do not require an Issue lease. Read commands and lease acquisition also require no existing lease credential.
-- With no state selector or with `--open`, `issue list` returns open Issues. `--closed` returns closed Issues, `--all` returns both, and `--state <name>` exactly matches a configured state name. These four selectors are mutually exclusive.
-- A Milestone belongs to a Project. `issue create --milestone` requires `--project`.
+- `issue open` (alias `create`), `issue comment`, unlinked `pr create`, `pr comment`, `pr set`, `pr set-state`, and Project, Milestone, Wiki, and config operations do not require an Issue lease. Read commands and lease acquisition also require no existing lease credential.
+- Each verb without an explicit target moves the Issue to its type's default state: `open` to the `open` default, `start` to the `in progress` default, `close` to the `closed` default, `reopen` back to the `open` default. `--as <state>` picks another state of that verb's own type and rejects any other type, `issue open` included. `start` has no `--as`. `issue set --as <state>` is the only unconstrained move and reaches any configured state; capturing work that is already underway is `open` then `start`.
+- With no state selector, `issue list` returns Issues outside the `closed` type. `--state <names>` matches configured state names, `--state-type <types>` matches state types, both comma-separated and matching any listed value, and `--all` applies no filter. These three selectors are mutually exclusive. States are global configuration, so `--state` and `--state-type` also work under `--all-repos`.
+- A Milestone belongs to a Project. `issue open --milestone` requires `--project`.
 - Unset an Issue's Milestone before changing or unsetting its Project.
 - Parent/child relations are repository-local and independent of Project membership. Parent and child may belong to different Projects, or only one may have a Project.
 - Setting a parent initially inherits the parent's Project when the child has none. Later Project changes or removal do not propagate across the relation and are not blocked by it.
@@ -78,12 +95,18 @@ octa records PR metadata and discussion; Git remains the source for code and dif
 wiki create|set|show|list
 config label create|list --target issue|project
 config label-group create|list --target issue|project
-config state create|set|delete|set-default|list
+config state create|set|delete|list
 ```
 
-Wiki bodies recognize `[[slug]]`; `wiki show` includes outgoing links and backlinks. Issue and Project labels have separate definitions selected by the required `--target`. Label and label-group names are opaque repository data with no reserved operational taxonomy. Label groups use `single` or `multi` selection; `single` only makes explicitly grouped labels for the same target mutually exclusive. `config state create <name>` takes optional `--starting` and `--closed`, which are mutually exclusive. `config state set <name>` changes a state's `--name` or `--closed`; renaming carries the state's Issues with it. `config state delete <name>` needs `--move-to <state>` while Issues still reference the state, and refuses the starting state. `config state set-default <name>` moves the starting flag.
+Wiki bodies recognize `[[slug]]`; `wiki show` includes outgoing links and backlinks. Issue and Project labels have separate definitions selected by the required `--target`. Label and label-group names are opaque repository data with no reserved operational taxonomy. Label groups use `single` or `multi` selection; `single` only makes explicitly grouped labels for the same target mutually exclusive. `config state create <name>` takes `--type open|in progress|closed` (default `open`) and `--default`, which makes it that type's default. `config state set <name>` changes a state's `--name` or `--type`, and `--default` makes it its own type's default; renaming carries the state's Issues with it. The default needs no type argument anywhere, since a state already carries exactly one type. `config state delete <name>` needs `--move-to <state>` while Issues still reference the state; the schema refuses the delete otherwise.
 
-New repositories seed Backlog, Todo, In Progress, In Review, Done, and Canceled — a six-state lifecycle covering capture, execution, review, and both ways an Issue closes. Seeding happens only for a repository with no configured states, so an existing workflow is never extended behind your back. A state carries exactly two classifications: `is_starting` and `is_closed`; octa models no gradation between them. An Issue is open or closed according to its state's `is_closed` flag — one word for the classification everywhere it appears. Exactly one state carries the starting flag and receives new Issues; it is resolved from that flag alone. Issue states carry no stored ordinal — `config state list` derives its order from the two flags and then name (the starting state, then the remaining open states, then the closed ones), so there is nothing to reorder. Existing custom and legacy states and their Issues are preserved.
+New repositories seed `open`, `in progress`, `closed`, and `not planned` — one state per type plus the second way work ends. Seeding happens only for a repository with no configured states, so an existing workflow is never extended behind your back. A workflow that separates capture from grooming, or execution from review, configures those states itself.
+
+A state carries exactly one classification: its `type`, one of `open`, `in progress`, or `closed`. octa models no finer gradation. An Issue is closed when its state's type is `closed`; that is derived from the type, not a second stored flag. Why an Issue closed is a reason carried by the state name, which is why `closed` and `not planned` share one type instead of the axis gaining a fourth value.
+
+An Issue's state is a reference to a configured state, enforced by the schema: an Issue cannot name a state that does not exist, renaming a state carries its Issues with it, and a state that still holds Issues cannot be deleted. Deleting a state never deletes Issues.
+
+A type that has any states has exactly one default, the one a verb resolves to when given no explicit target. The schema holds that invariant rather than the application: the default is one row per type, keyed by the type, referencing a state of that same type. The first state of an empty type becomes that default whether or not `--default` was passed — by creation or by retyping an existing state into it — and the command says so. Only an empty type has no default, which is why emptying `in progress` is legal and emptying `open` or `closed` is not. The `open` and `closed` types must stay populated, since every Issue has to be able to start and to end; the `in progress` type may be emptied, and then `start` reports that it has nowhere to go. A type's default cannot be deleted or retyped while another state of that type remains — move the default first. Issue states carry no stored ordinal: `config state list` derives its order from type (`open`, then `in progress`, then `closed`), then the type's default, then name. Existing custom states and their Issues are preserved.
 
 ## JSON contracts
 
@@ -91,7 +114,7 @@ Commands exposing `--json` write one JSON value to stdout:
 
 - List commands return arrays.
 - `issue show` returns the Issue fields plus `labels`, `blocks`, `blocked_by`, `related`, `pull_requests`, `parent`, `sub_issues`, and `comments`.
-- An Issue includes `repo`, `number`, `title`, `body`, `state`, optional `project`, optional `milestone`, `leased`, `created_at`, and `updated_at`. The lease ID is never exposed by list, show, or query output.
+- An Issue includes `repo`, `number`, `title`, `body`, `state`, optional `project`, optional `milestone`, `leased`, `created_at`, and `updated_at`. `config state list --json` returns each state's `name`, `type`, and `is_default`. The lease ID is never exposed by list, show, or query output.
 - `project list` includes every Project by default, including closed ones. Use `--active` for the explicit open-Project filter. A Project's closed flag is set by `project create --closed` and `project set-state <project> <state> --closed`.
 - Project list/show tallies count all assigned Issues and expose open, closed, and total; closed work is never subtracted implicitly.
 - Projects are ordered by repository name, then by Project id. octa has no built-in priority; express one with a `single` label group when needed.

@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT s.name AS \"name!: String\", s.type AS \"state_type!: String\", (d.name IS NOT NULL) AS \"is_default!: i64\" FROM issue_states s LEFT JOIN issue_state_defaults d ON d.name = s.name ORDER BY CASE s.type WHEN 'open' THEN 0 WHEN 'in progress' THEN 1 ELSE 2 END, (d.name IS NOT NULL) DESC, s.name",
+  "describe": {
+    "columns": [
+      {
+        "name": "name!: String",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "state_type!: String",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "is_default!: i64",
+        "ordinal": 2,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "8c4977bea9839a82f62a3e5b342e17799f0d32a32838f4d20ca720fb6d7cb6a3"
+}

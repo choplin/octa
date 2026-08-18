@@ -1,5 +1,5 @@
 use super::output::{Output, Tone};
-use super::IssueCommand;
+use super::{IssueCommand, IssueOpenArgs};
 use crate::store::{LeaseOutcome, Store};
 use anyhow::Result;
 
@@ -11,35 +11,13 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             // within a repository), so the TUI deliberately rejects
             // `--all-repos` before entering raw terminal mode.
             store.repo_id()?;
-            // The TUI is a general-purpose issue browser, so it shows review,
-            // closed, canceled, and legacy states.
+            // The TUI is a general-purpose issue browser, so it applies no
+            // state selector: closed-type and custom states are shown too.
             let details = store.list_all_issue_details().await?;
             crate::tui::run(details)?;
         }
-        IssueCommand::Create {
-            title,
-            body,
-            state,
-            project,
-            milestone,
-            parent,
-            json,
-        } => {
-            let number = store
-                .create_issue(
-                    &title,
-                    &body,
-                    state.as_deref(),
-                    project.as_deref(),
-                    milestone.as_deref(),
-                    parent,
-                )
-                .await?;
-            if json {
-                println!("{}", serde_json::json!({ "number": number }));
-            } else {
-                output.print(output.line(Tone::Success, format!("#{number}")));
-            }
+        IssueCommand::Open { args } | IssueCommand::Create { args } => {
+            open_issue(store, &output, args).await?
         }
         IssueCommand::List {
             state_filter,
@@ -50,11 +28,9 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             unblocked,
             json,
         } => {
-            let (filter, state_name) = state_filter.into_filter();
             let issues = store
                 .list_issues(
-                    filter,
-                    state_name.as_deref(),
+                    state_filter.into_selector()?,
                     label.as_deref(),
                     project.as_deref(),
                     milestone.as_deref(),
@@ -183,18 +159,33 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             store.add_issue_comment(number, &body).await?;
             output.print(output.line(Tone::Success, format!("commented on issue #{number}")));
         }
-        IssueCommand::SetState {
+        IssueCommand::Start { number, lease } => {
+            let state = store.start_issue(number, lease.as_deref()).await?;
+            output.print(output.line(Tone::Success, format!("issue #{number} -> {state}")));
+        }
+        IssueCommand::Close {
             number,
-            state,
+            as_state,
             lease,
         } => {
-            store
-                .set_issue_state(number, &state, lease.as_deref())
+            let state = store
+                .close_issue(number, as_state.as_deref(), lease.as_deref())
+                .await?;
+            output.print(output.line(Tone::Success, format!("issue #{number} -> {state}")));
+        }
+        IssueCommand::Reopen {
+            number,
+            as_state,
+            lease,
+        } => {
+            let state = store
+                .reopen_issue(number, as_state.as_deref(), lease.as_deref())
                 .await?;
             output.print(output.line(Tone::Success, format!("issue #{number} -> {state}")));
         }
         IssueCommand::Set {
             number,
+            as_state,
             title,
             body,
             project,
@@ -202,13 +193,19 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             parent,
             lease,
         } => {
-            if title.is_none()
+            if as_state.is_none()
+                && title.is_none()
                 && body.is_none()
                 && project.is_none()
                 && milestone.is_none()
                 && parent.is_none()
             {
                 anyhow::bail!("specify at least one property to set");
+            }
+            if let Some(state) = &as_state {
+                store
+                    .set_issue_state(number, state, lease.as_deref())
+                    .await?;
             }
             if title.is_some() || body.is_some() {
                 store
@@ -354,6 +351,34 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                 anyhow::bail!("valid lease required for issue #{number} (use --force to override)");
             }
         }
+    }
+    Ok(())
+}
+
+async fn open_issue(store: &Store, output: &Output, args: IssueOpenArgs) -> Result<()> {
+    let IssueOpenArgs {
+        title,
+        body,
+        as_state,
+        project,
+        milestone,
+        parent,
+        json,
+    } = args;
+    let number = store
+        .create_issue(
+            &title,
+            &body,
+            as_state.as_deref(),
+            project.as_deref(),
+            milestone.as_deref(),
+            parent,
+        )
+        .await?;
+    if json {
+        println!("{}", serde_json::json!({ "number": number }));
+    } else {
+        output.print(output.line(Tone::Success, format!("#{number}")));
     }
     Ok(())
 }

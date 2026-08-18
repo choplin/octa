@@ -574,8 +574,10 @@ mod tests {
     }
 
     #[test]
-    fn default_all_view_keeps_review_closed_canceled_and_legacy_states_visible() {
-        let states = ["In Progress", "In Review", "Done", "Canceled", "closed"];
+    fn default_all_view_keeps_closed_and_custom_states_visible() {
+        // The browser applies no selector, so every state reaches it: the
+        // closed type and whatever custom states a workflow configured.
+        let states = ["in progress", "closed", "not planned", "In Review", "Done"];
         let issues = states
             .iter()
             .enumerate()

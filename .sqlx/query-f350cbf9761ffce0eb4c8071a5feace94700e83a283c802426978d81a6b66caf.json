@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT json_array(s.name, s.type, d.name IS NOT NULL) AS \"state!: String\"\n               FROM issue_states s\n               LEFT JOIN issue_state_defaults d ON d.name = s.name\n               ORDER BY s.name",
+  "describe": {
+    "columns": [
+      {
+        "name": "state!: String",
+        "ordinal": 0,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "f350cbf9761ffce0eb4c8071a5feace94700e83a283c802426978d81a6b66caf"
+}

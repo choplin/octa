@@ -62,7 +62,7 @@ cd path/to/your-repository
 Issue を作成し、一覧と詳細を確認します。
 
 ```sh
-octa issue create \
+octa issue open \
   --title "リリース手順を文書化する" \
   --body "必要な確認項目と実行手順を Wiki に残す。"
 
@@ -77,14 +77,14 @@ octa issue show 1
 
 ```sh
 LEASE=$(octa issue lock 1)
-octa issue set-state 1 "In Progress" --lease "$LEASE"
+octa issue start 1 --lease "$LEASE"
 octa issue comment 1 --body "着手しました。"
 ```
 
-完了時は同じ lease を付けて状態を更新し、その後で lease を解放します。
+完了時は同じ lease を付けて閉じ、その後で lease を解放します。
 
 ```sh
-octa issue set-state 1 Done --lease "$LEASE"
+octa issue close 1 --lease "$LEASE"
 octa issue unlock 1 --lease "$LEASE"
 ```
 
@@ -96,7 +96,7 @@ octa issue unlock 1 --force
 LEASE=$(octa issue lock 1)
 ```
 
-`issue set-state`、`set`、`unset`、`add`、`remove` と通常の `unlock`、および Issue と PR の link を変更する `pr create --issue`、`pr add`、`pr remove` には、対象 Issue の `--lease` が必要です。
+`issue start`、`close`、`reopen`、`set`、`unset`、`add`、`remove` と通常の `unlock`、および Issue と PR の link を変更する `pr create --issue`、`pr add`、`pr remove` には、対象 Issue の `--lease` が必要です。
 Issue の作成とコメント、PR のコメント、Issue と link しない PR の作成、PR 自体の `set` / `set-state`、Project、Milestone、Wiki、config の操作には lease は不要です。
 読み取り操作にも不要です。
 ツールログやコマンド引数にlease IDが現れることは想定内です。一方、Issueコメント、
@@ -115,26 +115,29 @@ LEASE=$(octa issue lock 1)
 
 ### 状態と一覧
 
-新規リポジトリには `Backlog`、`Todo`、`In Progress`、`In Review`、`Done`、
-`Canceled` の6状態が作られ、新規Issueは `Backlog` に入ります。
+新規リポジトリには `open`、`in progress`、`closed`、`not planned` の4状態が
+作られ、新規Issueは `open` に入ります。各状態は `open` / `in progress` / `closed`
+の3値の **type** をちょうど1つ持ちます。
 
 ```sh
-octa issue set-state 1 "In Progress" --lease "$LEASE"
-octa issue list --open
-octa issue list --closed
+octa issue start 1 --lease "$LEASE"
+octa issue list
+octa issue list --state-type "in progress"
+octa issue list --state-type closed
+octa issue list --state "open,not planned"
 octa issue list --all
-octa issue list --state "In Progress"
 ```
 
-引数なしと `--open` はopenなIssue、`--closed` はclosedなIssue、`--all` は
-両方を表示します。Issueがclosedかどうかは、その状態にcloseフラグが立っているかで
-決まります。`--state <name>` は設定済みの状態名との完全一致です。
-これら4つのselectorは同時に指定できません。
+selectorを省略すると、closed型を除いたIssueを表示します。`--state-type <types>`
+はtypeとの、`--state <names>` は設定済みの状態名との完全一致で、どちらも `,` 区切りの
+複数指定を受け、いずれかに一致するIssueを返します。`--all` は絞り込みを行いません。
+これら3つのselectorは同時に指定できません。状態名を指定した時点でそのtypeは確定するため、
+`--state` と `--state-type` の併用は常に冗長か常に空になるからです。
 
 Linear の Issue 一覧と詳細の代わりに、read-only の2ペインTUIも使えます。
 これは現行の初期実装を説明するものであり、将来のTUI更新操作を製品境界から除外するものではありません。
-既定の `filter: all` は、作業候補だけでなく In Review、Done、Canceled、
-および既存の custom/legacy state を含む current repository の全Issueを
+既定の `filter: all` は、作業候補だけでなく closed 型のIssueと既存の
+custom state を含む current repository の全Issueを
 Issue番号順に表示します。
 
 ```sh
@@ -179,7 +182,7 @@ Issue 作成時に Project と Milestone を同時に指定できます。Milest
 Project 内の entity なので、`--milestone` には `--project` も必要です。
 
 ```sh
-octa issue create \
+octa issue open \
   --title "beta 利用者を招待する" \
   --project "CLI を公開する" \
   --milestone "Public beta"
@@ -210,54 +213,81 @@ octa issue unset 1 --project --lease "$LEASE"
 Project 内の Milestone が設定されている Issue だけは、従来どおり先に Milestone を
 unset してから Project を変更または解除します。
 
-新規リポジトリには、キャプチャから実行・レビュー・2つの終端までを覆う6状態が
-自動作成されます。
+新規リポジトリには、type ごとの既定状態1つずつと、2つ目の終わり方が自動作成されます。
 
-| 状態 | フラグ | 備考 |
+| 状態 | type | その type の既定 |
 |---|---|---|
-| Backlog | starting | 新規Issueの入口 |
-| Todo | | |
-| In Progress | | |
-| In Review | | |
-| Done | closed | Issueはここでcloseする |
-| Canceled | closed | Issueはここでcloseする |
+| open | open | ✓ |
+| in progress | in progress | ✓ |
+| closed | closed | ✓ |
+| not planned | closed | |
 
 seedが走るのは状態を1つも持たないリポジトリだけです。すでにworkflowを
 設定済みのリポジトリの状態構成は、そのまま保たれます。
 
-状態はあとから追加・変更・削除できます。
+状態はあとから追加・変更・削除できます。`--type` は省略すると `open` です。
 
 ```sh
-octa config state create blocked
-octa config state set Todo --name Ready
-octa config state set Ready --closed true
-octa config state delete blocked --move-to Ready
-octa config state set-default Ready
+octa config state create Backlog
+octa config state create "In Review" --type "in progress"
+octa config state set open --name Ready
+octa config state set Ready --type "in progress"
+octa config state delete Backlog --move-to Ready
+octa config state set Ready --default
 octa config state list
 ```
 
 `config state set --name` での改名は、その状態のIssueも一緒に移します。
-`config state delete` は、Issueが残っている状態には `--move-to <state>` を要求し、
-入口の状態は `set-default` で入口を移すまで削除できません。
+`config state delete` は、Issueが残っている状態には `--move-to <state>` を要求します。
+この2つはDBの参照制約でもあり、Issueが残っている状態の削除は拒否されます。
+状態を消してもIssueが道連れになることはありません。
 
-新規Issueが入る状態は1リポジトリにつき1つだけで、`config state set-default`
-（または `config state create --starting`）で移します。この明示的なフラグだけで
-決まります。
+**状態を持つ type は、必ず既定の状態をちょうど1つ持ちます。これはDBスキーマが
+保証します。** 空の type に最初の状態を作ると、`--default` を付けなくてもその状態が
+既定になります。空の type へ状態を移した場合も同じです。引数を省いた動詞の行き先は、
+その type が使える状態なら必ず決まっている必要があるためです。この自動的な昇格は
+出力で伝えます。
 
-状態は並び順を持ちません。`config state list` の表示順は `is_starting` と
-`is_closed` の2フラグと名前から導かれ、入口の状態、残りのopenな状態、closedな状態の
-順に並びます。各グループの中は名前順です。
+既定を別の状態へ移すには `config state set <name> --default` を使います。
+`config state create --default` も同じです。どちらも type を引数に取りません。
+状態がすでに type を1つ持っており、重ねて指定しても矛盾しか生まないためです。
 
-Issueの状態は `closed` フラグひとつでopen/closedが決まります。`issue list --closed`
-や `project list` の `Open/Closed` 列が数えているのは、このフラグが立った状態にある
-Issueです。
+同じ type に別の状態が残っている間は、既定の状態を削除したり type を変更したりできません。
+先に `config state set <name> --default` で既定を移します。これもスキーマ側の制約です。また `open` 型と `closed` 型は空にできません。
+どのIssueも始められて終われる必要があるためです。`in progress` 型は空にできます。
+着手済みを区別しないworkflowも成立するからです。その場合 `issue start` は行き先を失い、
+`in progress` 型の状態が無いことを報告して失敗します。状態をひとつ作れば、それが
+既定になるので `issue start` はそのまま使えるようになります。
 
-octaが状態について持つ分類はこの2フラグだけで、その間の段階を区別しません。
+状態は並び順を持ちません。`config state list` の表示順は type と既定フラグと名前から
+導かれ、`open` → `in progress` → `closed` の順に並びます。各 type の中では既定の状態が
+先頭で、残りは名前順です。
+
+Issueがclosedかどうかは type から導かれます。`type` が `closed` の状態にあるIssueが
+closedです。`issue list --state-type closed` や `project list` の `Open/Closed` 列が
+数えているのはこのIssueです。閉じた理由は type ではなく状態名で表します。`closed` と
+`not planned` が同じ type を共有しているのはそのためです。
+
+octaが状態について持つ分類はこの type 軸だけで、その間の段階を区別しません。
 状態名そのものには何の意味も与えないため、任意の状態名を使えます。
-旧バージョンで作成済みのworkflow状態やその他のcustom/legacy stateと、
+旧バージョンで作成済みのworkflow状態やその他のcustom stateと、
 それらを参照するIssueはmigration後も削除・改名されません。
 
-Issueの状態は `issue set-state` で明示的に遷移させます。
+Issueの状態は動詞で遷移させます。引数を省いた動詞は、その type の既定へ移します。
+
+```sh
+octa issue start 1 --lease "$LEASE"
+octa issue close 1 --lease "$LEASE"
+octa issue close 1 --as "not planned" --lease "$LEASE"
+octa issue reopen 1 --lease "$LEASE"
+octa issue set 1 --as "In Review" --lease "$LEASE"
+```
+
+`--as` はその動詞の type に属する状態だけを受け付けます。`issue open`（別名 `create`）
+も同じで、受け付けるのは open 型の状態だけです。既に着手済み、または既に解決済みの
+Issueを記録するときは、`open` してから `start` または `close` します。
+`issue set --as` だけが type を問わず任意の状態へ移せる操作です。`issue start` に
+`--as` が無いのは、着手の時点で行き先が確定していないためです。
 
 ### 依存関係
 
@@ -478,7 +508,10 @@ octa --all-repos pr list --state all
 octa --all-repos wiki list
 ```
 
-更新操作と、Issue の `--label`、`--unblocked`、固有状態による絞り込みは、単一リポジトリで実行してください。
+更新操作と、Issue の `--label`、`--project`、`--milestone`、`--related-to`、
+`--unblocked` による絞り込みは、単一リポジトリで実行してください。状態の設定は
+リポジトリ横断のグローバル設定なので、`--state` と `--state-type` は `--all-repos`
+でも使えます。
 
 ## 保存場所とバックアップ
 

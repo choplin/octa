@@ -1,7 +1,7 @@
-use crate::domain::{
-    milestone::MilestoneRef, pr::PrRef, project::ProjectRef, state_filter::StateFilter, Comment,
-};
+use crate::domain::{milestone::MilestoneRef, pr::PrRef, project::ProjectRef, Comment};
+use anyhow::{bail, Result};
 use serde::Serialize;
+use std::fmt;
 
 #[derive(Debug, Serialize)]
 pub struct Issue {
@@ -21,7 +21,7 @@ pub struct Issue {
 /// directly into this type; SQL row records never escape the persistence layer.
 pub(crate) struct IssueListEntry {
     pub issue: Issue,
-    pub is_closed: bool,
+    pub state_type: StateType,
 }
 
 #[derive(Debug, Serialize)]
@@ -47,15 +47,82 @@ pub struct IssueRef {
 #[derive(Debug, Serialize)]
 pub struct IssueState {
     pub name: String,
-    pub is_starting: bool,
-    pub is_closed: bool,
+    #[serde(rename = "type")]
+    pub state_type: StateType,
+    pub is_default: bool,
 }
 
-impl StateFilter {
-    pub fn includes(self, is_closed: bool) -> bool {
+/// The single axis classifying a configured state.
+///
+/// The three values are the distinctions a user already draws before meeting
+/// octa: not yet resolved, picked up, resolved. Why an issue closed is a
+/// *reason*, carried by the state name rather than by a fourth type. Variant
+/// order is the lifecycle order every listing sorts by.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum StateType {
+    Open,
+    #[serde(rename = "in progress")]
+    InProgress,
+    Closed,
+}
+
+impl StateType {
+    pub fn as_str(self) -> &'static str {
         match self {
-            Self::Open => !is_closed,
-            Self::Closed => is_closed,
+            Self::Open => "open",
+            Self::InProgress => "in progress",
+            Self::Closed => "closed",
+        }
+    }
+
+    /// Parse the wire form used by the CLI, the schema, and GraphQL alike.
+    pub fn parse(value: &str) -> Result<Self> {
+        match value {
+            "open" => Ok(Self::Open),
+            "in progress" => Ok(Self::InProgress),
+            "closed" => Ok(Self::Closed),
+            other => bail!("unknown state type {other:?}; use open, in progress, or closed"),
+        }
+    }
+
+    /// Whether issues in a state of this type count as closed.
+    ///
+    /// This is derived, not stored: `closed` is the only terminal type.
+    pub fn is_closed(self) -> bool {
+        self == Self::Closed
+    }
+}
+
+impl fmt::Display for StateType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// How `issue list` selects which issues to return.
+///
+/// The three variants are mutually exclusive on the command line. Omitting a
+/// selector means `Types` over the non-closed types: a listing that hides
+/// resolved work by default is worth more than perfect orthogonality with
+/// `All`.
+pub enum IssueListSelector {
+    Types(Vec<StateType>),
+    States(Vec<String>),
+    All,
+}
+
+impl Default for IssueListSelector {
+    fn default() -> Self {
+        Self::Types(vec![StateType::Open, StateType::InProgress])
+    }
+}
+
+impl IssueListSelector {
+    pub(crate) fn includes(&self, state_type: StateType, state_name: &str) -> bool {
+        match self {
+            Self::Types(types) => types.contains(&state_type),
+            Self::States(names) => names.iter().any(|name| name == state_name),
             Self::All => true,
         }
     }

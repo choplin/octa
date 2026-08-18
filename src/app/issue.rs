@@ -1,8 +1,7 @@
 //! Issue workflows: validation, policy, and composition of the SQL repository.
 
-use crate::domain::{
-    issue::{Issue, IssueDetail, IssueState, LeaseOutcome},
-    StateFilter,
+use crate::domain::issue::{
+    Issue, IssueDetail, IssueListSelector, IssueState, LeaseOutcome, StateType,
 };
 use anyhow::{anyhow, bail, Result};
 use sqlx::SqlitePool;
@@ -13,21 +12,53 @@ async fn require(pool: &SqlitePool, repo: i64, number: i64) -> Result<Issue> {
         .await?
         .ok_or_else(|| anyhow!("issue #{number} not found"))
 }
-async fn starting(pool: &SqlitePool) -> Result<String> {
-    let mut candidates = crate::sql::issue::starting_states(pool).await?;
-    match candidates.len() {
-        1 => Ok(candidates.remove(0)),
-        0 => bail!("no starting state configured; run `octa config state set-default <name>`"),
-        _ => bail!(
-            "{} states are flagged as starting ({}); run `octa config state set-default <name>` to pick one",
-            candidates.len(),
-            candidates.join(", ")
-        ),
-    }
+
+/// The state a verb moves an issue to when it is given no explicit target.
+///
+/// The schema keys the default by type, so a populated type always resolves to
+/// exactly one state. Nothing coming back means the type has no states at all,
+/// which only `in progress` is allowed to be.
+async fn default_state(pool: &SqlitePool, state_type: StateType) -> Result<String> {
+    crate::sql::issue::default_state(pool, state_type)
+        .await?
+        .ok_or_else(|| {
+            anyhow!(
+                "no {:?} state is configured; create one with `octa config state create <name> --type {:?}`",
+                state_type.as_str(),
+                state_type.as_str()
+            )
+        })
 }
+
+/// Resolve a verb's target state: the explicit `--as` value or the type default.
+///
+/// `--as` accepts only states of the verb's own type. A verb whose name states
+/// the outcome must not be a back door into an unrelated state.
+async fn target_state(
+    pool: &SqlitePool,
+    state_type: StateType,
+    requested: Option<&str>,
+) -> Result<String> {
+    let Some(requested) = requested else {
+        return default_state(pool, state_type).await;
+    };
+    let state = crate::sql::issue::get_state(pool, requested)
+        .await?
+        .ok_or_else(|| anyhow!("no configured state named {requested:?}"))?;
+    if state.state_type != state_type {
+        let available = crate::sql::issue::states_of_type(pool, state_type).await?;
+        bail!(
+            "state {requested:?} has type {:?}, not {:?}; available: {}",
+            state.state_type.as_str(),
+            state_type.as_str(),
+            available.join(", ")
+        );
+    }
+    Ok(state.name)
+}
+
 pub(crate) struct ListQuery<'a> {
-    pub filter: StateFilter,
-    pub state_name: Option<&'a str>,
+    pub selector: IssueListSelector,
     pub label: Option<&'a str>,
     pub project: Option<&'a str>,
     pub milestone: Option<&'a str>,
@@ -46,15 +77,10 @@ pub async fn create(
     milestone: Option<&str>,
     parent: Option<i64>,
 ) -> Result<i64> {
-    let state = match state {
-        Some(state) => {
-            if !crate::sql::issue::state_exists(pool, state).await? {
-                bail!("unknown state {state:?}; create it first with `octa config state create`");
-            }
-            state.to_string()
-        }
-        None => starting(pool).await?,
-    };
+    // `open --as` is narrowed to its own type like every other verb. Capturing
+    // an issue that is already underway or already resolved is two steps:
+    // `open`, then `start` or `close`.
+    let state = target_state(pool, StateType::Open, state).await?;
     let parent_issue = match parent {
         Some(number) => Some(require(pool, repo, number).await?),
         None => None,
@@ -102,8 +128,7 @@ pub async fn list(
     query: ListQuery<'_>,
 ) -> Result<Vec<Issue>> {
     let ListQuery {
-        filter,
-        state_name,
+        selector,
         label,
         project,
         milestone,
@@ -111,15 +136,16 @@ pub async fn list(
         unblocked,
     } = query;
     if repo.is_none()
-        && (state_name.is_some()
-            || label.is_some()
+        && (label.is_some()
             || project.is_some()
             || milestone.is_some()
             || related_to.is_some()
             || unblocked)
     {
+        // States are global, so `--state` and `--state-type` stay usable across
+        // repositories. The remaining filters name repository-scoped entities.
         bail!(
-            "--state <name>, --label, --project, --milestone, --related-to and --unblocked need a single repository"
+            "--label, --project, --milestone, --related-to and --unblocked need a single repository"
         );
     }
     if milestone.is_some() && project.is_none() {
@@ -182,8 +208,7 @@ pub async fn list(
     };
     let mut entries = crate::sql::issue::list_entries(pool, repo).await?;
     entries.retain(|entry| {
-        filter.includes(entry.is_closed)
-            && state_name.is_none_or(|state| entry.issue.state == state)
+        selector.includes(entry.state_type, &entry.issue.state)
             && labelled
                 .as_ref()
                 .is_none_or(|set| set.contains(&entry.issue.number))
@@ -203,7 +228,7 @@ pub async fn list(
 }
 
 async fn unblocked_numbers(pool: &SqlitePool, repo: i64) -> Result<HashSet<i64>> {
-    let states: HashMap<i64, bool> = crate::sql::issue::state_flags(pool, repo)
+    let states: HashMap<i64, bool> = crate::sql::issue::closed_flags(pool, repo)
         .await?
         .into_iter()
         .collect();
@@ -404,6 +429,7 @@ pub async fn comment(pool: &SqlitePool, repo: i64, number: i64, body: &str) -> R
     crate::sql::issue::touch(pool, repo, number).await
 }
 
+/// Move an issue to any configured state. Backs `issue set --as`.
 pub async fn set_state(
     pool: &SqlitePool,
     repo: i64,
@@ -411,10 +437,61 @@ pub async fn set_state(
     state: &str,
     lease: Option<&str>,
 ) -> Result<()> {
-    require(pool, repo, number).await?;
     if !crate::sql::issue::state_exists(pool, state).await? {
         bail!("unknown state {state:?}; create it first with `octa config state create`");
     }
+    move_to(pool, repo, number, state, lease).await
+}
+
+/// Move an issue to the `in progress` default.
+///
+/// `start` takes no `--as`: picking work up says nothing yet about where it
+/// will land, so there is no second in-progress state to choose between.
+pub async fn start(
+    pool: &SqlitePool,
+    repo: i64,
+    number: i64,
+    lease: Option<&str>,
+) -> Result<String> {
+    let state = default_state(pool, StateType::InProgress).await?;
+    move_to(pool, repo, number, &state, lease).await?;
+    Ok(state)
+}
+
+/// Move an issue to a closed-type state.
+pub async fn close(
+    pool: &SqlitePool,
+    repo: i64,
+    number: i64,
+    as_state: Option<&str>,
+    lease: Option<&str>,
+) -> Result<String> {
+    let state = target_state(pool, StateType::Closed, as_state).await?;
+    move_to(pool, repo, number, &state, lease).await?;
+    Ok(state)
+}
+
+/// Move an issue back to an open-type state.
+pub async fn reopen(
+    pool: &SqlitePool,
+    repo: i64,
+    number: i64,
+    as_state: Option<&str>,
+    lease: Option<&str>,
+) -> Result<String> {
+    let state = target_state(pool, StateType::Open, as_state).await?;
+    move_to(pool, repo, number, &state, lease).await?;
+    Ok(state)
+}
+
+async fn move_to(
+    pool: &SqlitePool,
+    repo: i64,
+    number: i64,
+    state: &str,
+    lease: Option<&str>,
+) -> Result<()> {
+    require(pool, repo, number).await?;
     let mut tx = crate::sql::issue::begin_lease_mutation(pool, repo, number, lease).await?;
     crate::sql::issue::update_state(&mut tx, repo, number, state).await?;
     tx.commit().await?;
@@ -497,14 +574,29 @@ pub async fn list_states(pool: &SqlitePool) -> Result<Vec<IssueState>> {
     crate::sql::issue::list_states(pool).await
 }
 
-pub async fn add_state(pool: &SqlitePool, name: &str, starting: bool, closed: bool) -> Result<()> {
-    if starting && closed {
-        bail!("a closed state cannot be the state new issues start in");
-    }
+/// Create a state, returning whether it became its type's default unasked.
+///
+/// The first state of an empty type is always that type's default: a populated
+/// type with no default would leave the type's verb with nowhere to go while an
+/// obvious -- and only -- candidate sat right there.
+pub async fn add_state(
+    pool: &SqlitePool,
+    name: &str,
+    state_type: StateType,
+    default: bool,
+) -> Result<bool> {
     if crate::sql::issue::get_state(pool, name).await?.is_some() {
         bail!("a configured state named {name:?} already exists");
     }
-    crate::sql::issue::insert_state(pool, name, starting, closed).await
+    let promoted = !default && type_is_empty(pool, state_type).await?;
+    crate::sql::issue::insert_state(pool, name, state_type, default || promoted).await?;
+    Ok(promoted)
+}
+
+async fn type_is_empty(pool: &SqlitePool, state_type: StateType) -> Result<bool> {
+    Ok(crate::sql::issue::states_of_type(pool, state_type)
+        .await?
+        .is_empty())
 }
 
 async fn require_state(pool: &SqlitePool, name: &str) -> Result<IssueState> {
@@ -513,24 +605,92 @@ async fn require_state(pool: &SqlitePool, name: &str) -> Result<IssueState> {
         .ok_or_else(|| anyhow!("no configured state named {name:?}"))
 }
 
-/// Update a state's name or closed flag.
+/// Types that must always have at least one state.
+///
+/// Every issue has to be able to start and to end, so emptying `open` or
+/// `closed` would leave the verbs with nowhere to go. `in progress` may be
+/// empty: a workflow that never distinguishes picked-up work is coherent.
+const REQUIRED_TYPES: [StateType; 2] = [StateType::Open, StateType::Closed];
+
+/// Reject a change that would leave a required type with no state.
+async fn require_type_stays_populated(
+    pool: &SqlitePool,
+    state_type: StateType,
+    leaving: &str,
+) -> Result<()> {
+    if !REQUIRED_TYPES.contains(&state_type) {
+        return Ok(());
+    }
+    let remaining = crate::sql::issue::states_of_type(pool, state_type)
+        .await?
+        .into_iter()
+        .filter(|name| name != leaving)
+        .count();
+    if remaining == 0 {
+        bail!(
+            "{leaving:?} is the only {:?} state; create another one first",
+            state_type.as_str()
+        );
+    }
+    Ok(())
+}
+
+/// Reject dropping a type's default while that type has somewhere else to
+/// point.
+///
+/// The last state of an optional type may go with its flag: emptying the type
+/// is the whole point. What must not happen is a populated type left with no
+/// default, which would break the verb that resolves to it.
+async fn require_default_can_be_released(pool: &SqlitePool, state: &IssueState) -> Result<()> {
+    if !state.is_default {
+        return Ok(());
+    }
+    let siblings = crate::sql::issue::states_of_type(pool, state.state_type)
+        .await?
+        .into_iter()
+        .filter(|name| name != &state.name)
+        .count();
+    if siblings > 0 {
+        bail!(
+            "{:?} is the default {:?} state; run `octa config state set <name> --default` on another {:?} state first",
+            state.name,
+            state.state_type.as_str(),
+            state.state_type.as_str()
+        );
+    }
+    Ok(())
+}
+
+/// Update a state's name or type, or make it its type's default. Returns
+/// whether it became a default unasked.
 ///
 /// Renaming repoints every issue in the state, so no issue is left pointing at
-/// a name that no longer exists.
+/// a name that no longer exists. `default` needs no type argument: a state
+/// already carries exactly one type, so naming it again could only contradict
+/// it. When both are given the state is retyped first, then made the default of
+/// the type it ends up in. Moving a state into an empty type makes it that
+/// type's default for the same reason creating one there does.
 pub async fn set_state_config(
     pool: &SqlitePool,
     name: &str,
     new_name: Option<&str>,
-    closed: Option<bool>,
-) -> Result<()> {
+    state_type: Option<StateType>,
+    default: bool,
+) -> Result<bool> {
     let state = require_state(pool, name).await?;
-    if new_name.is_none() && closed.is_none() {
-        bail!("nothing to update; pass --name or --closed");
+    if new_name.is_none() && state_type.is_none() && !default {
+        bail!("nothing to update; pass --name, --type, or --default");
     }
 
-    let closed = closed.unwrap_or(state.is_closed);
-    if state.is_starting && closed {
-        bail!("{name:?} is the starting state and cannot become closed");
+    // Read before anything moves: once the state has been retyped it is itself
+    // a member of the destination type.
+    let mut promoted = false;
+    if let Some(state_type) = state_type {
+        if state_type != state.state_type {
+            require_type_stays_populated(pool, state.state_type, name).await?;
+            require_default_can_be_released(pool, &state).await?;
+            promoted = !default && type_is_empty(pool, state_type).await?;
+        }
     }
 
     let mut name = name.to_string();
@@ -546,18 +706,23 @@ pub async fn set_state_config(
             name = new_name.to_string();
         }
     }
-    if closed != state.is_closed {
-        crate::sql::issue::update_state_flags(pool, &name, closed).await?;
+    if let Some(state_type) = state_type {
+        if state_type != state.state_type {
+            crate::sql::issue::update_state_type(pool, &name, state_type).await?;
+        }
     }
-    Ok(())
+    if default || promoted {
+        let state_type = state_type.unwrap_or(state.state_type);
+        crate::sql::issue::set_default_state(pool, &name, state_type).await?;
+    }
+    Ok(promoted)
 }
 
 /// Delete a state, moving any issues that reference it to `move_to`.
 pub async fn delete_state(pool: &SqlitePool, name: &str, move_to: Option<&str>) -> Result<i64> {
     let state = require_state(pool, name).await?;
-    if state.is_starting {
-        bail!("{name:?} is the starting state; run `octa config state set-default <name>` first");
-    }
+    require_type_stays_populated(pool, state.state_type, name).await?;
+    require_default_can_be_released(pool, &state).await?;
     let move_to = match move_to {
         Some(target) if target == name => bail!("--move-to must name a different state"),
         Some(target) => {
@@ -574,15 +739,6 @@ pub async fn delete_state(pool: &SqlitePool, name: &str, move_to: Option<&str>) 
     }
     crate::sql::issue::delete_state(pool, name, move_to).await?;
     Ok(affected)
-}
-
-/// Make `name` the sole state new issues start in.
-pub async fn set_default_state(pool: &SqlitePool, name: &str) -> Result<()> {
-    let state = require_state(pool, name).await?;
-    if state.is_closed {
-        bail!("closed state {name:?} cannot be the starting state");
-    }
-    crate::sql::issue::set_starting_state(pool, name).await
 }
 
 #[cfg(test)]
@@ -604,6 +760,9 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
+        // `issues.state` references `issue_states`, so the raw inserts below
+        // need the state set they name.
+        crate::sql::issue::seed_default_states(&pool).await.unwrap();
         pool
     }
 
