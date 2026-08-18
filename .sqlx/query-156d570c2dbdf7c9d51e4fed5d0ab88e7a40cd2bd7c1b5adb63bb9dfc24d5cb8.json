@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT json_array(type, name) AS \"row!: String\" FROM project_state_defaults ORDER BY type",
+  "describe": {
+    "columns": [
+      {
+        "name": "row!: String",
+        "ordinal": 0,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "156d570c2dbdf7c9d51e4fed5d0ab88e7a40cd2bd7c1b5adb63bb9dfc24d5cb8"
+}

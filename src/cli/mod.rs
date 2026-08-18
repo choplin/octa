@@ -9,6 +9,7 @@ mod label;
 mod output;
 mod pr;
 mod project;
+mod project_state;
 mod state;
 mod wiki;
 
@@ -100,7 +101,7 @@ pub(crate) enum ConfigCommand {
         #[command(subcommand)]
         command: IssueConfigCommand,
     },
-    /// Configure Projects: their labels and label groups.
+    /// Configure Projects: their states, labels, and label groups.
     Project {
         #[command(subcommand)]
         command: ProjectConfigCommand,
@@ -128,6 +129,11 @@ pub(crate) enum IssueConfigCommand {
 
 #[derive(Subcommand)]
 pub(crate) enum ProjectConfigCommand {
+    /// Manage the states Projects can be in.
+    State {
+        #[command(subcommand)]
+        command: ProjectStateCommand,
+    },
     /// Manage the labels Projects can carry.
     Label {
         #[command(subcommand)]
@@ -358,15 +364,13 @@ pub(crate) enum ProjectCommand {
     Create {
         #[arg(long)]
         name: String,
+        /// Open the Project in an open-type state other than the default.
+        #[arg(long = "as", value_name = "STATE")]
+        as_state: Option<String>,
         #[arg(long, default_value = "")]
         summary: String,
         #[arg(long, default_value = "")]
         description: String,
-        #[arg(long, default_value = "planned")]
-        state: String,
-        /// Mark the Project closed: `project list --active` hides it.
-        #[arg(long)]
-        closed: bool,
         #[arg(long)]
         json: bool,
     },
@@ -384,9 +388,13 @@ pub(crate) enum ProjectCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Set Project metadata.
+    /// Set scalar Project properties.
     Set {
         project: String,
+        /// Move the Project to any configured state, of any type. This is the
+        /// only unconstrained move; every other verb is narrowed to its type.
+        #[arg(long = "as", value_name = "STATE")]
+        as_state: Option<String>,
         #[arg(long)]
         name: Option<String>,
         #[arg(long)]
@@ -408,13 +416,21 @@ pub(crate) enum ProjectCommand {
         #[arg(long)]
         label: String,
     },
-    /// Set the Project state and whether it closes the Project.
-    SetState {
+    /// Close a Project: `project list --active` stops showing it.
+    Close {
         project: String,
-        state: String,
-        /// Mark the Project closed: `project list --active` hides it.
+        /// Close into a closed-type state other than the default.
+        #[arg(long = "as", value_name = "STATE")]
+        as_state: Option<String>,
         #[arg(long)]
-        closed: bool,
+        json: bool,
+    },
+    /// Reopen a closed Project.
+    Reopen {
+        project: String,
+        /// Reopen into an open-type state other than the default.
+        #[arg(long = "as", value_name = "STATE")]
+        as_state: Option<String>,
         #[arg(long)]
         json: bool,
     },
@@ -524,6 +540,45 @@ pub(crate) enum StateCommand {
     Delete {
         name: String,
         /// State to move this state's issues to before deleting it.
+        #[arg(long)]
+        move_to: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+pub(crate) enum ProjectStateCommand {
+    /// List configured states.
+    List {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Create a configured project state.
+    Create {
+        name: String,
+        /// State type: open or closed.
+        #[arg(long = "type", value_name = "TYPE", default_value = "open")]
+        state_type: String,
+        /// Make this its type's default, replacing the current one.
+        #[arg(long)]
+        default: bool,
+    },
+    /// Update a configured project state. Renaming moves its projects with it.
+    Set {
+        name: String,
+        /// New name for the state.
+        #[arg(long = "name")]
+        new_name: Option<String>,
+        /// New state type: open or closed.
+        #[arg(long = "type", value_name = "TYPE")]
+        state_type: Option<String>,
+        /// Make this its type's default, replacing the current one.
+        #[arg(long)]
+        default: bool,
+    },
+    /// Delete a configured project state.
+    Delete {
+        name: String,
+        /// State to move this state's projects to before deleting it.
         #[arg(long)]
         move_to: Option<String>,
     },
@@ -707,6 +762,9 @@ pub async fn run(cli: Cli) -> Result<()> {
                 }
             },
             ConfigCommand::Project { command } => match command {
+                ProjectConfigCommand::State { command } => {
+                    project_state::run(&store, command).await
+                }
                 ProjectConfigCommand::Label { command } => {
                     label::run(&store, LabelTarget::Project, command).await
                 }

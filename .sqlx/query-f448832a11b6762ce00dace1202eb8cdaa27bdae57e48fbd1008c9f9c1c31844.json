@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT p.repo_id AS \"repo_id!: i64\", r.name AS \"repo!: String\",\n                  p.id AS \"id!: i64\", p.name AS \"name!: String\",\n                  p.summary AS \"summary!: String\", p.description AS \"description!: String\",\n                  p.state AS \"state!: String\", p.is_closed AS \"is_closed!: bool\",\n                  p.created_at AS \"created_at!: String\",\n                  p.updated_at AS \"updated_at!: String\"\n           FROM projects p JOIN repos r ON r.id = p.repo_id\n           WHERE p.repo_id = ? AND p.is_closed = 0\n           ORDER BY r.name, p.id",
+  "query": "SELECT p.repo_id AS \"repo_id!: i64\", r.name AS \"repo!: String\",\n                  p.id AS \"id!: i64\", p.name AS \"name!: String\",\n                  p.summary AS \"summary!: String\", p.description AS \"description!: String\",\n                  p.state AS \"state!: String\", s.type AS \"state_type!: String\",\n                  p.created_at AS \"created_at!: String\",\n                  p.updated_at AS \"updated_at!: String\"\n           FROM projects p JOIN repos r ON r.id = p.repo_id\n                           JOIN project_states s ON s.name = p.state\n           WHERE p.repo_id = ? AND p.name = ? COLLATE NOCASE",
   "describe": {
     "columns": [
       {
@@ -39,9 +39,9 @@
         "type_info": "Text"
       },
       {
-        "name": "is_closed!: bool",
+        "name": "state_type!: String",
         "ordinal": 7,
-        "type_info": "Integer"
+        "type_info": "Text"
       },
       {
         "name": "created_at!: String",
@@ -55,7 +55,7 @@
       }
     ],
     "parameters": {
-      "Right": 1
+      "Right": 2
     },
     "nullable": [
       false,
@@ -70,5 +70,5 @@
       false
     ]
   },
-  "hash": "c850bd4d5d09abb1924a7aeade501694a41f9ab44ffdb0476b2f75eaa0c09021"
+  "hash": "f448832a11b6762ce00dace1202eb8cdaa27bdae57e48fbd1008c9f9c1c31844"
 }

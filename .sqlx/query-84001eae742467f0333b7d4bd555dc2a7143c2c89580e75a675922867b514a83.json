@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        INSERT INTO projects\n            (repo_id, id, name, summary, description, state)\n        VALUES (?, (SELECT COALESCE(MAX(id), 0) + 1 FROM projects WHERE repo_id = ?),\n                ?, ?, ?, ?)\n        RETURNING id AS \"id!: i64\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "84001eae742467f0333b7d4bd555dc2a7143c2c89580e75a675922867b514a83"
+}

@@ -394,15 +394,22 @@ mod filters_and_roots {
         }
         assert!(issues.contains("FROM issues i JOIN issue_states s"));
 
-        let projects =
-            executed_sql("{ projects(filter: { isClosed: false, label: \"now\" }) { id } }").await;
-        for predicate in ["p.is_closed=0", "fx.label_name='now'"] {
+        let projects = executed_sql(
+            "{ projects(filter: { state: [\"Planned\",\"Done\"], stateType: \"open\", label: \"now\" }) { id } }",
+        )
+        .await;
+        for predicate in [
+            "p.state IN ('Planned','Done')",
+            "ps.type='open'",
+            "fx.label_name='now'",
+        ] {
             assert!(
                 projects.contains(predicate),
                 "missing {predicate} in:\n{projects}"
             );
         }
         assert!(projects.contains("EXISTS(SELECT 1 FROM project_label_links fx"));
+        assert!(projects.contains("FROM projects p JOIN project_states ps"));
     }
 
     #[tokio::test]
@@ -414,7 +421,10 @@ mod filters_and_roots {
             ),
             (
                 "{ project(name: \"reader's roadmap\") { id } }",
-                "FROM projects p WHERE p.repo_id=1 AND p.name='reader''s roadmap' COLLATE NOCASE",
+                // Two spaces: the optional `project_states` join sits between
+                // the table and the predicate and is empty unless `stateType`
+                // is selected, exactly as the issue root does.
+                "FROM projects p  WHERE p.repo_id=1 AND p.name='reader''s roadmap' COLLATE NOCASE",
             ),
             (
                 "{ milestones(projectId: 4, offset: 2, limit: 7) { id } }",
@@ -465,9 +475,9 @@ mod multi_hop {
         assert_contains_in_order(
             &sql,
             &[
-                "FROM project_label_links pl4 JOIN project_labels l3",
-                "WHERE pl4.repo_id=p1.repo_id AND pl4.project_id=p1.id",
-                "ORDER BY l3.name LIMIT 10 OFFSET 2",
+                "FROM project_label_links pl5 JOIN project_labels l4",
+                "WHERE pl5.repo_id=p1.repo_id AND pl5.project_id=p1.id",
+                "ORDER BY l4.name LIMIT 10 OFFSET 2",
                 "FROM issue_projects ip2 JOIN projects p1",
                 "WHERE ip2.repo_id=i.repo_id AND ip2.issue_number=i.number",
                 "FROM issues i",

@@ -1,7 +1,11 @@
 //! Root GraphQL fields and database execution boundary.
 
 use super::model::*;
-use super::sql::{issue_filter_sql, issue_state_join, project_filter_sql, quote, Page, Planner};
+use super::sql::{
+    issue_filter_sql, issue_state_join, project_filter_sql, project_state_join, quote, Page,
+    Planner,
+};
+use crate::domain::project::ProjectStateType;
 use async_graphql::{Context, Object};
 #[cfg(test)]
 use std::sync::Mutex;
@@ -101,10 +105,12 @@ impl QueryRoot {
             (None, Some(name)) => format!("p.name={} COLLATE NOCASE", quote(&name)),
             _ => return Err("provide exactly one of id or name".into()),
         };
-        let projection =
-            Planner::new(db.repo).project(&ctx.field().selection_set().collect::<Vec<_>>(), "p")?;
+        let fields = ctx.field().selection_set().collect::<Vec<_>>();
+        let state = project_state_join(&fields, "p", "ps", false);
+        let projection = Planner::new(db.repo).project(&fields, "p", state.alias())?;
         let sql = format!(
-            "SELECT {projection} FROM projects p WHERE p.repo_id={} AND {predicate}",
+            "SELECT {projection} FROM projects p {} WHERE p.repo_id={} AND {predicate}",
+            state.sql(),
             db.repo
         );
         db.optional(&sql, ProjectObject).await
@@ -118,12 +124,21 @@ impl QueryRoot {
         limit: Option<i64>,
     ) -> async_graphql::Result<Vec<ProjectObject>> {
         let db = ctx.data::<QueryDb>()?;
-        let projection =
-            Planner::new(db.repo).project(&ctx.field().selection_set().collect::<Vec<_>>(), "p")?;
-        let filter = project_filter_sql("p", &filter.unwrap_or_default());
+        let fields = ctx.field().selection_set().collect::<Vec<_>>();
+        let filter = filter.unwrap_or_default();
+        if let Some(values) = &filter.state_type {
+            for value in values {
+                ProjectStateType::parse(value)
+                    .map_err(|error| async_graphql::Error::new(error.to_string()))?;
+            }
+        }
+        let state = project_state_join(&fields, "p", "ps", filter.state_type.is_some());
+        let projection = Planner::new(db.repo).project(&fields, "p", state.alias())?;
+        let filter = project_filter_sql("p", state.alias(), &filter);
         let page = Page::new(offset, limit)?;
         let sql = format!(
-            "SELECT {projection} FROM projects p WHERE p.repo_id={} {filter} ORDER BY p.id {}",
+            "SELECT {projection} FROM projects p {} WHERE p.repo_id={} {filter} ORDER BY p.id {}",
+            state.sql(),
             db.repo,
             page.sql()
         );

@@ -15,7 +15,8 @@ pub(super) struct IssueFilter {
 
 #[derive(InputObject, Default, Clone)]
 pub(super) struct ProjectFilter {
-    pub(super) is_closed: Option<bool>,
+    pub(super) state: Option<Vec<String>>,
+    pub(super) state_type: Option<Vec<String>>,
     pub(super) label: Option<String>,
 }
 
@@ -224,8 +225,9 @@ impl ProjectObject {
     async fn state<'a>(&'a self, ctx: &Context<'_>) -> async_graphql::Result<&'a str> {
         self.0.string(ctx)
     }
-    async fn is_closed(&self, ctx: &Context<'_>) -> async_graphql::Result<bool> {
-        self.0.boolean(ctx)
+    /// The type of the project's configured state: open or closed.
+    async fn state_type<'a>(&'a self, ctx: &Context<'_>) -> async_graphql::Result<&'a str> {
+        self.0.string(ctx)
     }
     async fn created_at<'a>(&'a self, ctx: &Context<'_>) -> async_graphql::Result<&'a str> {
         self.0.string(ctx)

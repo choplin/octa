@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE projects SET state = ?, updated_at = datetime('now') WHERE state = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "8fa5720e9cd5cfaa2b692aca916b4a193fa57dc563544b47fd1415b74db758ed"
+}

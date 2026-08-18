@@ -155,15 +155,25 @@ Group a finite outcome as a Project, and for a Project that needs stages, create
 Milestones. Projects and Milestones can be referenced by name or by number.
 `project list` returns every Project including closed ones by default, and each tally counts
 all Issues, closed ones included, as open / closed. When you only want the Projects being
-worked on, say so with `project list --active`. Whether a Project is closed is set with
-`project create --closed` and `project set-state <project> <state> --closed`.
-Projects are displayed in creation order. If you need priority, define a `single` label group
-of your own.
+worked on, say so with `project list --active`. Projects are displayed in creation order.
+If you need priority, define a `single` label group of your own.
+
+A Project carries a configured state the same way an Issue does, so whether it is closed is
+read from that state's type rather than set beside it. The type axis has two values here,
+`open` and `closed`: a Project is an outcome that is either still open or finished with, and
+whether work is under way inside it is already readable from its Issue tally. `Planned` and
+`In Progress` are both `open` states that differ by name.
 
 ```sh
 octa project create --name "Publish the CLI"
+octa project create --name "Publish the docs" --as Planned
 octa project list
 octa project list --active
+
+octa project set "Publish the CLI" --as Planned
+octa project close "Publish the CLI"
+octa project close "Publish the CLI" --as "not planned"
+octa project reopen "Publish the CLI"
 
 octa milestone create --project "Publish the CLI" \
   --name "Public beta" \
@@ -230,7 +240,8 @@ repository that already has a workflow is left as it is.
 States can be added, changed, and deleted later. `--type` defaults to `open` when omitted.
 
 Configuration commands are grouped by the record they configure, so `octa config issue ...`
-and `octa config project ...` are the two entry points. States belong to Issues.
+and `octa config project ...` are the two entry points. Issues and Projects each have their
+own states, under `config issue state` and `config project state`.
 
 ```sh
 octa config issue state create Backlog
@@ -240,7 +251,16 @@ octa config issue state set Ready --type "in progress"
 octa config issue state delete Backlog --move-to Ready
 octa config issue state set Ready --default
 octa config issue state list
+
+octa config project state create Planned
+octa config project state create shipped --type closed
+octa config project state set Planned --default
+octa config project state delete shipped --move-to closed
+octa config project state list
 ```
+
+Project states work the same way over two types instead of three, and the seed that runs for
+a store with no Project states is `open`, `closed`, and `not planned`.
 
 Renaming with `config issue state set --name` moves the Issues in that state along with it.
 `config issue state delete` requires `--move-to <state>` when Issues remain in the state.

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO project_state_defaults (type, name) VALUES (?, ?)\n         ON CONFLICT(type) DO UPDATE SET name = excluded.name",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "fdea40c4ee22fd860ab7b700fd25bbabbd119bb7b62961341248f430b9e73e8c"
+}

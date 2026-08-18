@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT s.name AS \"name!: String\", s.type AS \"state_type!: String\", (d.name IS NOT NULL) AS \"is_default!: i64\" FROM project_states s LEFT JOIN project_state_defaults d ON d.name = s.name WHERE s.name = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "name!: String",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "state_type!: String",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "is_default!: i64",
+        "ordinal": 2,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "d7bac924c644db0dad90a771eeff97b85b13946c6ebe08d4cdf9cd0c5c9c2146"
+}

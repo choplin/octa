@@ -124,9 +124,10 @@ impl Store {
             .run(&pool)
             .await
             .context("cannot apply database migrations")?;
-        // Configuration is global, so the default state set is seeded once for
+        // Configuration is global, so the default state sets are seeded once for
         // the store rather than once per repository.
         crate::sql::issue::seed_default_states(&pool).await?;
+        crate::sql::project::seed_default_states(&pool).await?;
 
         let store = Self {
             pool,
@@ -292,6 +293,18 @@ mod migration_tests {
                 ),
             ),
             (
+                "project_states",
+                rows!(
+                    r#"SELECT json_array(name, type) AS "row!: String" FROM project_states ORDER BY name"#
+                ),
+            ),
+            (
+                "project_state_defaults",
+                rows!(
+                    r#"SELECT json_array(type, name) AS "row!: String" FROM project_state_defaults ORDER BY type"#
+                ),
+            ),
+            (
                 "project_label_groups",
                 rows!(
                     r#"SELECT json_array(name, selection) AS "row!: String" FROM project_label_groups ORDER BY name"#
@@ -306,7 +319,7 @@ mod migration_tests {
             (
                 "projects",
                 rows!(
-                    r#"SELECT json_array(repo_id, id, name, summary, description, state, is_closed, created_at, updated_at) AS "row!: String" FROM projects ORDER BY repo_id, id"#
+                    r#"SELECT json_array(repo_id, id, name, summary, description, state, created_at, updated_at) AS "row!: String" FROM projects ORDER BY repo_id, id"#
                 ),
             ),
             (

@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT s.name FROM project_states s LEFT JOIN project_state_defaults d ON d.name = s.name WHERE s.type = ? ORDER BY (d.name IS NOT NULL) DESC, s.name",
+  "describe": {
+    "columns": [
+      {
+        "name": "name",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "5eccb22b54ebe74ba21ba8dadd49c7bfae2472bef0359c8d40c040a024d240db"
+}

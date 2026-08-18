@@ -483,7 +483,6 @@ fn withdrawn_options_and_flag_conflicts_are_rejected() {
         vec![
             "config", "issue", "label", "create", "docs", "--target", "issue",
         ],
-        vec!["config", "project", "state", "list"],
     ] {
         assert!(
             !env.run(&withdrawn).status.success(),
@@ -548,11 +547,13 @@ fn project_lifecycle_tally_and_issue_context_roundtrip() {
     assert_eq!(overview[0]["tally"]["closed"], 1);
     assert_eq!(overview[0]["tally"]["total"], 3);
 
-    env.ok(&["project", "set-state", "1", "shipped", "--closed"]);
-    assert_eq!(
-        json(&env.ok(&["project", "list", "--json"]))[0]["is_closed"],
-        true
-    );
+    env.ok(&[
+        "config", "project", "state", "create", "shipped", "--type", "closed",
+    ]);
+    env.ok(&["project", "close", "1", "--as", "shipped"]);
+    let listed = json(&env.ok(&["project", "list", "--json"]))[0].clone();
+    assert_eq!(listed["state"], "shipped");
+    assert_eq!(listed["state_type"], "closed");
     assert!(json(&env.ok(&["project", "list", "--active", "--json"]))
         .as_array()
         .unwrap()
@@ -565,7 +566,7 @@ fn project_list_orders_by_id_and_filters_active_explicitly() {
     for name in ["First", "Second", "Third", "Fourth", "Fifth"] {
         env.ok(&["project", "create", "--name", name]);
     }
-    env.ok(&["project", "set-state", "Second", "canceled", "--closed"]);
+    env.ok(&["project", "close", "Second"]);
 
     // Without priority the default order is creation order within a repository.
     let all = json(&env.ok(&["project", "list", "--json"]));
@@ -577,7 +578,8 @@ fn project_list_orders_by_id_and_filters_active_explicitly() {
             .collect::<Vec<_>>(),
         vec!["First", "Second", "Third", "Fourth", "Fifth"]
     );
-    assert_eq!(all[1]["is_closed"], true);
+    assert_eq!(all[1]["state"], "closed");
+    assert_eq!(all[1]["state_type"], "closed");
     let all_text = env.ok(&["project", "list"]);
     assert!(all_text.contains("Second"), "{all_text}");
     assert!(all_text.contains("Open/Closed"), "{all_text}");

@@ -8,14 +8,13 @@ pub(crate) async fn run(store: &Store, command: ProjectCommand) -> Result<()> {
     match command {
         ProjectCommand::Create {
             name,
+            as_state,
             summary,
             description,
-            state,
-            closed,
             json,
         } => {
             let id = store
-                .create_project(&name, &summary, &description, &state, closed)
+                .create_project(&name, &summary, &description, as_state.as_deref())
                 .await?;
             if json {
                 println!("{}", serde_json::json!({ "id": id, "name": name }));
@@ -113,19 +112,28 @@ pub(crate) async fn run(store: &Store, command: ProjectCommand) -> Result<()> {
         }
         ProjectCommand::Set {
             project,
+            as_state,
             name,
             summary,
             description,
             json,
         } => {
-            store
-                .edit_project(
-                    &project,
-                    name.as_deref(),
-                    summary.as_deref(),
-                    description.as_deref(),
-                )
-                .await?;
+            if as_state.is_none() && name.is_none() && summary.is_none() && description.is_none() {
+                anyhow::bail!("specify at least one property to set");
+            }
+            if let Some(state) = &as_state {
+                store.set_project_state(&project, state).await?;
+            }
+            if name.is_some() || summary.is_some() || description.is_some() {
+                store
+                    .edit_project(
+                        &project,
+                        name.as_deref(),
+                        summary.as_deref(),
+                        description.as_deref(),
+                    )
+                    .await?;
+            }
             if json {
                 println!("{}", serde_json::json!({ "updated": true }));
             } else {
@@ -140,28 +148,32 @@ pub(crate) async fn run(store: &Store, command: ProjectCommand) -> Result<()> {
             store.unlabel_project(&project, &label).await?;
             output.print(output.line(Tone::Success, format!("updated project {project}")));
         }
-        ProjectCommand::SetState {
+        ProjectCommand::Close {
             project,
-            state,
-            closed,
+            as_state,
             json,
         } => {
-            store.set_project_state(&project, &state, closed).await?;
-            if json {
-                println!(
-                    "{}",
-                    serde_json::json!({ "state": state, "is_closed": closed })
-                );
-            } else {
-                let closed = if closed { "closed" } else { "open" };
-                output.print(output.line(
-                    Tone::Success,
-                    format!("project {project} -> {state} ({closed})"),
-                ));
-            }
+            let state = store.close_project(&project, as_state.as_deref()).await?;
+            report_move(&output, json, &project, &state);
+        }
+        ProjectCommand::Reopen {
+            project,
+            as_state,
+            json,
+        } => {
+            let state = store.reopen_project(&project, as_state.as_deref()).await?;
+            report_move(&output, json, &project, &state);
         }
     }
     Ok(())
+}
+
+fn report_move(output: &Output, json: bool, project: &str, state: &str) {
+    if json {
+        println!("{}", serde_json::json!({ "state": state }));
+    } else {
+        output.print(output.line(Tone::Success, format!("project {project} -> {state}")));
+    }
 }
 
 pub(crate) async fn run_milestone(store: &Store, command: MilestoneCommand) -> Result<()> {

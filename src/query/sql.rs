@@ -49,8 +49,10 @@ impl Planner {
                 "project" => {
                     let p = self.next("p");
                     let ip = self.next("ip");
-                    let nested = self.project(&merged.children, &p)?;
-                    format!("(SELECT {nested} FROM issue_projects {ip} JOIN projects {p} ON {p}.repo_id={ip}.repo_id AND {p}.id={ip}.project_id WHERE {ip}.repo_id={issue}.repo_id AND {ip}.issue_number={issue}.number)")
+                    let ps = self.next("ps");
+                    let state = project_state_join(&merged.children, &p, &ps, false);
+                    let nested = self.project(&merged.children, &p, state.alias())?;
+                    format!("(SELECT {nested} FROM issue_projects {ip} JOIN projects {p} ON {p}.repo_id={ip}.repo_id AND {p}.id={ip}.project_id {} WHERE {ip}.repo_id={issue}.repo_id AND {ip}.issue_number={issue}.number)", state.sql())
                 }
                 "milestone" => {
                     let m = self.next("m");
@@ -123,6 +125,7 @@ impl Planner {
         &mut self,
         fields: &[SelectionField<'_>],
         project: &str,
+        state: Option<&str>,
     ) -> async_graphql::Result<String> {
         let mut pairs = Vec::new();
         for merged in merged_fields(fields) {
@@ -132,8 +135,8 @@ impl Planner {
                 "id" | "name" | "summary" | "description" | "state" | "createdAt" | "updatedAt" => {
                     format!("{project}.{}", snake(field.name()))
                 }
-                "isClosed" => {
-                    format!("json(CASE WHEN {project}.is_closed=1 THEN 'true' ELSE 'false' END)")
+                "stateType" => {
+                    format!("{}.type", state.expect("stateType requires state join"))
                 }
                 "issues" => {
                     let i = self.next("i");
@@ -187,8 +190,10 @@ impl Planner {
                 }
                 "project" => {
                     let p = self.next("p");
-                    let nested = self.project(&merged.children, &p)?;
-                    format!("(SELECT {nested} FROM projects {p} WHERE {p}.repo_id={milestone}.repo_id AND {p}.id={milestone}.project_id)")
+                    let ps = self.next("ps");
+                    let state = project_state_join(&merged.children, &p, &ps, false);
+                    let nested = self.project(&merged.children, &p, state.alias())?;
+                    format!("(SELECT {nested} FROM projects {p} {} WHERE {p}.repo_id={milestone}.repo_id AND {p}.id={milestone}.project_id)", state.sql())
                 }
                 "issues" => {
                     let i = self.next("i");
@@ -298,10 +303,12 @@ impl Planner {
                 "projects" if target == LabelTarget::Project => {
                     let p = self.next("p");
                     let x = self.next("pl");
-                    let nested = self.project(&merged.children, &p)?;
+                    let ps = self.next("ps");
+                    let state = project_state_join(&merged.children, &p, &ps, false);
+                    let nested = self.project(&merged.children, &p, state.alias())?;
                     let page = Page::from_field(field)?;
                     let repo = self.repo;
-                    list(format!("SELECT {nested} item FROM project_label_links {x} JOIN projects {p} ON {p}.repo_id={x}.repo_id AND {p}.id={x}.project_id WHERE {x}.repo_id={repo} AND {x}.label_name={label}.name ORDER BY {p}.id {}", page.sql()))
+                    list(format!("SELECT {nested} item FROM project_label_links {x} JOIN projects {p} ON {p}.repo_id={x}.repo_id AND {p}.id={x}.project_id {} WHERE {x}.repo_id={repo} AND {x}.label_name={label}.name ORDER BY {p}.id {}", state.sql(), page.sql()))
                 }
                 "issues" | "projects" => "json('[]')".to_string(),
                 name => return Err(format!("unsupported Label selection {name}").into()),
@@ -368,6 +375,43 @@ impl StateJoin<'_> {
         } else {
             String::new()
         }
+    }
+}
+
+pub(super) struct ProjectStateJoin<'a> {
+    project: &'a str,
+    alias: &'a str,
+    required: bool,
+}
+impl ProjectStateJoin<'_> {
+    pub(super) fn alias(&self) -> Option<&str> {
+        self.required.then_some(self.alias)
+    }
+    pub(super) fn sql(&self) -> String {
+        if self.required {
+            format!(
+                "JOIN project_states {} ON {}.name={}.state",
+                self.alias, self.alias, self.project
+            )
+        } else {
+            String::new()
+        }
+    }
+}
+
+pub(super) fn project_state_join<'a>(
+    fields: &[SelectionField<'_>],
+    project: &'a str,
+    alias: &'a str,
+    filter_requires: bool,
+) -> ProjectStateJoin<'a> {
+    let selected = merged_fields(fields)
+        .iter()
+        .any(|field| field.field.name() == "stateType");
+    ProjectStateJoin {
+        project,
+        alias,
+        required: selected || filter_requires,
     }
 }
 
@@ -585,10 +629,24 @@ fn any_of(column: &str, values: impl Iterator<Item = String>) -> String {
     }
 }
 
-pub(super) fn project_filter_sql(project: &str, filter: &ProjectFilter) -> String {
+pub(super) fn project_filter_sql(
+    project: &str,
+    state: Option<&str>,
+    filter: &ProjectFilter,
+) -> String {
     let mut sql = Vec::new();
-    if let Some(value) = filter.is_closed {
-        sql.push(format!("{project}.is_closed={}", value as i64));
+    if let Some(values) = &filter.state {
+        sql.push(any_of(
+            &format!("{project}.state"),
+            values.iter().map(|value| quote(value)),
+        ));
+    }
+    if let Some(values) = &filter.state_type {
+        let state = state.expect("stateType filter requires state join");
+        sql.push(any_of(
+            &format!("{state}.type"),
+            values.iter().map(|value| quote(value)),
+        ));
     }
     if let Some(value) = &filter.label {
         sql.push(format!("EXISTS(SELECT 1 FROM project_label_links fx WHERE fx.repo_id={project}.repo_id AND fx.project_id={project}.id AND fx.label_name={})", quote(value)));

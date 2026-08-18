@@ -760,9 +760,12 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
-        // `issues.state` references `issue_states`, so the raw inserts below
-        // need the state set they name.
+        // `issues.state` and `projects.state` reference their configured state
+        // tables, so the raw inserts below need the state sets they name.
         crate::sql::issue::seed_default_states(&pool).await.unwrap();
+        crate::sql::project::seed_default_states(&pool)
+            .await
+            .unwrap();
         pool
     }
 
@@ -780,7 +783,9 @@ mod tests {
             .await
             .unwrap();
         }
-        sqlx::query!("INSERT INTO projects (repo_id, id, name) VALUES (1, 1, 'parent project')")
+        sqlx::query!(
+            "INSERT INTO projects (repo_id, id, name, state) VALUES (1, 1, 'parent project', 'open')"
+        )
             .execute(&pool)
             .await
             .unwrap();
@@ -826,7 +831,7 @@ mod tests {
         for id in [1_i64, 2] {
             let name = format!("project {id}");
             sqlx::query!(
-                "INSERT INTO projects (repo_id, id, name) VALUES (1, ?, ?)",
+                "INSERT INTO projects (repo_id, id, name, state) VALUES (1, ?, ?, 'open')",
                 id,
                 name
             )

@@ -211,14 +211,82 @@ CREATE TABLE project_labels (
         REFERENCES project_label_groups(name)
 );
 
+-- Project states are the same idea as `issue_states`, narrowed to two types.
+-- The type axis exists to give a transition verb somewhere to go and to answer
+-- whether the project is closed, and a project has no third thing to be: it is
+-- an outcome that is either still open or finished with. Whether a project has
+-- work under way is already readable from its issue tally, so an `in progress`
+-- type would restate a derived signal rather than constrain anything. Naming a
+-- state `Planned` or `In Progress` remains a matter of the name.
+CREATE TABLE project_states (
+    name TEXT NOT NULL PRIMARY KEY,
+    type TEXT NOT NULL CHECK (type IN ('open', 'closed'))
+);
+
+-- Which state each type hands out when a verb is invoked without an explicit
+-- target: `project create` resolves the open default, `close` the closed one.
+-- One fact per type, so one row per type, for the reasons `issue_state_defaults`
+-- records.
+CREATE TABLE project_state_defaults (
+    type TEXT NOT NULL PRIMARY KEY CHECK (type IN ('open', 'closed')),
+    name TEXT NOT NULL UNIQUE
+        REFERENCES project_states(name) ON UPDATE CASCADE ON DELETE CASCADE
+);
+
+-- The same four rules that hold `issue_state_defaults` together, over two types
+-- instead of three: a type with any states has exactly one default, and that
+-- default is a state of that same type.
+CREATE TRIGGER project_state_defaults_belong_to_their_type_insert
+AFTER INSERT ON project_state_defaults
+WHEN NOT EXISTS (
+    SELECT 1 FROM project_states s WHERE s.name = NEW.name AND s.type = NEW.type)
+BEGIN
+    SELECT RAISE(ABORT, 'a default state must belong to the type it is default for');
+END;
+
+CREATE TRIGGER project_state_defaults_belong_to_their_type_update
+AFTER UPDATE ON project_state_defaults
+WHEN NOT EXISTS (
+    SELECT 1 FROM project_states s WHERE s.name = NEW.name AND s.type = NEW.type)
+BEGIN
+    SELECT RAISE(ABORT, 'a default state must belong to the type it is default for');
+END;
+
+CREATE TRIGGER project_states_first_of_a_type_becomes_its_default
+AFTER INSERT ON project_states
+WHEN NOT EXISTS (SELECT 1 FROM project_state_defaults d WHERE d.type = NEW.type)
+BEGIN
+    INSERT INTO project_state_defaults (type, name) VALUES (NEW.type, NEW.name);
+END;
+
+CREATE TRIGGER project_states_retype_hands_over_the_default
+AFTER UPDATE OF type ON project_states
+BEGIN
+    DELETE FROM project_state_defaults WHERE name = NEW.name AND type = OLD.type;
+    INSERT INTO project_state_defaults (type, name)
+    SELECT NEW.type, NEW.name
+    WHERE NOT EXISTS (SELECT 1 FROM project_state_defaults d WHERE d.type = NEW.type);
+END;
+
+CREATE TRIGGER project_state_defaults_a_populated_type_keeps_one
+AFTER DELETE ON project_state_defaults
+WHEN EXISTS (SELECT 1 FROM project_states s WHERE s.type = OLD.type)
+BEGIN
+    SELECT RAISE(ABORT, 'a state type that still has states must keep a default state');
+END;
+
+-- `state` references a configured state by name for the reasons `issues.state`
+-- records, and whether the project is closed is read from that state's type
+-- rather than stored beside it. A separate flag could disagree with the name;
+-- this cannot.
 CREATE TABLE projects (
     repo_id      INTEGER NOT NULL,
     id           INTEGER NOT NULL,
     name         TEXT NOT NULL COLLATE NOCASE,
     summary      TEXT NOT NULL DEFAULT '',
     description  TEXT NOT NULL DEFAULT '',
-    state        TEXT NOT NULL DEFAULT 'planned',
-    is_closed    INTEGER NOT NULL DEFAULT 0,
+    state        TEXT NOT NULL
+        REFERENCES project_states(name) ON UPDATE CASCADE ON DELETE RESTRICT,
     created_at   TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at   TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (repo_id, id),

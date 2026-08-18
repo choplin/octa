@@ -1,5 +1,7 @@
 use crate::domain::milestone::ProjectMilestone;
+use anyhow::{bail, Result};
 use serde::Serialize;
+use std::fmt;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ProjectRef {
@@ -17,7 +19,10 @@ pub struct Project {
     pub summary: String,
     pub description: String,
     pub state: String,
-    pub is_closed: bool,
+    /// The type of the configured state, read from `project_states` on every
+    /// load. Whether the project is closed is this and nothing else.
+    #[serde(rename = "state_type")]
+    pub state_type: ProjectStateType,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -45,4 +50,51 @@ pub struct ProjectDetail {
     pub issue_numbers: Vec<i64>,
     pub milestones: Vec<ProjectMilestone>,
     pub labels: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProjectState {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub state_type: ProjectStateType,
+    pub is_default: bool,
+}
+
+/// The single axis classifying a configured Project state.
+///
+/// Two values, not the three `StateType` carries. A Project is an outcome that
+/// is either still open or finished with; whether work is under way inside it
+/// is already readable from its issue tally, so a third type would restate a
+/// derived signal without constraining anything. `Planned` and `In Progress`
+/// are both open-type states that differ by name. Variant order is the
+/// lifecycle order every listing sorts by.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ProjectStateType {
+    Open,
+    Closed,
+}
+
+impl ProjectStateType {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Open => "open",
+            Self::Closed => "closed",
+        }
+    }
+
+    /// Parse the wire form used by the CLI, the schema, and GraphQL alike.
+    pub fn parse(value: &str) -> Result<Self> {
+        match value {
+            "open" => Ok(Self::Open),
+            "closed" => Ok(Self::Closed),
+            other => bail!("unknown project state type {other:?}; use open or closed"),
+        }
+    }
+}
+
+impl fmt::Display for ProjectStateType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
 }
