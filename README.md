@@ -1,123 +1,124 @@
 # octa
 
-**チーム開発グレードの協働を、個人の AI エージェント駆動開発にローカルでもたらす CLI。**
+**A CLI that brings team-grade collaboration to solo, AI-agent-driven development, locally.**
 
-octa は、1台のマシンで複数の AI エージェントと複数の開発セッションを並行して動かす個人開発者のための、ローカル協働基盤です。
+octa is a local collaboration substrate for individual developers who run several AI agents and several development sessions in parallel on a single machine.
 
-Issue、Pull Request、Wiki という GitHub 風のメンタルモデルで、リポジトリが何を目指し、何が残っているかを、セッションをまたいで残します。
+With a GitHub-like mental model of Issues, Pull Requests, and a Wiki, it keeps what a repository is aiming at and what is left to do across sessions.
 
-データは外部サービスに送信せず、ローカルの SQLite に保存されます。
+Data is never sent to an external service; it is stored in a local SQLite database.
 
-## octa が解決すること
+## What octa solves
 
-AI エージェントに作業を分けると、判断の背景、未処理の作業、次の担当者へ渡すべき文脈がセッションごとに散ります。
+When work is split across AI agents, the reasoning behind decisions, the unfinished work, and the context to hand to whoever comes next get scattered across sessions.
 
-octa は、その情報をリポジトリ単位で持続する記録にします。
+octa turns that information into a record that persists per repository.
 
-- **Issue**：状態、依存関係、コメント、ラベル、原子的な lease を持つ作業記録です。
-- **Pull Request**：Git ブランチに紐づく議論と状態の記録です。コードと diff は Git 側に残ります。
-- **Wiki**：方針や手順を残すページです。`[[slug]]` によるリンクと backlink を使えます。
-- **Label と state**：各プロジェクトの分類と作業フローを設定できます。
+- **Issue**: a work record with a state, dependencies, comments, labels, and an atomic lease.
+- **Pull Request**: a record of discussion and state tied to a Git branch. Code and diffs stay on the Git side.
+- **Wiki**: pages for policies and procedures, with `[[slug]]` links and backlinks.
+- **Labels and states**: the classification and workflow each project configures for itself.
 
-octa は Git hosting、Web UI、リモート同期、認証、多人数のリアルタイム協働を提供しません。
+octa does not provide Git hosting, a web UI, remote sync, authentication, or real-time collaboration for many people.
 
-同じマシン上で動く複数の worktree、エージェント、セッションの調整に焦点を絞っています。
+It is focused on coordinating the multiple worktrees, agents, and sessions running on the same machine.
 
-## 前提条件
+## Prerequisites
 
-- Git リポジトリの中で実行すること。
-- Rust 1.89 以降と Cargo を使えること。
+- Run it inside a Git repository.
+- Rust 1.89 or later and Cargo.
 
-このリポジトリには Nix の開発環境もあります。
+This repository also ships a Nix development environment.
 
 ```sh
 nix develop
 cargo build
 ```
 
-ローカルにインストールして `octa` コマンドとして使うには、次を実行します。
+To install it locally and use it as the `octa` command:
 
 ```sh
 cargo install --path .
 ```
 
-`~/.cargo/bin` が `PATH` に含まれている必要があります。
+`~/.cargo/bin` must be on your `PATH`.
 
-インストールせず、開発中のバイナリを使う場合は次を実行します。
+To use the development binary without installing:
 
 ```sh
 ./target/debug/octa --help
 ```
 
-以降の例では、`octa` が `PATH` に入っているものとします。
+The examples below assume `octa` is on your `PATH`.
 
-## 最初の5分
+## The first five minutes
 
-まず、対象の Git リポジトリに移動します。
+First, move into the target Git repository.
 
 ```sh
 cd path/to/your-repository
 ```
 
-Issue を作成し、一覧と詳細を確認します。
+Create an Issue, then list and inspect it.
 
 ```sh
 octa issue open \
-  --title "リリース手順を文書化する" \
-  --body "必要な確認項目と実行手順を Wiki に残す。"
+  --title "Document the release process" \
+  --body "Record the required checks and the steps in the Wiki."
 
 octa issue list
 octa issue show 1
 ```
 
-作業を始めるエージェントまたはセッションは、期限のない排他的な **lease** を取得できます。
-`issue lock` は `amber-otter-lantern` のような、人間が扱いやすい3単語の lease IDを
-標準出力へ一度だけ返します。lease IDはセキュリティcredentialではなく、同時作業の
-誤操作を防ぐための所有権IDです。後続のコマンドで再利用できるよう保持します。
+An agent or session that starts working can take an exclusive **lease** with no expiry.
+`issue lock` prints a human-friendly three-word lease ID such as `amber-otter-lantern`
+to standard output exactly once. A lease ID is not a security credential; it is an
+ownership ID that prevents accidental concurrent edits. Keep it so later commands
+can reuse it.
 
 ```sh
 LEASE=$(octa issue lock 1)
 octa issue start 1 --lease "$LEASE"
-octa issue comment 1 --body "着手しました。"
+octa issue comment 1 --body "Started working on this."
 ```
 
-完了時は同じ lease を付けて閉じ、その後で lease を解放します。
+When the work is done, close the Issue with the same lease, then release the lease.
 
 ```sh
 octa issue close 1 --lease "$LEASE"
 octa issue unlock 1 --lease "$LEASE"
 ```
 
-lease ID を失った場合は、復旧操作として `--force` で解放できます。
-以前の lease ID は即座に無効になり、作業を再開するには新しい lease の取得が必要です。
+If you lose the lease ID, `--force` releases it as a recovery operation.
+The previous lease ID becomes invalid immediately, and resuming work requires taking a new lease.
 
 ```sh
 octa issue unlock 1 --force
 LEASE=$(octa issue lock 1)
 ```
 
-`issue start`、`close`、`reopen`、`set`、`unset`、`add`、`remove` と通常の `unlock`、および Issue と PR の link を変更する `pr create --issue`、`pr add`、`pr remove` には、対象 Issue の `--lease` が必要です。
-Issue の作成とコメント、PR のコメント、Issue と link しない PR の作成、PR 自体の `set` / `set-state`、Project、Milestone、Wiki、config の操作には lease は不要です。
-読み取り操作にも不要です。
-ツールログやコマンド引数にlease IDが現れることは想定内です。一方、Issueコメント、
-Git成果物、リポジトリファイルなどの永続的な記録には含めません。`issue list` と
-`issue show` はlease IDを表示せず、取得中かどうかだけを `leased` で示します。
+`issue start`, `close`, `reopen`, `set`, `unset`, `add`, `remove`, a regular `unlock`, and the commands that change the link between an Issue and a PR — `pr create --issue`, `pr add`, `pr remove` — all require the target Issue's `--lease`.
+Creating and commenting on Issues, commenting on PRs, creating a PR that links to no Issue, `set` / `set-state` on the PR itself, and Project, Milestone, Wiki, and config operations need no lease.
+Neither do read operations.
+Lease IDs appearing in tool logs and command arguments is expected. Do not put them in
+durable records such as Issue comments, Git artifacts, or repository files. `issue list`
+and `issue show` do not display lease IDs; they only report whether one is held, via `leased`.
 
-## Issue で作業を調整する
+## Coordinating work with Issues
 
-Issue は番号、本文、コメント、状態、依存関係、ラベルを持ちます。
+An Issue has a number, a body, comments, a state, dependencies, and labels.
 
-以下で既存の Issue 1 を変更する例では、先に取得した lease を使います。
+The examples below that modify the existing Issue 1 use the lease taken earlier.
 
 ```sh
 LEASE=$(octa issue lock 1)
 ```
 
-### 状態と一覧
+### States and listing
 
-新規リポジトリには `open`、`in progress`、`closed`、`not planned` の4状態が
-作られ、新規Issueは `open` に入ります。各状態は `open` / `in progress` / `closed`
-の3値の **type** をちょうど1つ持ちます。
+A new repository gets four states — `open`, `in progress`, `closed`, and `not planned` —
+and new Issues land in `open`. Every state carries exactly one **type** out of the three
+values `open` / `in progress` / `closed`.
 
 ```sh
 octa issue start 1 --lease "$LEASE"
@@ -128,104 +129,105 @@ octa issue list --state "open,not planned"
 octa issue list --all
 ```
 
-selectorを省略すると、closed型を除いたIssueを表示します。`--state-type <types>`
-はtypeとの、`--state <names>` は設定済みの状態名との完全一致で、どちらも `,` 区切りの
-複数指定を受け、いずれかに一致するIssueを返します。`--all` は絞り込みを行いません。
-これら3つのselectorは同時に指定できません。状態名を指定した時点でそのtypeは確定するため、
-`--state` と `--state-type` の併用は常に冗長か常に空になるからです。
+With no selector, the listing excludes Issues in closed-type states. `--state-type <types>`
+matches on the type and `--state <names>` matches exactly on configured state names; both
+accept a `,`-separated list and return Issues matching any of them. `--all` applies no
+filtering. These three selectors are mutually exclusive: naming a state already fixes its
+type, so combining `--state` with `--state-type` is always either redundant or always empty.
 
-Linear の Issue 一覧と詳細の代わりに、read-only の2ペインTUIも使えます。
-これは現行の初期実装を説明するものであり、将来のTUI更新操作を製品境界から除外するものではありません。
-既定の `filter: all` は、作業候補だけでなく closed 型のIssueと既存の
-custom state を含む current repository の全Issueを
-Issue番号順に表示します。
+A read-only two-pane TUI is available as an alternative to listing and inspecting Issues.
+This describes the current initial implementation; it does not exclude future TUI mutation
+operations from the product boundary.
+The default `filter: all` shows every Issue in the current repository — not just candidates
+for work, but also closed-type Issues and existing custom states — ordered by Issue number.
 
 ```sh
 octa issue tui
 ```
 
-`j/k` または矢印でIssueを選択し、`Tab` で一覧と詳細のfocusを切り替えます。
-詳細は `PgUp/PgDn` でもscrollでき、`q` または `Esc` で終了します。
-この画面からIssueや関連データを変更する操作はありません。
+Select an Issue with `j/k` or the arrow keys, and switch focus between the list and the detail
+pane with `Tab`. The detail pane also scrolls with `PgUp/PgDn`, and `q` or `Esc` exits.
+No operation on this screen modifies an Issue or its related data.
 
-### Project と Milestone
+### Projects and Milestones
 
-有限の成果を Project としてまとめ、段階が必要な Project には順序付きの
-Milestone を作れます。Project と Milestone は名前または番号で参照できます。
-`project list` は既定でclosedな Project も含む全 Project を返し、各 tally も
-closedな Issue を含む全 Issue を open / closed で数えます。作業中の Project
-だけが必要な場合は `project list --active` と明示します。Project がclosedかどうかは
-`project create --closed` と `project set-state <project> <state> --closed`
-で設定します。Project は作成順に表示されます。優先度が必要な場合は、
-`single` のラベルグループを自分で定義してください。
+Group a finite outcome as a Project, and for a Project that needs stages, create ordered
+Milestones. Projects and Milestones can be referenced by name or by number.
+`project list` returns every Project including closed ones by default, and each tally counts
+all Issues, closed ones included, as open / closed. When you only want the Projects being
+worked on, say so with `project list --active`. Whether a Project is closed is set with
+`project create --closed` and `project set-state <project> <state> --closed`.
+Projects are displayed in creation order. If you need priority, define a `single` label group
+of your own.
 
 ```sh
-octa project create --name "CLI を公開する"
+octa project create --name "Publish the CLI"
 octa project list
 octa project list --active
 
-octa milestone create --project "CLI を公開する" \
+octa milestone create --project "Publish the CLI" \
   --name "Public beta" \
-  --description "利用者向けbetaを公開する段階" \
+  --description "The stage that ships a beta to users" \
   --status active \
   --position 1 \
   --target-date 2026-09-01
 
-octa milestone list --project "CLI を公開する"
-octa milestone show "Public beta" --project "CLI を公開する"
-octa milestone set "Public beta" --project "CLI を公開する" \
+octa milestone list --project "Publish the CLI"
+octa milestone show "Public beta" --project "Publish the CLI"
+octa milestone set "Public beta" --project "Publish the CLI" \
   --status completed \
   --target-date 2026-09-15
 ```
 
-Issue 作成時に Project と Milestone を同時に指定できます。Milestone は
-Project 内の entity なので、`--milestone` には `--project` も必要です。
+A Project and a Milestone can be set when the Issue is created. A Milestone is an entity
+inside a Project, so `--milestone` also requires `--project`.
 
 ```sh
 octa issue open \
-  --title "beta 利用者を招待する" \
-  --project "CLI を公開する" \
+  --title "Invite beta users" \
+  --project "Publish the CLI" \
   --milestone "Public beta"
 ```
 
-既存 Issue への Milestone の設定・解除と、同じ Milestone に属する Issue の
-一覧取得もできます。Project を変更または解除する場合は、先に Milestone を
-unset します。
+You can also set or unset a Milestone on an existing Issue, and list the Issues belonging to
+the same Milestone. To change or clear the Project, unset the Milestone first.
 
 ```sh
 octa issue set 1 --milestone "Public beta" --lease "$LEASE"
-octa issue list --project "CLI を公開する" --milestone "Public beta"
+octa issue list --project "Publish the CLI" --milestone "Public beta"
 octa issue unset 1 --milestone --lease "$LEASE"
 ```
 
-Issue の親子関係は同じリポジトリ内で設定でき、Project の所属とは独立しています。
-親子は異なる Project に所属でき、片方だけが Project に所属していても構いません。
-Project のない既存 Issue に親を設定した時は、その時点の親の Project を初期値として
-継承しますが、その後は親子それぞれの Project を変更または解除できます。
+Parent-child relationships between Issues can be set within the same repository and are
+independent of Project membership. Parent and child may belong to different Projects, and it
+is fine for only one of them to belong to a Project at all. When a parent is set on an
+existing Issue that has no Project, the parent's Project at that moment is inherited as the
+initial value; afterwards the Project of the parent and of the child can each be changed or
+cleared.
 
 ```sh
 LEASE_2=$(octa issue lock 2)
 octa issue set 2 --parent 1 --lease "$LEASE_2"
-octa issue set 2 --project "別の Project" --lease "$LEASE_2"
+octa issue set 2 --project "Another Project" --lease "$LEASE_2"
 octa issue unset 1 --project --lease "$LEASE"
 ```
 
-Project 内の Milestone が設定されている Issue だけは、従来どおり先に Milestone を
-unset してから Project を変更または解除します。
+Only for an Issue that has a Milestone inside a Project does the old rule still apply: unset
+the Milestone first, then change or clear the Project.
 
-新規リポジトリには、type ごとの既定状態1つずつと、2つ目の終わり方が自動作成されます。
+A new repository is seeded with one default state per type, plus a second way to end.
 
-| 状態 | type | その type の既定 |
+| State | Type | Default for that type |
 |---|---|---|
 | open | open | ✓ |
 | in progress | in progress | ✓ |
 | closed | closed | ✓ |
 | not planned | closed | |
 
-seedが走るのは状態を1つも持たないリポジトリだけです。すでにworkflowを
-設定済みのリポジトリの状態構成は、そのまま保たれます。
+Seeding only runs for a repository that has no states at all. The state configuration of a
+repository that already has a workflow is left as it is.
 
-状態はあとから追加・変更・削除できます。`--type` は省略すると `open` です。
+States can be added, changed, and deleted later. `--type` defaults to `open` when omitted.
 
 ```sh
 octa config state create Backlog
@@ -237,43 +239,45 @@ octa config state set Ready --default
 octa config state list
 ```
 
-`config state set --name` での改名は、その状態のIssueも一緒に移します。
-`config state delete` は、Issueが残っている状態には `--move-to <state>` を要求します。
-この2つはDBの参照制約でもあり、Issueが残っている状態の削除は拒否されます。
-状態を消してもIssueが道連れになることはありません。
+Renaming with `config state set --name` moves the Issues in that state along with it.
+`config state delete` requires `--move-to <state>` when Issues remain in the state.
+Both are also reference constraints in the database: deleting a state that still holds Issues
+is rejected. Deleting a state never takes Issues down with it.
 
-**状態を持つ type は、必ず既定の状態をちょうど1つ持ちます。これはDBスキーマが
-保証します。** 空の type に最初の状態を作ると、`--default` を付けなくてもその状態が
-既定になります。空の type へ状態を移した場合も同じです。引数を省いた動詞の行き先は、
-その type が使える状態なら必ず決まっている必要があるためです。この自動的な昇格は
-出力で伝えます。
+**A type that has any state always has exactly one default state. The database schema
+guarantees this.** Creating the first state in an empty type makes that state the default even
+without `--default`. The same happens when a state is moved into an empty type. A verb invoked
+without arguments must always have a determined destination, as long as the type has a usable
+state. This automatic promotion is reported in the output.
 
-既定を別の状態へ移すには `config state set <name> --default` を使います。
-`config state create --default` も同じです。どちらも type を引数に取りません。
-状態がすでに type を1つ持っており、重ねて指定しても矛盾しか生まないためです。
+To move the default to a different state, use `config state set <name> --default`.
+`config state create --default` behaves the same way. Neither takes a type argument, because a
+state already has exactly one type and restating it could only produce a contradiction.
 
-同じ type に別の状態が残っている間は、既定の状態を削除したり type を変更したりできません。
-先に `config state set <name> --default` で既定を移します。これもスキーマ側の制約です。また `open` 型と `closed` 型は空にできません。
-どのIssueも始められて終われる必要があるためです。`in progress` 型は空にできます。
-着手済みを区別しないworkflowも成立するからです。その場合 `issue start` は行き先を失い、
-`in progress` 型の状態が無いことを報告して失敗します。状態をひとつ作れば、それが
-既定になるので `issue start` はそのまま使えるようになります。
+While another state remains in the same type, you cannot delete the default state or change its
+type. Move the default first with `config state set <name> --default`. This too is a schema-level
+constraint. In addition, the `open` and `closed` types cannot be emptied, because every Issue must
+be able to start and to finish. The `in progress` type may be empty, since a workflow that does not
+distinguish started work is valid. In that case `issue start` has no destination and fails,
+reporting that no state of the `in progress` type exists. Create one state and it becomes the
+default, so `issue start` works again as-is.
 
-状態は並び順を持ちません。`config state list` の表示順は type と既定フラグと名前から
-導かれ、`open` → `in progress` → `closed` の順に並びます。各 type の中では既定の状態が
-先頭で、残りは名前順です。
+States carry no ordering. The display order of `config state list` is derived from type, default
+flag, and name, running `open` → `in progress` → `closed`. Within each type the default state comes
+first and the rest follow in name order.
 
-Issueがclosedかどうかは type から導かれます。`type` が `closed` の状態にあるIssueが
-closedです。`issue list --state-type closed` や `project list` の `Open/Closed` 列が
-数えているのはこのIssueです。閉じた理由は type ではなく状態名で表します。`closed` と
-`not planned` が同じ type を共有しているのはそのためです。
+Whether an Issue is closed is derived from its type. An Issue in a state whose `type` is `closed`
+is closed. That is what `issue list --state-type closed` and the `Open/Closed` columns of
+`project list` count. The reason it was closed is expressed by the state name, not the type — which
+is why `closed` and `not planned` share a type.
 
-octaが状態について持つ分類はこの type 軸だけで、その間の段階を区別しません。
-状態名そのものには何の意味も与えないため、任意の状態名を使えます。
-旧バージョンで作成済みのworkflow状態やその他のcustom stateと、
-それらを参照するIssueはmigration後も削除・改名されません。
+This type axis is the only classification octa holds over states; it does not distinguish stages in
+between. State names themselves are given no meaning, so any state name can be used.
+Workflow states and other custom states created by older versions, along with the Issues that
+reference them, are neither deleted nor renamed by a migration.
 
-Issueの状態は動詞で遷移させます。引数を省いた動詞は、その type の既定へ移します。
+Issue states are transitioned with verbs. A verb invoked without arguments moves the Issue to the
+default of its type.
 
 ```sh
 octa issue start 1 --lease "$LEASE"
@@ -283,15 +287,15 @@ octa issue reopen 1 --lease "$LEASE"
 octa issue set 1 --as "In Review" --lease "$LEASE"
 ```
 
-`--as` はその動詞の type に属する状態だけを受け付けます。`issue open`（別名 `create`）
-も同じで、受け付けるのは open 型の状態だけです。既に着手済み、または既に解決済みの
-Issueを記録するときは、`open` してから `start` または `close` します。
-`issue set --as` だけが type を問わず任意の状態へ移せる操作です。`issue start` に
-`--as` が無いのは、着手の時点で行き先が確定していないためです。
+`--as` only accepts states belonging to that verb's type. The same holds for `issue open` (aliased
+as `create`), which accepts only open-type states. To record an Issue that has already been started
+or already resolved, `open` it and then `start` or `close` it. `issue set --as` is the only
+operation that can move an Issue to any state regardless of type. `issue start` has no `--as`
+because the destination is not yet determined at the moment work begins.
 
-### 依存関係
+### Dependencies
 
-Issue 1 が Issue 2 をブロックする関係を作るには、次を実行します。
+To record that Issue 1 blocks Issue 2:
 
 ```sh
 octa issue add 1 --blocks 2 --lease "$LEASE"
@@ -299,19 +303,20 @@ octa issue show 1
 octa issue show 2
 ```
 
-まだ終端状態ではない blocker を持たない作業は、`--unblocked` で一覧できます。
+Work that has no blocker outside a terminal state can be listed with `--unblocked`.
 
 ```sh
 octa issue list --unblocked
 ```
 
-依存を削除するには同じプロパティを `remove` します。
+To drop a dependency, `remove` the same property.
 
 ```sh
 octa issue remove 1 --blocks 2 --lease "$LEASE"
 ```
 
-順序を持たない関連 Issue は `--related` で結びます。同じ組を逆順で追加しても一件だけ保存され、`--related-to` で候補を絞れます。
+Related Issues with no ordering between them are connected with `--related`. Adding the same pair in
+the opposite order stores a single record, and `--related-to` narrows the candidates.
 
 ```sh
 octa issue add 1 --related 2 --lease "$LEASE"
@@ -319,11 +324,11 @@ octa issue list --related-to 1
 octa issue remove 2 --related 1 --lease "$LEASE_2"
 ```
 
-### ラベル
+### Labels
 
-ラベルは単独でも使えます。
-ラベル名とグループ名はリポジトリごとに自由に決められ、octa が予約する分類名や
-`impl` / `design` / `research` のような特別扱いされるラベルはありません。
+Labels can be used on their own.
+Label names and group names are yours to choose per repository; octa reserves no classification
+names and gives no special treatment to labels such as `impl` / `design` / `research`.
 
 ```sh
 octa config label create documentation --target issue
@@ -331,9 +336,9 @@ octa issue add 1 --label documentation --lease "$LEASE"
 octa issue remove 1 --label documentation --lease "$LEASE"
 ```
 
-`single` グループでは、同じグループのラベルを一つだけ付けられます。
+In a `single` group, only one label from that group can be attached at a time.
 
-`multi` グループでは、同じグループのラベルを複数共存させられます。
+In a `multi` group, several labels from the same group can coexist.
 
 ```sh
 octa config label-group create priority --target issue --selection single
@@ -348,38 +353,39 @@ octa issue add 1 --label cli --lease "$LEASE"
 octa issue add 1 --label storage --lease "$LEASE"
 ```
 
-Project用のラベル定義はIssue用とは分かれています。同じ名前も別々に定義でき、
-`--target`は必須です。
+Label definitions for Projects are separate from those for Issues. The same name can be defined for
+each independently, and `--target` is required.
 
 ```sh
 octa config label-group create horizon --target project --selection single
 octa config label create now --target project --group horizon
 octa config label create next --target project --group horizon
-octa project add "CLI を公開する" --label now
-octa project remove "CLI を公開する" --label now
+octa project add "Publish the CLI" --label now
+octa project remove "Publish the CLI" --label now
 ```
 
-## Pull Request の議論を残す
+## Keeping Pull Request discussion
 
-octa の Pull Request は、ブランチに紐づく番号付きの議論エンティティです。
+A Pull Request in octa is a numbered discussion entity tied to a branch.
 
-コードと diff は Git が扱い、octa は状態とコメントを保持します。
+Git handles the code and the diff; octa holds the state and the comments.
 
 ```sh
 octa pr create \
-  --title "リリース手順を追加する" \
+  --title "Add the release process" \
   --branch docs/release-process \
-  --body "Wiki と README を更新する。" \
+  --body "Update the Wiki and the README." \
   --issue 1 \
   --lease "$LEASE"
 
-octa pr comment 1 --body "確認をお願いします。"
+octa pr comment 1 --body "Please take a look."
 octa pr show 1
 octa pr set-state 1 closed
 ```
 
-既存 PR は作成時と同じ形のまま利用でき、必要になった時だけ Issue と明示的に link できます。
-1つの Issue に複数の PR、1つの PR に複数の Issue を link できます。同じ組は重複保存されません。
+An existing PR keeps working exactly as it was created, and can be explicitly linked to an Issue only
+when that becomes necessary.
+One Issue can link to several PRs and one PR to several Issues. The same pair is never stored twice.
 
 ```sh
 octa pr add 2 --issue 1 --lease "$LEASE"
@@ -387,48 +393,49 @@ octa issue show 1
 octa pr remove 2 --issue 1 --lease "$LEASE"
 ```
 
-PR 一覧は `open`、`closed`、`all` で絞り込めます。
+PR listings can be filtered with `open`, `closed`, or `all`.
 
 ```sh
 octa pr list --state open
 octa pr list --state all
 ```
 
-## Wiki に方針と手順を残す
+## Keeping policies and procedures in the Wiki
 
-Wiki はリポジトリ内のファイルではなく、octa のローカルストアに保存されます。
+The Wiki is stored in octa's local store, not as files inside the repository.
 
-slug を省略すると、タイトルから ASCII 英数字とハイフンの slug を自動生成します。
+When the slug is omitted, one is generated from the title using ASCII alphanumerics and hyphens.
 
-日本語だけのタイトルなど、自動生成後に slug が空になるタイトルでは `--slug` を指定してください。
+For titles where that generation yields an empty slug — a title written only in Japanese, for
+example — pass `--slug` explicitly.
 
 ```sh
 octa wiki create \
-  --title "リリース手順" \
+  --title "Release process" \
   --slug release-process \
-  --body "関連する方針は [[development-policy]] を参照する。"
+  --body "See [[development-policy]] for the related policy."
 
 octa wiki show release-process
 octa wiki list
 ```
 
-明示的な slug を指定することもできます。
+You can also specify an explicit slug.
 
 ```sh
 octa wiki create \
-  --title "開発方針" \
+  --title "Development policy" \
   --slug development-policy \
-  --body "設計判断をここに残す。"
+  --body "Design decisions are recorded here."
 ```
 
-本文中の `[[slug]]` はリンクとして記録されます。
+A `[[slug]]` in the body is recorded as a link.
 
-`wiki show` は、そのページからのリンクと、そのページへの backlink を表示します。
+`wiki show` displays both the links from that page and the backlinks to it.
 
-## GraphQL で必要なデータだけ読む
+## Reading exactly the data you need with GraphQL
 
-`octa query` は、現在のリポジトリを既定 scope とする read-only GraphQL schema を提供します。
-document は標準入力か `--file` から渡し、variables は JSON object で指定します。
+`octa query` exposes a read-only GraphQL schema scoped to the current repository by default.
+The document is passed on standard input or with `--file`, and variables are given as a JSON object.
 
 ```sh
 octa query --variables '{"number": 25}' <<'GRAPHQL'
@@ -447,18 +454,20 @@ GRAPHQL
 octa query --file query.graphql --variables '{"limit": 20}'
 ```
 
-selection setは必要な列とrelationだけを取得するSQLite queryへ変換されます。
-単一relationは相関JOIN、複数relationはJOINを含む集約subqueryになり、選択されて
-いないrelationへはアクセスしません。応答はGraphQL JSON envelopeで、実行した
-query数を`extensions.dbAccesses`に含めます。list fieldの`limit`は既定50・最大100、
-query depthは8、complexityは500が上限です。schemaにmutationはありません。
-Issueの`leased` fieldは取得中かどうかだけを返し、lease IDは公開しません。
+The selection set is translated into a SQLite query that fetches only the columns and relations you
+asked for. A single relation becomes a correlated JOIN and a multiple relation an aggregate subquery
+containing a JOIN; relations that were not selected are never accessed. The response is a GraphQL
+JSON envelope, with the number of executed queries in `extensions.dbAccesses`. The `limit` of a list
+field defaults to 50 and caps at 100; query depth caps at 8 and complexity at 500. The schema has no
+mutations. An Issue's `leased` field only reports whether a lease is held; it never exposes the
+lease ID.
 
-成功時も検証エラー時も標準GraphQL JSON envelopeを返します。
-成功時は `data`、検証エラー時は `errors` が含まれるため、CLIの終了statusだけでなくenvelopeを確認します。
+Both success and validation errors come back as a standard GraphQL JSON envelope.
+Success carries `data` and a validation error carries `errors`, so check the envelope rather than the
+CLI exit status alone.
 
 ```json
-{"data":{"issue":{"number":25,"title":"read-only GraphQL query surfaceを追加する"}},"extensions":{"dbAccesses":1}}
+{"data":{"issue":{"number":25,"title":"Add a read-only GraphQL query surface"}},"extensions":{"dbAccesses":1}}
 ```
 
 ```sh
@@ -469,18 +478,18 @@ printf '%s\n' '{ missingField }' | octa query
 {"data":null,"extensions":{"dbAccesses":0},"errors":[{"message":"Unknown field \"missingField\" on type \"QueryRoot\".","locations":[{"line":1,"column":3}]}]}
 ```
 
-利用可能な型とfieldはintrospection、またはSDL出力で確認できます。
+The available types and fields can be inspected through introspection or SDL output.
 
 ```sh
 octa query --schema
 ```
 
-## JSON 出力
+## JSON output
 
-自動化やエージェントから利用する場合は、対応するコマンドに `--json` を付けます。
+For automation and agents, pass `--json` to the commands that support it.
 
 ```sh
-octa issue create --title "調査する" --json
+octa issue create --title "Investigate" --json
 octa issue list --all --json
 octa issue show 1 --json
 octa pr list --state all --json
@@ -488,19 +497,20 @@ octa wiki show release-process --json
 octa config label list --target issue --json
 ```
 
-## worktree とリポジトリのスコープ
+## Worktrees and repository scope
 
-通常は、現在いる Git リポジトリが対象です。
+Normally the target is the Git repository you are currently in.
 
-Git の common directory を識別子に使うため、同じリポジトリの複数 worktree は同じ octa データを共有します。
+Because the Git common directory is used as the identifier, multiple worktrees of the same repository
+share the same octa data.
 
-別の登録済みリポジトリを明示するには `--repo` を使います。
+To name another registered repository explicitly, use `--repo`.
 
 ```sh
 octa --repo other-repository issue list
 ```
 
-読み取り系の一部の一覧では、`--all-repos` で登録済みリポジトリを横断できます。
+Some read-only listings can span registered repositories with `--all-repos`.
 
 ```sh
 octa --all-repos issue list --all
@@ -508,30 +518,29 @@ octa --all-repos pr list --state all
 octa --all-repos wiki list
 ```
 
-更新操作と、Issue の `--label`、`--project`、`--milestone`、`--related-to`、
-`--unblocked` による絞り込みは、単一リポジトリで実行してください。状態の設定は
-リポジトリ横断のグローバル設定なので、`--state` と `--state-type` は `--all-repos`
-でも使えます。
+Mutating operations, and Issue filtering by `--label`, `--project`, `--milestone`, `--related-to`, and
+`--unblocked`, must be run against a single repository. State configuration is global across
+repositories, so `--state` and `--state-type` also work with `--all-repos`.
 
-## 保存場所とバックアップ
+## Storage location and backups
 
-octa は、ユーザーごとに一つの SQLite データベースを使います。
+octa uses one SQLite database per user.
 
 ```text
 $XDG_DATA_HOME/octa/octa.db
 ```
 
-`XDG_DATA_HOME` が未設定の場合は、次の場所です。
+When `XDG_DATA_HOME` is unset, the location is:
 
 ```text
 ~/.local/share/octa/octa.db
 ```
 
-このデータベースは Git にコミットされず、clone や remote には自動で同期されません。
+This database is not committed to Git and is not synced automatically to clones or remotes.
 
-マシン移行やバックアップが必要な場合は、このデータベースをバックアップしてください。
+If you need to migrate machines or keep backups, back this database up.
 
-## コマンドを調べる
+## Discovering commands
 
 ```sh
 octa --help
@@ -545,9 +554,11 @@ octa config label-group --help
 octa config state --help
 ```
 
-AI エージェントが octa CLI の機能、scope、JSON、保存場所を調べて利用するためのガイドは [`skills/octa`](skills/octa/SKILL.md) にあります。チーム固有の Issue 運用方針はこのガイドには含めません。
+A guide for AI agents to discover and use the octa CLI's features, scope, JSON output, and storage
+location lives in [`skills/octa`](skills/octa/SKILL.md). Team-specific Issue conventions are kept out
+of that guide.
 
-## 開発時の確認
+## Checks during development
 
 ```sh
 cargo fmt --check
