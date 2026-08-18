@@ -222,6 +222,59 @@ fn issue_help_advertises_tui_without_hiding_existing_commands() {
 }
 
 #[test]
+fn help_routes_label_lookups_from_the_top_level_and_from_label_options() {
+    // Help strings pass neither the compiler nor the command parser, so a stale
+    // wording survives every other check. Assert the routes explicitly.
+    let help = |args: &[&str]| {
+        let output = Command::new(bin())
+            .args(args)
+            .output()
+            .unwrap_or_else(|error| panic!("failed to run {args:?} help: {error}"));
+        assert!(
+            output.status.success(),
+            "{args:?} help failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).unwrap()
+    };
+
+    // The top-level entry has to say what `config` holds. Naming the record it
+    // configures also keeps it honest: `config` is global, not per repository.
+    let top = help(&["--help"]);
+    assert!(
+        top.contains("Configure Issue and Project states, labels, and label groups"),
+        "top-level help does not route to the label definitions:\n{top}"
+    );
+    assert!(
+        !top.contains("Manage repository configuration"),
+        "top-level help still calls global configuration repository-scoped:\n{top}"
+    );
+
+    // Every place that takes a label name points at the list of defined ones.
+    for args in [
+        ["issue", "list", "--help"],
+        ["issue", "add", "--help"],
+        ["issue", "remove", "--help"],
+    ] {
+        let stdout = help(&args);
+        assert!(
+            stdout.contains("octa config issue label list"),
+            "{args:?} does not name the Issue label listing:\n{stdout}"
+        );
+    }
+    for args in [
+        ["project", "add", "--help"],
+        ["project", "remove", "--help"],
+    ] {
+        let stdout = help(&args);
+        assert!(
+            stdout.contains("octa config project label list"),
+            "{args:?} does not name the Project label listing:\n{stdout}"
+        );
+    }
+}
+
+#[test]
 fn issue_tui_rejects_ambiguous_all_repo_details_before_terminal_mode() {
     let env = Env::new();
     let output = env.run(&["issue", "tui", "--all-repos"]);

@@ -77,7 +77,7 @@ enum TopCommand {
         #[command(subcommand)]
         command: WikiCommand,
     },
-    /// Manage repository configuration.
+    /// Configure Issue and Project states, labels, and label groups.
     Config {
         #[command(subcommand)]
         command: ConfigCommand,
@@ -164,6 +164,7 @@ pub(crate) enum IssueCommand {
     List {
         #[command(flatten)]
         state_filter: IssueListStateArgs,
+        /// Filter by label. List the defined labels with `octa config issue label list`.
         #[arg(long)]
         label: Option<String>,
         /// Filter by Project id or name.
@@ -254,6 +255,7 @@ pub(crate) enum IssueCommand {
     /// Add relationships or collection members.
     Add {
         number: i64,
+        /// Attach a label. List the defined labels with `octa config issue label list`.
         #[arg(long)]
         label: Option<String>,
         /// Add an Issue that blocks this Issue.
@@ -272,6 +274,7 @@ pub(crate) enum IssueCommand {
     /// Remove relationships or collection members.
     Remove {
         number: i64,
+        /// Detach a label. List the defined labels with `octa config issue label list`.
         #[arg(long)]
         label: Option<String>,
         #[arg(long)]
@@ -407,12 +410,14 @@ pub(crate) enum ProjectCommand {
     /// Add relationships or collection members.
     Add {
         project: String,
+        /// Attach a label. List the defined labels with `octa config project label list`.
         #[arg(long)]
         label: String,
     },
     /// Remove relationships or collection members.
     Remove {
         project: String,
+        /// Detach a label. List the defined labels with `octa config project label list`.
         #[arg(long)]
         label: String,
     },
