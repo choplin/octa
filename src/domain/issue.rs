@@ -1,5 +1,5 @@
 use crate::domain::{milestone::MilestoneRef, pr::PrRef, project::ProjectRef, Comment};
-use anyhow::{bail, Result};
+use anyhow::{anyhow, Result};
 use serde::Serialize;
 use std::fmt;
 
@@ -68,6 +68,12 @@ pub enum StateType {
 }
 
 impl StateType {
+    /// Every value, in lifecycle order.
+    ///
+    /// The one place the set is written down. `parse` rejects against it and
+    /// the CLI advertises it, so help, errors, and parsing cannot drift apart.
+    pub const VALUES: [Self; 3] = [Self::Open, Self::InProgress, Self::Closed];
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Open => "open",
@@ -78,12 +84,15 @@ impl StateType {
 
     /// Parse the wire form used by the CLI, the schema, and GraphQL alike.
     pub fn parse(value: &str) -> Result<Self> {
-        match value {
-            "open" => Ok(Self::Open),
-            "in progress" => Ok(Self::InProgress),
-            "closed" => Ok(Self::Closed),
-            other => bail!("unknown state type {other:?}; use open, in progress, or closed"),
-        }
+        Self::VALUES
+            .into_iter()
+            .find(|candidate| candidate.as_str() == value)
+            .ok_or_else(|| {
+                anyhow!(
+                    "unknown state type {value:?}; use {}",
+                    crate::domain::join_options(Self::VALUES.map(Self::as_str))
+                )
+            })
     }
 
     /// Whether issues in a state of this type count as closed.

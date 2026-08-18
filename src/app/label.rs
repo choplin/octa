@@ -1,17 +1,18 @@
-use crate::domain::label::{Label, LabelGroup};
+use crate::domain::label::{Label, LabelGroup, LabelSelection};
 use anyhow::{bail, Result};
 use sqlx::SqlitePool;
 pub async fn create_group(pool: &SqlitePool, name: &str, selection: &str) -> Result<()> {
-    if selection != "single" && selection != "multi" {
-        bail!("selection must be 'single' or 'multi'");
-    }
-    crate::sql::label::insert_group(pool, name, selection).await
+    let selection = LabelSelection::parse(selection)?;
+    crate::sql::label::insert_group(pool, name, selection.as_str()).await
 }
 
 pub async fn create(pool: &SqlitePool, name: &str, group: Option<&str>) -> Result<()> {
     if let Some(group) = group {
         if !crate::sql::label::group_exists(pool, group).await? {
-            bail!("unknown label group {group:?}; create it first with `octa config issue label-group create`");
+            bail!(
+                "unknown label group {group:?}; available label groups are: {}",
+                group_names(pool).await?
+            );
         }
     }
     crate::sql::label::insert(pool, name, group).await
@@ -25,6 +26,55 @@ pub async fn list_groups(pool: &SqlitePool) -> Result<Vec<LabelGroup>> {
     crate::sql::label::list_groups(pool).await
 }
 
+/// Reject a label name that is not defined.
+///
+/// Filtering on an undefined label used to match nothing, which reads exactly
+/// like "no issue carries it" — a typo and an empty result were indissoluble.
+/// Detaching stays idempotent; only reads that would otherwise answer silently
+/// go through here.
+pub async fn require_label(pool: &SqlitePool, label: &str) -> Result<()> {
+    let defined = crate::sql::label::list(pool).await?;
+    if defined.iter().any(|candidate| candidate.name == label) {
+        return Ok(());
+    }
+    bail!(
+        "unknown label {label:?}; available labels are: {}",
+        crate::domain::known_values(defined.iter().map(|candidate| candidate.name.as_str()))
+    )
+}
+
+/// The available Issue label names, formatted for an error that rejects one.
+async fn label_names(pool: &SqlitePool) -> Result<String> {
+    let defined = crate::sql::label::list(pool).await?;
+    Ok(crate::domain::known_values(
+        defined.iter().map(|label| label.name.as_str()),
+    ))
+}
+
+/// The Project-label counterpart of `label_names`.
+async fn project_label_names(pool: &SqlitePool) -> Result<String> {
+    let defined = crate::sql::label::list_project_labels(pool).await?;
+    Ok(crate::domain::known_values(
+        defined.iter().map(|label| label.name.as_str()),
+    ))
+}
+
+/// The available Issue label group names, formatted for an error that rejects one.
+async fn group_names(pool: &SqlitePool) -> Result<String> {
+    let defined = crate::sql::label::list_groups(pool).await?;
+    Ok(crate::domain::known_values(
+        defined.iter().map(|group| group.name.as_str()),
+    ))
+}
+
+/// The Project-label-group counterpart of `group_names`.
+async fn project_group_names(pool: &SqlitePool) -> Result<String> {
+    let defined = crate::sql::label::list_project_groups(pool).await?;
+    Ok(crate::domain::known_values(
+        defined.iter().map(|group| group.name.as_str()),
+    ))
+}
+
 pub async fn attach(
     pool: &SqlitePool,
     repo: i64,
@@ -36,13 +86,12 @@ pub async fn attach(
         bail!("issue #{number} not found");
     }
     let mut tx = crate::sql::issue::begin_lease_mutation(pool, repo, number, lease).await?;
-    let group = crate::sql::label::label_group_tx(&mut tx, label)
-        .await?
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "unknown label {label:?}; create it first with `octa config issue label create`"
-            )
-        })?;
+    let Some(group) = crate::sql::label::label_group_tx(&mut tx, label).await? else {
+        bail!(
+            "unknown label {label:?}; available labels are: {}",
+            label_names(pool).await?
+        );
+    };
     if let Some(group) = group {
         if crate::sql::label::group_selection_tx(&mut tx, &group).await? == "single" {
             crate::sql::label::replace_single_group(&mut tx, repo, number, &group).await?;
@@ -70,10 +119,8 @@ pub async fn detach(
 }
 
 pub async fn create_project_group(pool: &SqlitePool, name: &str, selection: &str) -> Result<()> {
-    if selection != "single" && selection != "multi" {
-        bail!("selection must be 'single' or 'multi'");
-    }
-    crate::sql::label::insert_project_group(pool, name, selection).await
+    let selection = LabelSelection::parse(selection)?;
+    crate::sql::label::insert_project_group(pool, name, selection.as_str()).await
 }
 
 pub async fn create_project_label(
@@ -83,7 +130,10 @@ pub async fn create_project_label(
 ) -> Result<()> {
     if let Some(group) = group {
         if !crate::sql::label::project_group_exists(pool, group).await? {
-            bail!("unknown label group {group:?}; create it first with `octa config project label-group create`");
+            bail!(
+                "unknown label group {group:?}; available label groups are: {}",
+                project_group_names(pool).await?
+            );
         }
     }
     crate::sql::label::insert_project_label(pool, name, group).await
@@ -105,13 +155,12 @@ pub async fn attach_project(
 ) -> Result<()> {
     let project = crate::app::project::resolve(pool, repo, project_ref).await?;
     let mut tx = pool.begin().await?;
-    let group = crate::sql::label::project_label_group_tx(&mut tx, label)
-        .await?
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "unknown label {label:?}; create it first with `octa config project label create`"
-            )
-        })?;
+    let Some(group) = crate::sql::label::project_label_group_tx(&mut tx, label).await? else {
+        bail!(
+            "unknown label {label:?}; available labels are: {}",
+            project_label_names(pool).await?
+        );
+    };
     if let Some(group) = group {
         if crate::sql::label::project_group_selection_tx(&mut tx, &group).await? == "single" {
             crate::sql::label::replace_project_single_group(&mut tx, repo, project.id, &group)

@@ -120,6 +120,23 @@ impl Env {
         self.run_in(self.path(), args)
     }
 
+    /// Run a `--help` invocation against this env's store.
+    ///
+    /// Help names the values the store actually holds, so it has to read the
+    /// isolated one; the developer's own store would make the result depend on
+    /// whoever runs the suite. The output is flattened because clap re-wraps it
+    /// to the terminal width, which would otherwise put a line break in the
+    /// middle of an assertion.
+    fn help(&self, args: &[&str]) -> String {
+        let out = self.run_raw_in(self.path(), args);
+        assert!(
+            out.status.success(),
+            "octa {args:?} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        flatten(&String::from_utf8(out.stdout).unwrap())
+    }
+
     fn ok(&self, args: &[&str]) -> String {
         self.ok_in(self.path(), args)
     }
@@ -222,25 +239,14 @@ fn issue_help_advertises_tui_without_hiding_existing_commands() {
 }
 
 #[test]
-fn help_routes_label_lookups_from_the_top_level_and_from_label_options() {
+fn help_routes_label_lookups_from_the_top_level() {
     // Help strings pass neither the compiler nor the command parser, so a stale
-    // wording survives every other check. Assert the routes explicitly.
-    let help = |args: &[&str]| {
-        let output = Command::new(bin())
-            .args(args)
-            .output()
-            .unwrap_or_else(|error| panic!("failed to run {args:?} help: {error}"));
-        assert!(
-            output.status.success(),
-            "{args:?} help failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        String::from_utf8(output.stdout).unwrap()
-    };
+    // wording survives every other check. Assert the route explicitly.
+    let env = Env::new();
 
     // The top-level entry has to say what `config` holds. Naming the record it
     // configures also keeps it honest: `config` is global, not per repository.
-    let top = help(&["--help"]);
+    let top = env.help(&["--help"]);
     assert!(
         top.contains("Configure Issue and Project states, labels, and label groups"),
         "top-level help does not route to the label definitions:\n{top}"
@@ -249,29 +255,6 @@ fn help_routes_label_lookups_from_the_top_level_and_from_label_options() {
         !top.contains("Manage repository configuration"),
         "top-level help still calls global configuration repository-scoped:\n{top}"
     );
-
-    // Every place that takes a label name points at the list of defined ones.
-    for args in [
-        ["issue", "list", "--help"],
-        ["issue", "add", "--help"],
-        ["issue", "remove", "--help"],
-    ] {
-        let stdout = help(&args);
-        assert!(
-            stdout.contains("octa config issue label list"),
-            "{args:?} does not name the Issue label listing:\n{stdout}"
-        );
-    }
-    for args in [
-        ["project", "add", "--help"],
-        ["project", "remove", "--help"],
-    ] {
-        let stdout = help(&args);
-        assert!(
-            stdout.contains("octa config project label list"),
-            "{args:?} does not name the Project label listing:\n{stdout}"
-        );
-    }
 }
 
 #[test]
@@ -372,9 +355,17 @@ fn issue_list_state_selectors_have_distinct_grammar() {
     let named_pair = json(&env.ok(&["issue", "list", "--state", "open,not planned", "--json"]));
     assert_eq!(issue_numbers(&named_pair), vec![1, 4]);
 
+    // Rejecting a value is only half of it: the message has to name the ones
+    // that would have worked, or the caller is back to guessing.
     let unknown_type = env.run(&["issue", "list", "--state-type", "waiting"]);
     assert!(!unknown_type.status.success());
-    assert!(String::from_utf8_lossy(&unknown_type.stderr).contains("unknown state type"));
+    let message = String::from_utf8_lossy(&unknown_type.stderr).to_string();
+    for accepted in ["open", "in progress", "closed"] {
+        assert!(
+            message.contains(accepted),
+            "rejection does not offer {accepted:?}: {message}"
+        );
+    }
 
     let selector_pairs = [
         ["--state", "--state-type"],
@@ -1055,7 +1046,13 @@ fn seeded_states_carry_a_type_and_a_default_per_type() {
         "config", "issue", "state", "create", "odd", "--type", "waiting",
     ]);
     assert!(!unknown_type.status.success());
-    assert!(String::from_utf8_lossy(&unknown_type.stderr).contains("unknown state type"));
+    let message = String::from_utf8_lossy(&unknown_type.stderr).to_string();
+    for accepted in ["open", "in progress", "closed"] {
+        assert!(
+            message.contains(accepted),
+            "rejection does not offer {accepted:?}: {message}"
+        );
+    }
 }
 
 #[test]
@@ -1099,7 +1096,10 @@ fn issue_verbs_move_to_their_type_default_and_reject_the_wrong_type() {
     assert!(!wrong_type.status.success());
     let message = String::from_utf8_lossy(&wrong_type.stderr);
     assert!(message.contains("not \"open\""), "{message}");
-    assert!(message.contains("available: open"), "{message}");
+    assert!(
+        message.contains("available open states are: \"open\""),
+        "{message}"
+    );
 
     // `issue set --as` is the unconstrained move, and reaches any state.
     env.ok(&[
@@ -2227,16 +2227,25 @@ fn label_errors_and_idempotent_operations_are_preserved() {
         ])
         .status
         .success());
+    env.ok(&[
+        "config",
+        "issue",
+        "label-group",
+        "create",
+        "kind",
+        "--selection",
+        "single",
+    ]);
     let missing_group = env.run(&[
         "config", "issue", "label", "create", "x", "--group", "missing",
     ]);
     assert!(!missing_group.status.success());
-    // Error hints name commands that exist. A hint is the only place a withdrawn
-    // spelling can survive, since no compiler or command parse reaches it.
+    // A rejection names the values that would have worked. Nothing else in the
+    // build reaches this string, so assert it rather than trusting review.
     let hint = String::from_utf8_lossy(&missing_group.stderr).to_string();
     assert!(
-        hint.contains("octa config issue label-group create"),
-        "hint does not name the current command: {hint}"
+        hint.contains("kind"),
+        "hint does not offer the defined groups: {hint}"
     );
     env.ok(&["issue", "open", "--title", "Task"]);
     env.ok(&["config", "issue", "label", "create", "plain"]);
@@ -2246,8 +2255,8 @@ fn label_errors_and_idempotent_operations_are_preserved() {
     assert!(!unknown_label.status.success());
     let hint = String::from_utf8_lossy(&unknown_label.stderr).to_string();
     assert!(
-        hint.contains("octa config issue label create"),
-        "hint does not name the current command: {hint}"
+        hint.contains("plain"),
+        "hint does not offer the defined labels: {hint}"
     );
     env.ok(&["issue", "remove", "1", "--label", "missing"]);
     assert_eq!(
@@ -2547,4 +2556,222 @@ fn graphql_query_accepts_files_and_enforces_read_only_limits() {
     let schema = env.ok(&["query", "--schema"]);
     assert!(schema.contains("type QueryRoot"));
     assert!(!schema.contains("type Mutation"));
+}
+
+/// Collapse clap's line wrapping so an assertion sees one flat string.
+///
+/// Help text is re-wrapped to the terminal width, so a value can land with a
+/// newline in the middle of it. Matching on the wrapped form would make the
+/// test depend on where the break falls.
+fn flatten(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+#[test]
+fn help_enumerates_value_sets_fixed_in_code() {
+    // A set the code owns is spelled out, so nobody has to probe it against
+    // live records to learn what it holds. `in progress` keeps its space: the
+    // accepted spelling and the advertised one are the same string.
+    let env = Env::new();
+    for (args, accepted) in [
+        (
+            vec!["config", "issue", "state", "create", "--help"],
+            vec!["open", "in progress", "closed"],
+        ),
+        (
+            vec!["config", "issue", "state", "set", "--help"],
+            vec!["open", "in progress", "closed"],
+        ),
+        (
+            vec!["config", "project", "state", "create", "--help"],
+            vec!["open", "closed"],
+        ),
+        (
+            vec!["config", "project", "state", "set", "--help"],
+            vec!["open", "closed"],
+        ),
+        (
+            vec!["issue", "list", "--help"],
+            vec!["open", "in progress", "closed"],
+        ),
+        (
+            vec!["config", "issue", "label-group", "create", "--help"],
+            vec!["single", "multi"],
+        ),
+        (
+            vec!["config", "project", "label-group", "create", "--help"],
+            vec!["single", "multi"],
+        ),
+        (vec!["pr", "list", "--help"], vec!["open", "closed", "all"]),
+    ] {
+        let stdout = env.help(&args);
+        assert!(
+            stdout.contains("possible values"),
+            "{args:?} does not enumerate its value set:\n{stdout}"
+        );
+        for value in accepted {
+            assert!(
+                stdout.contains(value),
+                "{args:?} omits the accepted value {value:?}:\n{stdout}"
+            );
+        }
+    }
+}
+
+#[test]
+fn value_lists_quote_every_value_the_same_way() {
+    // A name may contain a space, so an unquoted list is ambiguous about where
+    // one value ends and the next begins. Quoting only the ambiguous ones reads
+    // as if the quotes said something about that value, so all are quoted --
+    // in help and in the errors that reject a value alike.
+    let env = Env::new();
+    env.ok(&["issue", "open", "--title", "Task"]);
+
+    let declared = env.help(&["config", "issue", "state", "create", "--help"]);
+    assert!(
+        declared.contains(r#"[possible values: "open", "in progress", "closed"]"#),
+        "declared values are not uniformly quoted:\n{declared}"
+    );
+
+    let configured = env.help(&["issue", "set", "--help"]);
+    assert!(
+        configured.contains(r#"[possible values: "open", "in progress", "closed""#),
+        "configured values are not uniformly quoted:\n{configured}"
+    );
+
+    let rejected = env.run(&["issue", "list", "--state", "Nope"]);
+    let message = flatten(&String::from_utf8_lossy(&rejected.stderr));
+    assert!(
+        message.contains(r#""open", "in progress", "closed""#),
+        "rejection does not quote uniformly: {message}"
+    );
+}
+
+#[test]
+fn help_enumerates_value_sets_that_live_in_configuration() {
+    // These sets are configurable, so help has to read them rather than
+    // declare them. Naming a command to run instead would leave the reader one
+    // round trip short of knowing what to type.
+    let env = Env::new();
+    env.ok(&["issue", "open", "--title", "Task"]);
+    env.ok(&["config", "issue", "label", "create", "shipped"]);
+    env.ok(&["config", "project", "label", "create", "external"]);
+    env.ok(&[
+        "config", "issue", "state", "create", "Blocked", "--type", "open",
+    ]);
+
+    for args in [
+        vec!["issue", "open", "--help"],
+        vec!["issue", "set", "--help"],
+        vec!["issue", "list", "--help"],
+        vec!["config", "issue", "state", "delete", "--help"],
+    ] {
+        let stdout = env.help(&args);
+        assert!(
+            stdout.contains("Blocked"),
+            "{args:?} does not offer the configured state:\n{stdout}"
+        );
+    }
+    for args in [
+        vec!["issue", "list", "--help"],
+        vec!["issue", "add", "--help"],
+        vec!["issue", "remove", "--help"],
+    ] {
+        let stdout = env.help(&args);
+        assert!(
+            stdout.contains("shipped"),
+            "{args:?} does not offer the defined Issue label:\n{stdout}"
+        );
+    }
+    for args in [
+        vec!["project", "add", "--help"],
+        vec!["project", "remove", "--help"],
+    ] {
+        let stdout = env.help(&args);
+        assert!(
+            stdout.contains("external"),
+            "{args:?} does not offer the defined Project label:\n{stdout}"
+        );
+    }
+
+    // A verb narrowed to one state type offers only that type's states, since
+    // the wider set would name values the verb would then refuse.
+    let closing = env.help(&["issue", "close", "--help"]);
+    assert!(
+        !closing.contains("Blocked"),
+        "close offers an open-type state:\n{closing}"
+    );
+}
+
+#[test]
+fn help_still_works_without_a_store() {
+    // Help must not depend on a database, and must never create one: printing
+    // help is not a reason to write. The values simply go unlisted.
+    let empty = TempDir::new().unwrap();
+    let out = Command::new(bin())
+        .env("XDG_DATA_HOME", empty.path())
+        .args(["issue", "set", "--help"])
+        .output()
+        .expect("failed to spawn octa");
+    assert!(out.status.success());
+    assert!(flatten(&String::from_utf8(out.stdout).unwrap()).contains("--as <STATE>"));
+    assert!(
+        !empty.path().join("octa").join("octa.db").exists(),
+        "printing help created a store"
+    );
+}
+
+#[test]
+fn read_filters_reject_undefined_values_instead_of_matching_nothing() {
+    // An undefined filter value used to return an empty list, which reads
+    // exactly like "nothing qualifies". The two have to be distinguishable, or
+    // the only way to check a value is to write it somewhere and look.
+    let env = Env::new();
+    env.ok(&["issue", "open", "--title", "Task"]);
+    env.ok(&["config", "issue", "label", "create", "plain"]);
+
+    // The rejection carries the values themselves. Naming a command to run
+    // instead would leave the caller one round trip short of retrying.
+    for (args, expected) in [
+        (vec!["issue", "list", "--state", "Nope"], "open"),
+        (vec!["issue", "list", "--state", "open,Nope"], "in progress"),
+        (vec!["issue", "list", "--label", "Nope"], "plain"),
+    ] {
+        let out = env.run(&args);
+        assert!(
+            !out.status.success(),
+            "{args:?} accepted an undefined value: {}",
+            String::from_utf8_lossy(&out.stdout)
+        );
+        let message = flatten(&String::from_utf8_lossy(&out.stderr));
+        assert!(
+            message.contains(expected),
+            "{args:?} does not offer {expected:?}: {message}"
+        );
+    }
+
+    // Mutations that take a configured value answer the same way.
+    let unknown_state = env.run(&["issue", "set", "1", "--as", "Nope"]);
+    assert!(!unknown_state.status.success());
+    let message = flatten(&String::from_utf8_lossy(&unknown_state.stderr));
+    assert!(
+        message.contains("open") && message.contains("closed"),
+        "issue set --as does not offer the available states: {message}"
+    );
+
+    let unknown_label = env.run(&["issue", "add", "1", "--label", "Nope"]);
+    assert!(!unknown_label.status.success());
+    let message = flatten(&String::from_utf8_lossy(&unknown_label.stderr));
+    assert!(
+        message.contains("plain"),
+        "issue add --label does not offer the available labels: {message}"
+    );
+
+    // Values that already resolved properly keep doing so.
+    assert!(!env
+        .run(&["issue", "list", "--project", "Nope"])
+        .status
+        .success());
+    env.ok(&["issue", "list", "--state", "open"]);
+    env.ok(&["issue", "list", "--label", "plain"]);
 }

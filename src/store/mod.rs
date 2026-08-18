@@ -101,6 +101,34 @@ pub fn resolve_db_path() -> Result<PathBuf> {
     Ok(dir.join("octa.db"))
 }
 
+/// Open the database only if it already exists, for reading.
+///
+/// `--help` reads the configured value sets so it can name them, and printing
+/// help is not a reason to create a store or run migrations. A caller that
+/// gets `None` has nothing to advertise, which is also the truth: a store that
+/// does not exist holds no values.
+pub async fn open_existing_pool() -> Option<SqlitePool> {
+    let path = existing_db_path()?;
+    let options = SqliteConnectOptions::new()
+        .filename(&path)
+        .create_if_missing(false)
+        .journal_mode(SqliteJournalMode::Wal)
+        .busy_timeout(Duration::from_secs(1));
+    SqlitePoolOptions::new().connect_with(options).await.ok()
+}
+
+/// The database path, without creating anything along the way.
+fn existing_db_path() -> Option<PathBuf> {
+    let base = match std::env::var_os("XDG_DATA_HOME") {
+        Some(value) if !value.is_empty() => PathBuf::from(value),
+        _ => PathBuf::from(std::env::var_os("HOME")?)
+            .join(".local")
+            .join("share"),
+    };
+    let path = base.join("octa").join("octa.db");
+    path.is_file().then_some(path)
+}
+
 pub struct Store {
     pub(crate) pool: SqlitePool,
     scope: Resolved,

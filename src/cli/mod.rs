@@ -1,9 +1,13 @@
 //! CLI schema and top-level dispatch.
+use crate::domain::label::LabelSelection;
+use crate::domain::project::ProjectStateType;
 use crate::store::{IssueListSelector, RepoScope, StateFilter, StateType, Store};
 use anyhow::Result;
-use clap::{Args, Parser, Subcommand};
+use clap::builder::PossibleValuesParser;
+use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand};
 use label::LabelTarget;
 use std::path::PathBuf;
+mod help_values;
 mod issue;
 mod label;
 mod output;
@@ -12,6 +16,42 @@ mod project;
 mod project_state;
 mod state;
 mod wiki;
+
+// Closed value sets are advertised in `--help` from the same constant the
+// parser rejects against, so a set can never gain a value the help omits.
+// Sets that live in configuration are filled in at help time by `help_values`.
+
+/// Parse the command line, naming configured values in help when asked for it.
+pub async fn parse() -> Cli {
+    let mut command = Cli::command();
+    if help_values::wants_help(std::env::args_os()) {
+        if let Some(values) = help_values::load().await {
+            command = help_values::augment(command, &values);
+        }
+        command = help_values::quote_possible_values(command);
+    }
+    let matches = command.get_matches();
+    match Cli::from_arg_matches(&matches) {
+        Ok(cli) => cli,
+        Err(error) => error.exit(),
+    }
+}
+
+fn issue_state_types() -> PossibleValuesParser {
+    PossibleValuesParser::new(StateType::VALUES.map(StateType::as_str))
+}
+
+fn project_state_types() -> PossibleValuesParser {
+    PossibleValuesParser::new(ProjectStateType::VALUES.map(ProjectStateType::as_str))
+}
+
+fn label_selections() -> PossibleValuesParser {
+    PossibleValuesParser::new(LabelSelection::VALUES.map(LabelSelection::as_str))
+}
+
+fn pr_state_filters() -> PossibleValuesParser {
+    PossibleValuesParser::new(StateFilter::VALUES.map(StateFilter::as_str))
+}
 
 #[derive(Parser)]
 #[command(
@@ -164,13 +204,14 @@ pub(crate) enum IssueCommand {
     List {
         #[command(flatten)]
         state_filter: IssueListStateArgs,
-        /// Filter by label. List the defined labels with `octa config issue label list`.
+        /// Filter by label.
         #[arg(long)]
         label: Option<String>,
-        /// Filter by Project id or name.
+        /// Filter by Project id or name. List them with `octa project list`.
         #[arg(long)]
         project: Option<String>,
-        /// Filter by milestone id or name within --project.
+        /// Filter by milestone id or name within --project. List a Project's
+        /// milestones with `octa project show <project>`.
         #[arg(long, requires = "project")]
         milestone: Option<String>,
         /// Filter to issues related to this issue number.
@@ -223,16 +264,18 @@ pub(crate) enum IssueCommand {
     /// Set scalar Issue properties.
     Set {
         number: i64,
-        /// Move the issue to any configured state, of any type. This is the
-        /// only unconstrained move; every other verb is narrowed to its type.
+        /// Move the issue to any available state.
         #[arg(long = "as", value_name = "STATE")]
         as_state: Option<String>,
         #[arg(long)]
         title: Option<String>,
         #[arg(long)]
         body: Option<String>,
+        /// Project id or name. List them with `octa project list`.
         #[arg(long)]
         project: Option<String>,
+        /// Milestone id or name within the issue's Project. List a Project's
+        /// milestones with `octa project show <project>`.
         #[arg(long)]
         milestone: Option<String>,
         #[arg(long)]
@@ -255,7 +298,7 @@ pub(crate) enum IssueCommand {
     /// Add relationships or collection members.
     Add {
         number: i64,
-        /// Attach a label. List the defined labels with `octa config issue label list`.
+        /// Attach a label.
         #[arg(long)]
         label: Option<String>,
         /// Add an Issue that blocks this Issue.
@@ -274,7 +317,7 @@ pub(crate) enum IssueCommand {
     /// Remove relationships or collection members.
     Remove {
         number: i64,
-        /// Detach a label. List the defined labels with `octa config issue label list`.
+        /// Detach a label.
         #[arg(long)]
         label: Option<String>,
         #[arg(long)]
@@ -309,10 +352,11 @@ pub(crate) struct IssueOpenArgs {
     /// An `open` state other than the type's default.
     #[arg(long = "as", value_name = "STATE")]
     as_state: Option<String>,
-    /// Project id or name.
+    /// Project id or name. List them with `octa project list`.
     #[arg(long)]
     project: Option<String>,
-    /// Milestone id or name; requires an explicit --project.
+    /// Milestone id or name; requires an explicit --project. List a Project's
+    /// milestones with `octa project show <project>`.
     #[arg(long, requires = "project")]
     milestone: Option<String>,
     /// Parent issue number. The parent's Project is inherited when omitted.
@@ -329,11 +373,16 @@ pub(crate) struct IssueOpenArgs {
 #[derive(Args)]
 #[group(multiple = false)]
 pub(crate) struct IssueListStateArgs {
-    /// Configured state names, comma-separated. Matches any of them.
+    /// State names, comma-separated. Matches any of them.
     #[arg(long, value_name = "NAMES", value_delimiter = ',')]
     state: Vec<String>,
-    /// State types, comma-separated: open, in progress, closed.
-    #[arg(long, value_name = "TYPES", value_delimiter = ',')]
+    /// State types, comma-separated.
+    #[arg(
+        long,
+        value_name = "TYPES",
+        value_delimiter = ',',
+        value_parser = issue_state_types(),
+    )]
     state_type: Vec<String>,
     /// List issues in every state, including closed ones.
     #[arg(long)]
@@ -394,8 +443,7 @@ pub(crate) enum ProjectCommand {
     /// Set scalar Project properties.
     Set {
         project: String,
-        /// Move the Project to any configured state, of any type. This is the
-        /// only unconstrained move; every other verb is narrowed to its type.
+        /// Move the Project to any available state.
         #[arg(long = "as", value_name = "STATE")]
         as_state: Option<String>,
         #[arg(long)]
@@ -410,14 +458,14 @@ pub(crate) enum ProjectCommand {
     /// Add relationships or collection members.
     Add {
         project: String,
-        /// Attach a label. List the defined labels with `octa config project label list`.
+        /// Attach a label.
         #[arg(long)]
         label: String,
     },
     /// Remove relationships or collection members.
     Remove {
         project: String,
-        /// Detach a label. List the defined labels with `octa config project label list`.
+        /// Detach a label.
         #[arg(long)]
         label: String,
     },
@@ -521,8 +569,13 @@ pub(crate) enum StateCommand {
     /// Create a configured issue state.
     Create {
         name: String,
-        /// State type: open, in progress, or closed.
-        #[arg(long = "type", value_name = "TYPE", default_value = "open")]
+        /// State type.
+        #[arg(
+            long = "type",
+            value_name = "TYPE",
+            default_value = "open",
+            value_parser = issue_state_types(),
+        )]
         state_type: String,
         /// Make this its type's default, replacing the current one.
         #[arg(long)]
@@ -534,8 +587,8 @@ pub(crate) enum StateCommand {
         /// New name for the state.
         #[arg(long = "name")]
         new_name: Option<String>,
-        /// New state type: open, in progress, or closed.
-        #[arg(long = "type", value_name = "TYPE")]
+        /// New state type.
+        #[arg(long = "type", value_name = "TYPE", value_parser = issue_state_types())]
         state_type: Option<String>,
         /// Make this its type's default, replacing the current one.
         #[arg(long)]
@@ -560,8 +613,13 @@ pub(crate) enum ProjectStateCommand {
     /// Create a configured project state.
     Create {
         name: String,
-        /// State type: open or closed.
-        #[arg(long = "type", value_name = "TYPE", default_value = "open")]
+        /// State type.
+        #[arg(
+            long = "type",
+            value_name = "TYPE",
+            default_value = "open",
+            value_parser = project_state_types(),
+        )]
         state_type: String,
         /// Make this its type's default, replacing the current one.
         #[arg(long)]
@@ -573,8 +631,8 @@ pub(crate) enum ProjectStateCommand {
         /// New name for the state.
         #[arg(long = "name")]
         new_name: Option<String>,
-        /// New state type: open or closed.
-        #[arg(long = "type", value_name = "TYPE")]
+        /// New state type.
+        #[arg(long = "type", value_name = "TYPE", value_parser = project_state_types())]
         state_type: Option<String>,
         /// Make this its type's default, replacing the current one.
         #[arg(long)]
@@ -609,7 +667,8 @@ pub(crate) enum PrCommand {
     },
     /// List pull requests.
     List {
-        #[arg(long, default_value = "open")]
+        /// Which pull requests to include.
+        #[arg(long, default_value = "open", value_parser = pr_state_filters())]
         state: String,
         #[arg(long)]
         json: bool,
@@ -691,6 +750,7 @@ pub(crate) enum LabelCommand {
     /// Create a label.
     Create {
         name: String,
+        /// Label group to put this label in.
         #[arg(long)]
         group: Option<String>,
     },
@@ -706,7 +766,8 @@ pub(crate) enum LabelGroupCommand {
     /// Create a label group.
     Create {
         name: String,
-        #[arg(long)]
+        /// How many of the group's labels one record may carry.
+        #[arg(long, value_parser = label_selections())]
         selection: String,
     },
     /// List label groups.
@@ -716,12 +777,7 @@ pub(crate) enum LabelGroupCommand {
     },
 }
 pub(crate) fn parse_pr_state(value: &str) -> Result<StateFilter> {
-    match value {
-        "open" => Ok(StateFilter::Open),
-        "closed" => Ok(StateFilter::Closed),
-        "all" => Ok(StateFilter::All),
-        state => anyhow::bail!("unknown --state {state:?}; use open, closed, or all"),
-    }
+    StateFilter::parse(value)
 }
 
 pub async fn run(cli: Cli) -> Result<()> {

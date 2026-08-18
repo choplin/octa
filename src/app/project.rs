@@ -28,16 +28,22 @@ async fn target_state(
     let Some(requested) = requested else {
         return default_state(pool, state_type).await;
     };
-    let state = crate::sql::project::get_state(pool, requested)
-        .await?
-        .ok_or_else(|| anyhow!("no configured project state named {requested:?}"))?;
+    let Some(state) = crate::sql::project::get_state(pool, requested).await? else {
+        let available = crate::sql::project::states_of_type(pool, state_type).await?;
+        bail!(
+            "unknown project state {requested:?}; available {} states are: {}",
+            state_type.as_str(),
+            crate::domain::known_values(&available)
+        );
+    };
     if state.state_type != state_type {
         let available = crate::sql::project::states_of_type(pool, state_type).await?;
         bail!(
-            "project state {requested:?} has type {:?}, not {:?}; available: {}",
+            "project state {requested:?} has type {:?}, not {:?}; available {} states are: {}",
             state.state_type.as_str(),
             state_type.as_str(),
-            available.join(", ")
+            state_type.as_str(),
+            crate::domain::known_values(&available)
         );
     }
     Ok(state.name)
@@ -126,7 +132,8 @@ pub async fn edit(
 pub async fn set_state(pool: &SqlitePool, repo: i64, reference: &str, state: &str) -> Result<()> {
     if !crate::sql::project::state_exists(pool, state).await? {
         bail!(
-            "unknown project state {state:?}; create it first with `octa config project state create`"
+            "unknown project state {state:?}; available states are: {}",
+            state_names(pool).await?
         );
     }
     let project = resolve(pool, repo, reference).await?;
@@ -189,9 +196,21 @@ async fn type_is_empty(pool: &SqlitePool, state_type: ProjectStateType) -> Resul
 }
 
 async fn require_state(pool: &SqlitePool, name: &str) -> Result<ProjectState> {
-    crate::sql::project::get_state(pool, name)
-        .await?
-        .ok_or_else(|| anyhow!("no configured project state named {name:?}"))
+    match crate::sql::project::get_state(pool, name).await? {
+        Some(state) => Ok(state),
+        None => bail!(
+            "unknown project state {name:?}; available states are: {}",
+            state_names(pool).await?
+        ),
+    }
+}
+
+/// The available project state names, formatted for an error that rejects one.
+async fn state_names(pool: &SqlitePool) -> Result<String> {
+    let configured = crate::sql::project::list_states(pool).await?;
+    Ok(crate::domain::known_values(
+        configured.iter().map(|state| state.name.as_str()),
+    ))
 }
 
 /// Reject a change that would leave a type with no state.

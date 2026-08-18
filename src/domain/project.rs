@@ -1,5 +1,5 @@
 use crate::domain::milestone::ProjectMilestone;
-use anyhow::{bail, Result};
+use anyhow::{anyhow, Result};
 use serde::Serialize;
 use std::fmt;
 
@@ -76,6 +76,9 @@ pub enum ProjectStateType {
 }
 
 impl ProjectStateType {
+    /// Every value, in lifecycle order. See `StateType::VALUES`.
+    pub const VALUES: [Self; 2] = [Self::Open, Self::Closed];
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Open => "open",
@@ -85,11 +88,15 @@ impl ProjectStateType {
 
     /// Parse the wire form used by the CLI, the schema, and GraphQL alike.
     pub fn parse(value: &str) -> Result<Self> {
-        match value {
-            "open" => Ok(Self::Open),
-            "closed" => Ok(Self::Closed),
-            other => bail!("unknown project state type {other:?}; use open or closed"),
-        }
+        Self::VALUES
+            .into_iter()
+            .find(|candidate| candidate.as_str() == value)
+            .ok_or_else(|| {
+                anyhow!(
+                    "unknown project state type {value:?}; use {}",
+                    crate::domain::join_options(Self::VALUES.map(Self::as_str))
+                )
+            })
     }
 }
 

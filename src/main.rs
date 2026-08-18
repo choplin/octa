@@ -8,11 +8,9 @@ mod sql;
 mod store;
 mod tui;
 
-use clap::Parser;
-
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
-    if let Err(err) = cli::run(cli::Cli::parse()).await {
+    if let Err(err) = cli::run(cli::parse().await).await {
         eprintln!("error: {err:#}");
         std::process::exit(1);
     }

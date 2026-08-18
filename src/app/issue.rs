@@ -42,16 +42,24 @@ async fn target_state(
     let Some(requested) = requested else {
         return default_state(pool, state_type).await;
     };
-    let state = crate::sql::issue::get_state(pool, requested)
-        .await?
-        .ok_or_else(|| anyhow!("no configured state named {requested:?}"))?;
+    let Some(state) = crate::sql::issue::get_state(pool, requested).await? else {
+        // A verb narrowed to one type offers that type's states, not every
+        // state: the wider set would name values this verb would then refuse.
+        let available = crate::sql::issue::states_of_type(pool, state_type).await?;
+        bail!(
+            "unknown state {requested:?}; available {} states are: {}",
+            state_type.as_str(),
+            crate::domain::known_values(&available)
+        );
+    };
     if state.state_type != state_type {
         let available = crate::sql::issue::states_of_type(pool, state_type).await?;
         bail!(
-            "state {requested:?} has type {:?}, not {:?}; available: {}",
+            "state {requested:?} has type {:?}, not {:?}; available {} states are: {}",
             state.state_type.as_str(),
             state_type.as_str(),
-            available.join(", ")
+            state_type.as_str(),
+            crate::domain::known_values(&available)
         );
     }
     Ok(state.name)
@@ -150,6 +158,15 @@ pub async fn list(
     }
     if milestone.is_some() && project.is_none() {
         bail!("--milestone requires --project so names and ids resolve within a Project");
+    }
+    // A filter that names something undefined must say so. Matching nothing
+    // silently reads as "no issues qualify", which is what sent a caller off
+    // probing values against live records.
+    if let IssueListSelector::States(names) = &selector {
+        require_states(pool, names).await?;
+    }
+    if let Some(label) = label {
+        crate::app::label::require_label(pool, label).await?;
     }
     let labelled = match label {
         Some(label) => Some(
@@ -438,7 +455,10 @@ pub async fn set_state(
     lease: Option<&str>,
 ) -> Result<()> {
     if !crate::sql::issue::state_exists(pool, state).await? {
-        bail!("unknown state {state:?}; create it first with `octa config issue state create`");
+        bail!(
+            "unknown state {state:?}; available states are: {}",
+            state_names(pool).await?
+        );
     }
     move_to(pool, repo, number, state, lease).await
 }
@@ -570,6 +590,27 @@ pub async fn unlock(
     crate::sql::issue::release_lease(pool, repo, number, lease, force).await
 }
 
+/// Reject `--state` names that are not configured.
+async fn require_states(pool: &SqlitePool, names: &[String]) -> Result<()> {
+    let configured = crate::sql::issue::list_states(pool).await?;
+    for name in names {
+        if !configured.iter().any(|state| &state.name == name) {
+            let known =
+                crate::domain::known_values(configured.iter().map(|state| state.name.as_str()));
+            bail!("unknown state {name:?}; available states are: {known}");
+        }
+    }
+    Ok(())
+}
+
+/// The available state names, formatted for an error that rejects one.
+async fn state_names(pool: &SqlitePool) -> Result<String> {
+    let configured = crate::sql::issue::list_states(pool).await?;
+    Ok(crate::domain::known_values(
+        configured.iter().map(|state| state.name.as_str()),
+    ))
+}
+
 pub async fn list_states(pool: &SqlitePool) -> Result<Vec<IssueState>> {
     crate::sql::issue::list_states(pool).await
 }
@@ -600,9 +641,13 @@ async fn type_is_empty(pool: &SqlitePool, state_type: StateType) -> Result<bool>
 }
 
 async fn require_state(pool: &SqlitePool, name: &str) -> Result<IssueState> {
-    crate::sql::issue::get_state(pool, name)
-        .await?
-        .ok_or_else(|| anyhow!("no configured state named {name:?}"))
+    match crate::sql::issue::get_state(pool, name).await? {
+        Some(state) => Ok(state),
+        None => bail!(
+            "unknown state {name:?}; available states are: {}",
+            state_names(pool).await?
+        ),
+    }
 }
 
 /// Types that must always have at least one state.
