@@ -23,7 +23,7 @@ async fn default_state(pool: &SqlitePool, state_type: StateType) -> Result<Strin
         .await?
         .ok_or_else(|| {
             anyhow!(
-                "no {:?} state is configured; create one with `octa config state create <name> --type {:?}`",
+                "no {:?} state is configured; create one with `octa config issue state create <name> --type {:?}`",
                 state_type.as_str(),
                 state_type.as_str()
             )
@@ -438,7 +438,7 @@ pub async fn set_state(
     lease: Option<&str>,
 ) -> Result<()> {
     if !crate::sql::issue::state_exists(pool, state).await? {
-        bail!("unknown state {state:?}; create it first with `octa config state create`");
+        bail!("unknown state {state:?}; create it first with `octa config issue state create`");
     }
     move_to(pool, repo, number, state, lease).await
 }
@@ -652,7 +652,7 @@ async fn require_default_can_be_released(pool: &SqlitePool, state: &IssueState) 
         .count();
     if siblings > 0 {
         bail!(
-            "{:?} is the default {:?} state; run `octa config state set <name> --default` on another {:?} state first",
+            "{:?} is the default {:?} state; run `octa config issue state set <name> --default` on another {:?} state first",
             state.name,
             state.state_type.as_str(),
             state.state_type.as_str()

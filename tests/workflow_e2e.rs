@@ -178,9 +178,11 @@ fn install_workflow_states(env: &Env) {
         ("Done", "closed"),
         ("Canceled", "closed"),
     ] {
-        env.ok(&["config", "state", "create", name, "--type", state_type]);
+        env.ok(&[
+            "config", "issue", "state", "create", name, "--type", state_type,
+        ]);
     }
-    env.ok(&["config", "state", "set", "Backlog", "--default"]);
+    env.ok(&["config", "issue", "state", "set", "Backlog", "--default"]);
 }
 
 struct AgentLifecycle {
@@ -478,37 +480,28 @@ fn repository_local_collaboration_runs_end_to_end_without_losing_context() {
     // Labels and their grouping are repository-local, user-defined data.
     env.ok(&[
         "config",
+        "issue",
         "label-group",
         "create",
         "Workstream",
-        "--target",
-        "issue",
         "--selection",
         "single",
     ]);
     for label in ["client", "documentation", "service"] {
         env.ok(&[
             "config",
+            "issue",
             "label",
             "create",
             label,
-            "--target",
-            "issue",
             "--group",
             "Workstream",
         ]);
     }
-    let groups = env.json(&[
-        "config",
-        "label-group",
-        "list",
-        "--target",
-        "issue",
-        "--json",
-    ]);
+    let groups = env.json(&["config", "issue", "label-group", "list", "--json"]);
     assert_eq!(groups[0]["name"], "Workstream");
     assert_eq!(groups[0]["selection"], "single");
-    let labels = env.json(&["config", "label", "list", "--target", "issue", "--json"]);
+    let labels = env.json(&["config", "issue", "label", "list", "--json"]);
     assert_eq!(
         labels
             .as_array()

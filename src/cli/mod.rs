@@ -1,7 +1,8 @@
 //! CLI schema and top-level dispatch.
 use crate::store::{IssueListSelector, RepoScope, StateFilter, StateType, Store};
 use anyhow::Result;
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap::{Args, Parser, Subcommand};
+use label::LabelTarget;
 use std::path::PathBuf;
 mod issue;
 mod label;
@@ -94,27 +95,49 @@ enum TopCommand {
 
 #[derive(Subcommand)]
 pub(crate) enum ConfigCommand {
-    /// Manage configured Issue states.
+    /// Configure Issues: their states, labels, and label groups.
+    Issue {
+        #[command(subcommand)]
+        command: IssueConfigCommand,
+    },
+    /// Configure Projects: their labels and label groups.
+    Project {
+        #[command(subcommand)]
+        command: ProjectConfigCommand,
+    },
+}
+
+#[derive(Subcommand)]
+pub(crate) enum IssueConfigCommand {
+    /// Manage the states Issues can be in.
     State {
         #[command(subcommand)]
         command: StateCommand,
     },
-    /// Manage labels available to Issues or Projects.
+    /// Manage the labels Issues can carry.
     Label {
         #[command(subcommand)]
         command: LabelCommand,
     },
-    /// Manage label groups available to Issues or Projects.
+    /// Manage the label groups Issue labels belong to.
     LabelGroup {
         #[command(subcommand)]
         command: LabelGroupCommand,
     },
 }
 
-#[derive(Clone, Copy, ValueEnum)]
-pub(crate) enum LabelTarget {
-    Issue,
-    Project,
+#[derive(Subcommand)]
+pub(crate) enum ProjectConfigCommand {
+    /// Manage the labels Projects can carry.
+    Label {
+        #[command(subcommand)]
+        command: LabelCommand,
+    },
+    /// Manage the label groups Project labels belong to.
+    LabelGroup {
+        #[command(subcommand)]
+        command: LabelGroupCommand,
+    },
 }
 
 #[derive(Subcommand)]
@@ -608,15 +631,11 @@ pub(crate) enum LabelCommand {
     /// Create a label.
     Create {
         name: String,
-        #[arg(long, value_enum)]
-        target: LabelTarget,
         #[arg(long)]
         group: Option<String>,
     },
     /// List labels.
     List {
-        #[arg(long, value_enum)]
-        target: LabelTarget,
         #[arg(long)]
         json: bool,
     },
@@ -627,15 +646,11 @@ pub(crate) enum LabelGroupCommand {
     /// Create a label group.
     Create {
         name: String,
-        #[arg(long, value_enum)]
-        target: LabelTarget,
         #[arg(long)]
         selection: String,
     },
     /// List label groups.
     List {
-        #[arg(long, value_enum)]
-        target: LabelTarget,
         #[arg(long)]
         json: bool,
     },
@@ -682,9 +697,23 @@ pub async fn run(cli: Cli) -> Result<()> {
         TopCommand::Pr { command } => pr::run(&store, command).await,
         TopCommand::Wiki { command } => wiki::run(&store, command).await,
         TopCommand::Config { command } => match command {
-            ConfigCommand::State { command } => state::run(&store, command).await,
-            ConfigCommand::Label { command } => label::run(&store, command).await,
-            ConfigCommand::LabelGroup { command } => label::run_group(&store, command).await,
+            ConfigCommand::Issue { command } => match command {
+                IssueConfigCommand::State { command } => state::run(&store, command).await,
+                IssueConfigCommand::Label { command } => {
+                    label::run(&store, LabelTarget::Issue, command).await
+                }
+                IssueConfigCommand::LabelGroup { command } => {
+                    label::run_group(&store, LabelTarget::Issue, command).await
+                }
+            },
+            ConfigCommand::Project { command } => match command {
+                ProjectConfigCommand::Label { command } => {
+                    label::run(&store, LabelTarget::Project, command).await
+                }
+                ProjectConfigCommand::LabelGroup { command } => {
+                    label::run_group(&store, LabelTarget::Project, command).await
+                }
+            },
         },
         TopCommand::Project { command } => project::run(&store, command).await,
         TopCommand::Milestone { command } => project::run_milestone(&store, command).await,

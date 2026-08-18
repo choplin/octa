@@ -1,22 +1,27 @@
 use super::output::{Output, Tone};
-use super::{LabelCommand, LabelGroupCommand, LabelTarget};
+use super::{LabelCommand, LabelGroupCommand};
 use crate::store::Store;
 use anyhow::Result;
-pub(crate) async fn run(store: &Store, command: LabelCommand) -> Result<()> {
+
+/// Which record kind a label command configures. The command path already says
+/// so, so this only carries that choice to the store call.
+#[derive(Clone, Copy)]
+pub(crate) enum LabelTarget {
+    Issue,
+    Project,
+}
+
+pub(crate) async fn run(store: &Store, target: LabelTarget, command: LabelCommand) -> Result<()> {
     let output = Output::stdout();
     match command {
-        LabelCommand::Create {
-            name,
-            target,
-            group,
-        } => {
+        LabelCommand::Create { name, group } => {
             match target {
                 LabelTarget::Issue => store.create_label(&name, group.as_deref()).await?,
                 LabelTarget::Project => store.create_project_label(&name, group.as_deref()).await?,
             }
             output.print(output.line(Tone::Success, format!("created label {name}")))
         }
-        LabelCommand::List { target, json } => {
+        LabelCommand::List { json } => {
             let labels = match target {
                 LabelTarget::Issue => store.list_labels().await?,
                 LabelTarget::Project => store.list_project_labels().await?,
@@ -36,14 +41,14 @@ pub(crate) async fn run(store: &Store, command: LabelCommand) -> Result<()> {
     Ok(())
 }
 
-pub(crate) async fn run_group(store: &Store, command: LabelGroupCommand) -> Result<()> {
+pub(crate) async fn run_group(
+    store: &Store,
+    target: LabelTarget,
+    command: LabelGroupCommand,
+) -> Result<()> {
     let output = Output::stdout();
     match command {
-        LabelGroupCommand::Create {
-            name,
-            target,
-            selection,
-        } => {
+        LabelGroupCommand::Create { name, selection } => {
             match target {
                 LabelTarget::Issue => store.create_label_group(&name, &selection).await?,
                 LabelTarget::Project => store.create_project_label_group(&name, &selection).await?,
@@ -53,7 +58,7 @@ pub(crate) async fn run_group(store: &Store, command: LabelGroupCommand) -> Resu
                 format!("created {selection} label group {name}"),
             ))
         }
-        LabelGroupCommand::List { target, json } => {
+        LabelGroupCommand::List { json } => {
             let groups = match target {
                 LabelTarget::Issue => store.list_label_groups().await?,
                 LabelTarget::Project => store.list_project_label_groups().await?,

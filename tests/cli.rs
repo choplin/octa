@@ -448,13 +448,42 @@ fn withdrawn_options_and_flag_conflicts_are_rejected() {
     // The two-flag classification is gone; `--type` replaces both flags and
     // `set-state` folded into `issue set --as`.
     for withdrawn in [
-        vec!["config", "state", "create", "Odd", "--starting"],
-        vec!["config", "state", "create", "Odd", "--closed"],
-        vec!["config", "state", "set", "open", "--closed", "true"],
+        vec!["config", "issue", "state", "create", "Odd", "--starting"],
+        vec!["config", "issue", "state", "create", "Odd", "--closed"],
+        vec![
+            "config", "issue", "state", "set", "open", "--closed", "true",
+        ],
         vec!["issue", "set-state", "1", "closed"],
         vec!["issue", "list", "--open"],
         vec!["issue", "list", "--closed"],
         vec!["issue", "start", "1", "--as", "in progress"],
+    ] {
+        assert!(
+            !env.run(&withdrawn).status.success(),
+            "{withdrawn:?} should be rejected"
+        );
+    }
+    // Configuration is split by the record it configures, so `--target` and the
+    // target-less spellings it used to disambiguate are gone.
+    for withdrawn in [
+        vec!["config", "label", "create", "docs", "--target", "issue"],
+        vec!["config", "label", "list", "--target", "issue"],
+        vec![
+            "config",
+            "label-group",
+            "create",
+            "priority",
+            "--target",
+            "issue",
+            "--selection",
+            "single",
+        ],
+        vec!["config", "label-group", "list", "--target", "project"],
+        vec!["config", "state", "list"],
+        vec![
+            "config", "issue", "label", "create", "docs", "--target", "issue",
+        ],
+        vec!["config", "project", "state", "list"],
     ] {
         assert!(
             !env.run(&withdrawn).status.success(),
@@ -903,7 +932,7 @@ fn milestone_requires_project_context_and_names_are_unambiguous() {
 fn seeded_states_carry_a_type_and_a_default_per_type() {
     let env = Env::new();
 
-    let states = json(&env.ok(&["config", "state", "list", "--json"]));
+    let states = json(&env.ok(&["config", "issue", "state", "list", "--json"]));
     let rows: Vec<(&str, &str, bool)> = states
         .as_array()
         .unwrap()
@@ -934,7 +963,7 @@ fn seeded_states_carry_a_type_and_a_default_per_type() {
         "states must not expose a stored ordinal: {states}"
     );
 
-    let rendered = env.ok(&["config", "state", "list"]);
+    let rendered = env.ok(&["config", "issue", "state", "list"]);
     for expected in ["Type", "Default", "in progress"] {
         assert!(
             rendered.contains(expected),
@@ -947,8 +976,10 @@ fn seeded_states_carry_a_type_and_a_default_per_type() {
     );
 
     // A state added later lands in its type's group without any reordering.
-    env.ok(&["config", "state", "create", "blocked", "--type", "open"]);
-    let names: Vec<String> = json(&env.ok(&["config", "state", "list", "--json"]))
+    env.ok(&[
+        "config", "issue", "state", "create", "blocked", "--type", "open",
+    ]);
+    let names: Vec<String> = json(&env.ok(&["config", "issue", "state", "list", "--json"]))
         .as_array()
         .unwrap()
         .iter()
@@ -959,11 +990,15 @@ fn seeded_states_carry_a_type_and_a_default_per_type() {
         vec!["open", "blocked", "in progress", "closed", "not planned"]
     );
 
-    let duplicate = env.run(&["config", "state", "create", "closed", "--type", "closed"]);
+    let duplicate = env.run(&[
+        "config", "issue", "state", "create", "closed", "--type", "closed",
+    ]);
     assert!(!duplicate.status.success());
     assert!(String::from_utf8_lossy(&duplicate.stderr).contains("already exists"));
 
-    let unknown_type = env.run(&["config", "state", "create", "odd", "--type", "waiting"]);
+    let unknown_type = env.run(&[
+        "config", "issue", "state", "create", "odd", "--type", "waiting",
+    ]);
     assert!(!unknown_type.status.success());
     assert!(String::from_utf8_lossy(&unknown_type.stderr).contains("unknown state type"));
 }
@@ -1012,7 +1047,9 @@ fn issue_verbs_move_to_their_type_default_and_reject_the_wrong_type() {
     assert!(message.contains("available: open"), "{message}");
 
     // `issue set --as` is the unconstrained move, and reaches any state.
-    env.ok(&["config", "state", "create", "blocked", "--type", "open"]);
+    env.ok(&[
+        "config", "issue", "state", "create", "blocked", "--type", "open",
+    ]);
     env.ok_with_lease(&["issue", "set", "1", "--as", "blocked"], &lease);
     assert!(env.ok(&["issue", "show", "1"]).contains("blocked"));
 
@@ -1025,7 +1062,9 @@ fn issue_verbs_move_to_their_type_default_and_reject_the_wrong_type() {
 #[test]
 fn create_is_an_alias_of_open_and_shares_its_narrowing() {
     let env = Env::new();
-    env.ok(&["config", "state", "create", "triage", "--type", "open"]);
+    env.ok(&[
+        "config", "issue", "state", "create", "triage", "--type", "open",
+    ]);
 
     env.ok(&["issue", "create", "--title", "Captured", "--as", "triage"]);
     assert_eq!(
@@ -1053,21 +1092,24 @@ fn create_is_an_alias_of_open_and_shares_its_narrowing() {
 #[test]
 fn set_default_state_moves_the_flag_within_one_type_only() {
     let env = Env::new();
-    env.ok(&["config", "state", "create", "triage", "--type", "open"]);
-    env.ok(&["config", "state", "set", "triage", "--default"]);
+    env.ok(&[
+        "config", "issue", "state", "create", "triage", "--type", "open",
+    ]);
+    env.ok(&["config", "issue", "state", "set", "triage", "--default"]);
 
-    let defaults: Vec<(String, String)> = json(&env.ok(&["config", "state", "list", "--json"]))
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|state| state["is_default"].as_bool().unwrap())
-        .map(|state| {
-            (
-                state["name"].as_str().unwrap().to_string(),
-                state["type"].as_str().unwrap().to_string(),
-            )
-        })
-        .collect();
+    let defaults: Vec<(String, String)> =
+        json(&env.ok(&["config", "issue", "state", "list", "--json"]))
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|state| state["is_default"].as_bool().unwrap())
+            .map(|state| {
+                (
+                    state["name"].as_str().unwrap().to_string(),
+                    state["type"].as_str().unwrap().to_string(),
+                )
+            })
+            .collect();
     // Moving the open default leaves the other types' defaults alone.
     assert_eq!(
         defaults,
@@ -1087,6 +1129,7 @@ fn set_default_state_moves_the_flag_within_one_type_only() {
     // Creating a state as its type's default replaces the flag, never adds one.
     env.ok(&[
         "config",
+        "issue",
         "state",
         "create",
         "done",
@@ -1094,13 +1137,14 @@ fn set_default_state_moves_the_flag_within_one_type_only() {
         "closed",
         "--default",
     ]);
-    let closed_defaults: Vec<String> = json(&env.ok(&["config", "state", "list", "--json"]))
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|state| state["type"] == "closed" && state["is_default"].as_bool().unwrap())
-        .map(|state| state["name"].as_str().unwrap().to_string())
-        .collect();
+    let closed_defaults: Vec<String> =
+        json(&env.ok(&["config", "issue", "state", "list", "--json"]))
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|state| state["type"] == "closed" && state["is_default"].as_bool().unwrap())
+            .map(|state| state["name"].as_str().unwrap().to_string())
+            .collect();
     assert_eq!(closed_defaults, vec!["done".to_string()]);
     let lease = env.lease("1");
     env.ok_with_lease(&["issue", "close", "1"], &lease);
@@ -1115,9 +1159,11 @@ fn a_populated_type_always_has_exactly_one_default() {
     let env = Env::new();
 
     // A second state of a populated type does not take the flag unasked.
-    env.ok(&["config", "state", "create", "triage", "--type", "open"]);
+    env.ok(&[
+        "config", "issue", "state", "create", "triage", "--type", "open",
+    ]);
     let defaults = |env: &Env, state_type: &str| -> Vec<String> {
-        json(&env.ok(&["config", "state", "list", "--json"]))
+        json(&env.ok(&["config", "issue", "state", "list", "--json"]))
             .as_array()
             .unwrap()
             .iter()
@@ -1129,9 +1175,17 @@ fn a_populated_type_always_has_exactly_one_default() {
 
     // Moving a state into an empty type makes it that type's default, the same
     // way creating one there does.
-    env.ok(&["config", "state", "delete", "in progress"]);
+    env.ok(&["config", "issue", "state", "delete", "in progress"]);
     assert!(defaults(&env, "in progress").is_empty());
-    let updated = env.ok(&["config", "state", "set", "triage", "--type", "in progress"]);
+    let updated = env.ok(&[
+        "config",
+        "issue",
+        "state",
+        "set",
+        "triage",
+        "--type",
+        "in progress",
+    ]);
     assert!(
         updated.contains("now that type's default"),
         "the promotion must not be silent: {updated}"
@@ -1146,28 +1200,32 @@ fn required_types_cannot_be_emptied_and_defaults_cannot_be_dropped() {
 
     // open and closed must stay populated; every issue has to be able to start
     // and to end.
-    let only_open = env.run(&["config", "state", "delete", "open"]);
+    let only_open = env.run(&["config", "issue", "state", "delete", "open"]);
     assert!(!only_open.status.success());
     assert!(String::from_utf8_lossy(&only_open.stderr).contains("only \"open\" state"));
 
     // With a second open state, the default flag becomes the thing in the way.
-    env.ok(&["config", "state", "create", "triage", "--type", "open"]);
-    let default_delete = env.run(&["config", "state", "delete", "open"]);
+    env.ok(&[
+        "config", "issue", "state", "create", "triage", "--type", "open",
+    ]);
+    let default_delete = env.run(&["config", "issue", "state", "delete", "open"]);
     assert!(!default_delete.status.success());
     assert!(String::from_utf8_lossy(&default_delete.stderr).contains("--default"));
 
-    env.ok(&["config", "state", "set", "triage", "--default"]);
-    env.ok(&["config", "state", "delete", "open"]);
+    env.ok(&["config", "issue", "state", "set", "triage", "--default"]);
+    env.ok(&["config", "issue", "state", "delete", "open"]);
 
     // Retyping is guarded the same way: closed cannot be emptied either.
-    env.ok(&["config", "state", "delete", "not planned"]);
-    let only_closed = env.run(&["config", "state", "set", "closed", "--type", "open"]);
+    env.ok(&["config", "issue", "state", "delete", "not planned"]);
+    let only_closed = env.run(&[
+        "config", "issue", "state", "set", "closed", "--type", "open",
+    ]);
     assert!(!only_closed.status.success());
 
     // in progress may be emptied: a workflow that never distinguishes
     // picked-up work is coherent.
-    env.ok(&["config", "state", "delete", "in progress"]);
-    let states = json(&env.ok(&["config", "state", "list", "--json"]));
+    env.ok(&["config", "issue", "state", "delete", "in progress"]);
+    let states = json(&env.ok(&["config", "issue", "state", "list", "--json"]));
     assert!(!states
         .as_array()
         .unwrap()
@@ -1186,7 +1244,15 @@ fn required_types_cannot_be_emptied_and_defaults_cannot_be_dropped() {
 
     // Refilling the type restores `start` without a second command: the first
     // state of an empty type is that type's default.
-    let created = env.ok(&["config", "state", "create", "wip", "--type", "in progress"]);
+    let created = env.ok(&[
+        "config",
+        "issue",
+        "state",
+        "create",
+        "wip",
+        "--type",
+        "in progress",
+    ]);
     assert!(
         created.contains("now that type's default"),
         "the promotion must not be silent: {created}"
@@ -1203,7 +1269,7 @@ fn renaming_a_state_carries_its_issues_and_rejects_collisions() {
     let env = Env::new();
     env.ok(&["issue", "open", "--title", "Carried"]);
 
-    env.ok(&["config", "state", "set", "open", "--name", "Ready"]);
+    env.ok(&["config", "issue", "state", "set", "open", "--name", "Ready"]);
     let shown = json(&env.ok(&["issue", "show", "1", "--json"]));
     assert_eq!(shown["state"], "Ready");
     assert_eq!(
@@ -1213,18 +1279,30 @@ fn renaming_a_state_carries_its_issues_and_rejects_collisions() {
         vec![1]
     );
 
-    let collision = env.run(&["config", "state", "set", "Ready", "--name", "closed"]);
+    let collision = env.run(&[
+        "config", "issue", "state", "set", "Ready", "--name", "closed",
+    ]);
     assert!(!collision.status.success());
     assert!(String::from_utf8_lossy(&collision.stderr).contains("already exists"));
 
-    let empty = env.run(&["config", "state", "set", "Ready"]);
+    let empty = env.run(&["config", "issue", "state", "set", "Ready"]);
     assert!(!empty.status.success());
     assert!(String::from_utf8_lossy(&empty.stderr).contains("nothing to update"));
 
     // Retyping a state moves the issues in it across the axis with it.
-    env.ok(&["config", "state", "create", "triage", "--type", "open"]);
-    env.ok(&["config", "state", "set", "triage", "--default"]);
-    env.ok(&["config", "state", "set", "Ready", "--type", "in progress"]);
+    env.ok(&[
+        "config", "issue", "state", "create", "triage", "--type", "open",
+    ]);
+    env.ok(&["config", "issue", "state", "set", "triage", "--default"]);
+    env.ok(&[
+        "config",
+        "issue",
+        "state",
+        "set",
+        "Ready",
+        "--type",
+        "in progress",
+    ]);
     assert_eq!(
         issue_numbers(&json(&env.ok(&[
             "issue",
@@ -1244,7 +1322,7 @@ fn deleting_a_state_requires_somewhere_for_its_issues_to_go() {
     env.ok(&["issue", "close", "1", "--as", "not planned"]);
 
     // An occupied state needs an explicit destination.
-    let occupied = env.run(&["config", "state", "delete", "not planned"]);
+    let occupied = env.run(&["config", "issue", "state", "delete", "not planned"]);
     assert!(!occupied.status.success());
     assert!(String::from_utf8_lossy(&occupied.stderr).contains("--move-to"));
 
@@ -1252,6 +1330,7 @@ fn deleting_a_state_requires_somewhere_for_its_issues_to_go() {
     // point, so the guard fires before the occupancy question is even asked.
     let default = env.run(&[
         "config",
+        "issue",
         "state",
         "delete",
         "closed",
@@ -1263,6 +1342,7 @@ fn deleting_a_state_requires_somewhere_for_its_issues_to_go() {
 
     env.ok(&[
         "config",
+        "issue",
         "state",
         "delete",
         "not planned",
@@ -1273,7 +1353,7 @@ fn deleting_a_state_requires_somewhere_for_its_issues_to_go() {
         json(&env.ok(&["issue", "show", "1", "--json"]))["state"],
         "in progress"
     );
-    let names: Vec<String> = json(&env.ok(&["config", "state", "list", "--json"]))
+    let names: Vec<String> = json(&env.ok(&["config", "issue", "state", "list", "--json"]))
         .as_array()
         .unwrap()
         .iter()
@@ -1282,8 +1362,10 @@ fn deleting_a_state_requires_somewhere_for_its_issues_to_go() {
     assert!(!names.contains(&"not planned".to_string()), "{names:?}");
 
     // An unoccupied non-default state deletes without a destination.
-    env.ok(&["config", "state", "create", "blocked", "--type", "open"]);
-    env.ok(&["config", "state", "delete", "blocked"]);
+    env.ok(&[
+        "config", "issue", "state", "create", "blocked", "--type", "open",
+    ]);
+    env.ok(&["config", "issue", "state", "delete", "blocked"]);
 }
 
 #[test]
@@ -1368,7 +1450,7 @@ fn every_issue_mutation_surface_rejects_missing_and_mismatched_leases() {
     let env = Env::new();
     env.ok(&["issue", "open", "--title", "Guarded"]);
     env.ok(&["issue", "open", "--title", "Peer"]);
-    env.ok(&["config", "label", "create", "guarded", "--target", "issue"]);
+    env.ok(&["config", "issue", "label", "create", "guarded"]);
     env.ok(&[
         "pr",
         "create",
@@ -1462,19 +1544,18 @@ fn single_select_group_is_mutually_exclusive() {
     env.ok(&["issue", "open", "--title", "Grouped"]);
     env.ok(&[
         "config",
+        "issue",
         "label-group",
         "create",
         "delivery",
-        "--target",
-        "issue",
         "--selection",
         "single",
     ]);
     env.ok(&[
-        "config", "label", "create", "alpha", "--target", "issue", "--group", "delivery",
+        "config", "issue", "label", "create", "alpha", "--group", "delivery",
     ]);
     env.ok(&[
-        "config", "label", "create", "beta", "--target", "issue", "--group", "delivery",
+        "config", "issue", "label", "create", "beta", "--group", "delivery",
     ]);
 
     env.ok(&["issue", "add", "1", "--label", "alpha"]);
@@ -1504,26 +1585,24 @@ fn taxonomy_like_names_are_ordinary_label_data() {
     env.ok(&["issue", "open", "--title", "Opaque labels"]);
     env.ok(&[
         "config",
+        "issue",
         "label-group",
         "create",
         "Type",
-        "--target",
-        "issue",
         "--selection",
         "multi",
     ]);
     env.ok(&[
         "config",
+        "issue",
         "label",
         "create",
         "arbitrary",
-        "--target",
-        "issue",
         "--group",
         "Type",
     ]);
     for label in ["impl", "design", "research"] {
-        env.ok(&["config", "label", "create", label, "--target", "issue"]);
+        env.ok(&["config", "issue", "label", "create", label]);
         env.ok(&["issue", "add", "1", "--label", label]);
     }
 
@@ -1532,14 +1611,7 @@ fn taxonomy_like_names_are_ordinary_label_data() {
         show["labels"],
         serde_json::json!(["design", "impl", "research"])
     );
-    let groups = json(&env.ok(&[
-        "config",
-        "label-group",
-        "list",
-        "--target",
-        "issue",
-        "--json",
-    ]));
+    let groups = json(&env.ok(&["config", "issue", "label-group", "list", "--json"]));
     assert_eq!(groups[0]["name"], "Type");
     assert_eq!(groups[0]["selection"], "multi");
 }
@@ -1550,19 +1622,18 @@ fn multi_select_group_labels_coexist() {
     env.ok(&["issue", "open", "--title", "Multi"]);
     env.ok(&[
         "config",
+        "issue",
         "label-group",
         "create",
         "area",
-        "--target",
-        "issue",
         "--selection",
         "multi",
     ]);
     env.ok(&[
-        "config", "label", "create", "cli", "--target", "issue", "--group", "area",
+        "config", "issue", "label", "create", "cli", "--group", "area",
     ]);
     env.ok(&[
-        "config", "label", "create", "storage", "--target", "issue", "--group", "area",
+        "config", "issue", "label", "create", "storage", "--group", "area",
     ]);
 
     env.ok(&["issue", "add", "1", "--label", "cli"]);
@@ -1585,27 +1656,26 @@ fn project_labels_are_separate_and_single_select_groups_replace_values() {
     env.ok(&["project", "create", "--name", "Launch"]);
     env.ok(&[
         "config",
+        "project",
         "label-group",
         "create",
         "horizon",
-        "--target",
-        "project",
         "--selection",
         "single",
     ]);
     for label in ["now", "next"] {
         env.ok(&[
-            "config", "label", "create", label, "--target", "project", "--group", "horizon",
+            "config", "project", "label", "create", label, "--group", "horizon",
         ]);
     }
-    env.ok(&["config", "label", "create", "now", "--target", "issue"]);
+    env.ok(&["config", "issue", "label", "create", "now"]);
 
     env.ok(&["project", "add", "Launch", "--label", "now"]);
     env.ok(&["project", "add", "Launch", "--label", "next"]);
 
     let project = json(&env.ok(&["project", "show", "Launch", "--json"]));
     assert_eq!(project["labels"], serde_json::json!(["next"]));
-    let labels = json(&env.ok(&["config", "label", "list", "--target", "project", "--json"]));
+    let labels = json(&env.ok(&["config", "project", "label", "list", "--json"]));
     assert_eq!(labels.as_array().unwrap().len(), 2);
 
     env.ok(&["project", "remove", "Launch", "--label", "next"]);
@@ -2093,24 +2163,37 @@ fn label_errors_and_idempotent_operations_are_preserved() {
     assert!(!env
         .run(&[
             "config",
+            "issue",
             "label-group",
             "create",
             "kind",
-            "--target",
-            "issue",
             "--selection",
             "bad"
         ])
         .status
         .success());
-    assert!(!env
-        .run(&["config", "label", "create", "x", "--target", "issue", "--group", "missing"])
-        .status
-        .success());
+    let missing_group = env.run(&[
+        "config", "issue", "label", "create", "x", "--group", "missing",
+    ]);
+    assert!(!missing_group.status.success());
+    // Error hints name commands that exist. A hint is the only place a withdrawn
+    // spelling can survive, since no compiler or command parse reaches it.
+    let hint = String::from_utf8_lossy(&missing_group.stderr).to_string();
+    assert!(
+        hint.contains("octa config issue label-group create"),
+        "hint does not name the current command: {hint}"
+    );
     env.ok(&["issue", "open", "--title", "Task"]);
-    env.ok(&["config", "label", "create", "plain", "--target", "issue"]);
+    env.ok(&["config", "issue", "label", "create", "plain"]);
     env.ok(&["issue", "add", "1", "--label", "plain"]);
     env.ok(&["issue", "add", "1", "--label", "plain"]);
+    let unknown_label = env.run(&["issue", "add", "1", "--label", "absent"]);
+    assert!(!unknown_label.status.success());
+    let hint = String::from_utf8_lossy(&unknown_label.stderr).to_string();
+    assert!(
+        hint.contains("octa config issue label create"),
+        "hint does not name the current command: {hint}"
+    );
     env.ok(&["issue", "remove", "1", "--label", "missing"]);
     assert_eq!(
         json(&env.ok(&["issue", "show", "1", "--json"]))["labels"]
@@ -2146,10 +2229,10 @@ fn graphql_query_traverses_entities_with_variables_filters_and_pagination() {
         "--name",
         "Other phase",
     ]);
-    env.ok(&["config", "label", "create", "impl", "--target", "issue"]);
-    env.ok(&["config", "label", "create", "docs", "--target", "issue"]);
-    env.ok(&["config", "label", "create", "now", "--target", "project"]);
-    env.ok(&["config", "label", "create", "next", "--target", "project"]);
+    env.ok(&["config", "issue", "label", "create", "impl"]);
+    env.ok(&["config", "issue", "label", "create", "docs"]);
+    env.ok(&["config", "project", "label", "create", "now"]);
+    env.ok(&["config", "project", "label", "create", "next"]);
     env.ok(&["project", "add", "Outcome", "--label", "now"]);
     env.ok(&["project", "add", "Other", "--label", "next"]);
     env.ok(&[

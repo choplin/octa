@@ -229,18 +229,21 @@ repository that already has a workflow is left as it is.
 
 States can be added, changed, and deleted later. `--type` defaults to `open` when omitted.
 
+Configuration commands are grouped by the record they configure, so `octa config issue ...`
+and `octa config project ...` are the two entry points. States belong to Issues.
+
 ```sh
-octa config state create Backlog
-octa config state create "In Review" --type "in progress"
-octa config state set open --name Ready
-octa config state set Ready --type "in progress"
-octa config state delete Backlog --move-to Ready
-octa config state set Ready --default
-octa config state list
+octa config issue state create Backlog
+octa config issue state create "In Review" --type "in progress"
+octa config issue state set open --name Ready
+octa config issue state set Ready --type "in progress"
+octa config issue state delete Backlog --move-to Ready
+octa config issue state set Ready --default
+octa config issue state list
 ```
 
-Renaming with `config state set --name` moves the Issues in that state along with it.
-`config state delete` requires `--move-to <state>` when Issues remain in the state.
+Renaming with `config issue state set --name` moves the Issues in that state along with it.
+`config issue state delete` requires `--move-to <state>` when Issues remain in the state.
 Both are also reference constraints in the database: deleting a state that still holds Issues
 is rejected. Deleting a state never takes Issues down with it.
 
@@ -250,19 +253,19 @@ without `--default`. The same happens when a state is moved into an empty type. 
 without arguments must always have a determined destination, as long as the type has a usable
 state. This automatic promotion is reported in the output.
 
-To move the default to a different state, use `config state set <name> --default`.
-`config state create --default` behaves the same way. Neither takes a type argument, because a
+To move the default to a different state, use `config issue state set <name> --default`.
+`config issue state create --default` behaves the same way. Neither takes a type argument, because a
 state already has exactly one type and restating it could only produce a contradiction.
 
 While another state remains in the same type, you cannot delete the default state or change its
-type. Move the default first with `config state set <name> --default`. This too is a schema-level
+type. Move the default first with `config issue state set <name> --default`. This too is a schema-level
 constraint. In addition, the `open` and `closed` types cannot be emptied, because every Issue must
 be able to start and to finish. The `in progress` type may be empty, since a workflow that does not
 distinguish started work is valid. In that case `issue start` has no destination and fails,
 reporting that no state of the `in progress` type exists. Create one state and it becomes the
 default, so `issue start` works again as-is.
 
-States carry no ordering. The display order of `config state list` is derived from type, default
+States carry no ordering. The display order of `config issue state list` is derived from type, default
 flag, and name, running `open` → `in progress` → `closed`. Within each type the default state comes
 first and the rest follow in name order.
 
@@ -329,9 +332,10 @@ octa issue remove 2 --related 1 --lease "$LEASE_2"
 Labels can be used on their own.
 Label names and group names are yours to choose per repository; octa reserves no classification
 names and gives no special treatment to labels such as `impl` / `design` / `research`.
+Issue labels are configured under `octa config issue`, Project labels under `octa config project`.
 
 ```sh
-octa config label create documentation --target issue
+octa config issue label create documentation
 octa issue add 1 --label documentation --lease "$LEASE"
 octa issue remove 1 --label documentation --lease "$LEASE"
 ```
@@ -341,25 +345,25 @@ In a `single` group, only one label from that group can be attached at a time.
 In a `multi` group, several labels from the same group can coexist.
 
 ```sh
-octa config label-group create priority --target issue --selection single
-octa config label create high --target issue --group priority
-octa config label create low --target issue --group priority
+octa config issue label-group create priority --selection single
+octa config issue label create high --group priority
+octa config issue label create low --group priority
 octa issue add 1 --label high --lease "$LEASE"
 
-octa config label-group create area --target issue --selection multi
-octa config label create cli --target issue --group area
-octa config label create storage --target issue --group area
+octa config issue label-group create area --selection multi
+octa config issue label create cli --group area
+octa config issue label create storage --group area
 octa issue add 1 --label cli --lease "$LEASE"
 octa issue add 1 --label storage --lease "$LEASE"
 ```
 
 Label definitions for Projects are separate from those for Issues. The same name can be defined for
-each independently, and `--target` is required.
+each independently, and which set a command touches is part of the command path.
 
 ```sh
-octa config label-group create horizon --target project --selection single
-octa config label create now --target project --group horizon
-octa config label create next --target project --group horizon
+octa config project label-group create horizon --selection single
+octa config project label create now --group horizon
+octa config project label create next --group horizon
 octa project add "Publish the CLI" --label now
 octa project remove "Publish the CLI" --label now
 ```
@@ -494,7 +498,7 @@ octa issue list --all --json
 octa issue show 1 --json
 octa pr list --state all --json
 octa wiki show release-process --json
-octa config label list --target issue --json
+octa config issue label list --json
 ```
 
 ## Worktrees and repository scope
@@ -549,9 +553,11 @@ octa issue add --help
 octa milestone --help
 octa pr --help
 octa wiki --help
-octa config label --help
-octa config label-group --help
-octa config state --help
+octa config --help
+octa config issue --help
+octa config project --help
+octa config issue label --help
+octa config issue state --help
 ```
 
 A guide for AI agents to discover and use the octa CLI's features, scope, JSON output, and storage

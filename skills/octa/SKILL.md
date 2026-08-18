@@ -22,7 +22,7 @@ Use octa as a repository-scoped local collaboration tool that does not require a
 - Milestone: `octa milestone ...`; every operation requires `--project`.
 - Pull Request: `octa pr ...` for branch-associated records, comments, states, and explicit many-to-many Issue links through `add`/`remove`.
 - Wiki: `octa wiki ...` for pages, `[[slug]]` links, and backlinks.
-- Configuration: `octa config state|label|label-group ...`; label commands require `--target issue|project`.
+- Configuration: `octa config issue state|label|label-group ...` and `octa config project label|label-group ...`; the record being configured is part of the command path.
 
 Issue parent/child relations stay within one repository and do not require matching Project membership. A Project-less child initially inherits its parent's Project when the parent relation is set, but later Project changes and removal are independent.
 

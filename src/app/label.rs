@@ -11,7 +11,7 @@ pub async fn create_group(pool: &SqlitePool, name: &str, selection: &str) -> Res
 pub async fn create(pool: &SqlitePool, name: &str, group: Option<&str>) -> Result<()> {
     if let Some(group) = group {
         if !crate::sql::label::group_exists(pool, group).await? {
-            bail!("unknown label group {group:?}; create it first with `octa config label-group create --target issue`");
+            bail!("unknown label group {group:?}; create it first with `octa config issue label-group create`");
         }
     }
     crate::sql::label::insert(pool, name, group).await
@@ -39,7 +39,9 @@ pub async fn attach(
     let group = crate::sql::label::label_group_tx(&mut tx, label)
         .await?
         .ok_or_else(|| {
-            anyhow::anyhow!("unknown label {label:?}; create it first with `octa config label create --target issue`")
+            anyhow::anyhow!(
+                "unknown label {label:?}; create it first with `octa config issue label create`"
+            )
         })?;
     if let Some(group) = group {
         if crate::sql::label::group_selection_tx(&mut tx, &group).await? == "single" {
@@ -81,7 +83,7 @@ pub async fn create_project_label(
 ) -> Result<()> {
     if let Some(group) = group {
         if !crate::sql::label::project_group_exists(pool, group).await? {
-            bail!("unknown label group {group:?}; create it first with `octa config label-group create --target project`");
+            bail!("unknown label group {group:?}; create it first with `octa config project label-group create`");
         }
     }
     crate::sql::label::insert_project_label(pool, name, group).await
@@ -106,7 +108,9 @@ pub async fn attach_project(
     let group = crate::sql::label::project_label_group_tx(&mut tx, label)
         .await?
         .ok_or_else(|| {
-            anyhow::anyhow!("unknown label {label:?}; create it first with `octa config label create --target project`")
+            anyhow::anyhow!(
+                "unknown label {label:?}; create it first with `octa config project label create`"
+            )
         })?;
     if let Some(group) = group {
         if crate::sql::label::project_group_selection_tx(&mut tx, &group).await? == "single" {
