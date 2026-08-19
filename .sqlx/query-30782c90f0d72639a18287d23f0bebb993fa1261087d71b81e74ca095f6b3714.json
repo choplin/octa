@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT json_array(id, identity_key, name, created_at) AS \"row!: String\" FROM repos ORDER BY id",
+  "query": "SELECT json_array(id, path, name, created_at) AS \"row!: String\" FROM repos ORDER BY id",
   "describe": {
     "columns": [
       {
@@ -16,5 +16,5 @@
       null
     ]
   },
-  "hash": "74c373021591c471bd165d962e2785e59d219564799c2459f3a6472a739741c4"
+  "hash": "30782c90f0d72639a18287d23f0bebb993fa1261087d71b81e74ca095f6b3714"
 }

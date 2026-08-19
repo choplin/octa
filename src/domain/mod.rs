@@ -4,6 +4,7 @@ pub mod label;
 pub mod milestone;
 pub mod pr;
 pub mod project;
+pub mod repo;
 pub mod state_filter;
 pub mod wiki;
 

@@ -386,6 +386,36 @@ impl WikiPageObject {
     }
 }
 
+/// A repository octa has recorded.
+///
+/// Deliberately scalar-only. Every other root here is scoped to one active
+/// repository, and `repos` is the one cross-repository root; letting it descend
+/// into Issues or Projects would make that scope premise unstatable.
+#[derive(Clone)]
+pub(super) struct RepoObject(pub(super) JsonObject);
+
+#[Object]
+impl RepoObject {
+    async fn name<'a>(&'a self, ctx: &Context<'_>) -> async_graphql::Result<&'a str> {
+        self.0.string(ctx)
+    }
+    /// The repository's Git common directory, which is how octa identifies it.
+    async fn path<'a>(&'a self, ctx: &Context<'_>) -> async_graphql::Result<&'a str> {
+        self.0.string(ctx)
+    }
+    async fn created_at<'a>(&'a self, ctx: &Context<'_>) -> async_graphql::Result<&'a str> {
+        self.0.string(ctx)
+    }
+    /// Issues whose state carries the open type.
+    async fn open_issues(&self, ctx: &Context<'_>) -> async_graphql::Result<i64> {
+        self.0.integer(ctx)
+    }
+    /// Issues whose state carries the in progress type.
+    async fn in_progress_issues(&self, ctx: &Context<'_>) -> async_graphql::Result<i64> {
+        self.0.integer(ctx)
+    }
+}
+
 #[derive(Clone)]
 pub(super) struct LabelObject(pub(super) JsonObject);
 

@@ -455,6 +455,67 @@ mod filters_and_roots {
     }
 }
 
+mod repos {
+    use super::*;
+
+    /// `repos` is the one root that must not be narrowed to the active
+    /// repository, so the compiled SQL carries no `repo_id` predicate.
+    #[tokio::test]
+    async fn repos_root_compiles_without_a_repo_predicate() {
+        let sql = executed_sql("{ repos { name path createdAt } }").await;
+
+        assert_contains_in_order(
+            &sql,
+            &[
+                "'$.name',json(json_quote(r.name))",
+                "'$.path',json(json_quote(r.path))",
+                "'$.createdAt',json(json_quote(r.created_at))",
+                "FROM repos r ORDER BY r.name,r.id LIMIT 50 OFFSET 0",
+            ],
+        );
+        assert!(!sql.contains("repo_id"), "repos must not be scoped:\n{sql}");
+    }
+
+    /// The counts are the reason the listing beats an aggregate over Issues, and
+    /// each one selects a state type rather than a state name.
+    #[tokio::test]
+    async fn issue_counts_compile_to_correlated_subqueries_per_state_type() {
+        let sql = executed_sql("{ repos { openIssues inProgressIssues } }").await;
+
+        assert_contains_in_order(
+            &sql,
+            &[
+                "WHERE i.repo_id=r.id AND s.type='open'",
+                "WHERE i.repo_id=r.id AND s.type='in progress'",
+            ],
+        );
+    }
+
+    /// Scalar-only by design: descending into Issues would contradict the
+    /// single-active-repository premise the other roots compile against.
+    #[tokio::test]
+    async fn repos_root_has_no_relation_fields() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        let db = QueryDb {
+            pool,
+            repo: 1,
+            accesses: Arc::new(AtomicUsize::new(0)),
+            statements: Arc::new(Mutex::new(Vec::new())),
+        };
+        let schema = Schema::build(QueryRoot, EmptyMutation, EmptySubscription)
+            .data(db)
+            .finish();
+
+        let response = schema.execute("{ repos { issues { number } } }").await;
+
+        assert!(!response.errors.is_empty());
+    }
+}
+
 mod multi_hop {
     use super::*;
     #[tokio::test]

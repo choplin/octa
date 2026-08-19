@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id AS \"id!: i64\" FROM repos WHERE identity_key = ?",
+  "query": "SELECT id AS \"id!: i64\" FROM repos WHERE path = ?",
   "describe": {
     "columns": [
       {
@@ -16,5 +16,5 @@
       true
     ]
   },
-  "hash": "14b151c03378b0e89688377c8c5002372160e805f3f0a82bae788b174ae559e3"
+  "hash": "54c8ea9798c4cc8c69050e888b2636a4367f65a846f629935519e3aa6f614f16"
 }

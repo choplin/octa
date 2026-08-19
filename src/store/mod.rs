@@ -17,6 +17,7 @@ mod label;
 mod milestone;
 mod pr;
 mod project;
+mod repo;
 mod wiki;
 
 pub use crate::domain::{
@@ -46,11 +47,11 @@ enum Resolved {
     All,
 }
 
-/// Resolve the identity key and human name of the repository at the cwd.
+/// Resolve the path and human name of the repository at the cwd.
 ///
-/// The key is the canonicalized `git rev-parse --git-common-dir` path, shared by
-/// every worktree of the same repository; the name is the repository root's
-/// directory basename.
+/// The path is the canonicalized `git rev-parse --git-common-dir`, shared by
+/// every worktree of the same repository, and is what identifies it; the name
+/// is the repository root's directory basename.
 fn resolve_repo_identity() -> Result<(String, String)> {
     let common = Command::new("git")
         .args(["rev-parse", "--git-common-dir"])
@@ -69,12 +70,12 @@ fn resolve_repo_identity() -> Result<(String, String)> {
     }
     let git_dir = std::fs::canonicalize(&git_dir)
         .with_context(|| format!("cannot resolve git dir {}", git_dir.display()))?;
-    let identity_key = git_dir.to_string_lossy().to_string();
+    let path = git_dir.to_string_lossy().to_string();
 
     // Name: the repository root's basename. `--show-toplevel` gives the current
     // worktree's root; its parent-of-.git works even for bare-ish layouts.
     let name = repo_name(&git_dir);
-    Ok((identity_key, name))
+    Ok((path, name))
 }
 
 /// Derive a friendly repo name from the common git dir path (its parent's
@@ -163,8 +164,8 @@ impl Store {
         };
         let scope = match scope {
             RepoScope::Current => {
-                let (key, name) = resolve_repo_identity()?;
-                Resolved::One(store.upsert_repo(&key, &name).await?)
+                let (path, name) = resolve_repo_identity()?;
+                Resolved::One(store.upsert_repo(&path, &name).await?)
             }
             RepoScope::Named(name) => Resolved::One(store.repo_by_name(&name).await?),
             RepoScope::All => Resolved::All,
@@ -188,8 +189,8 @@ impl Store {
     }
 
     /// Insert the repo if new and return its id.
-    async fn upsert_repo(&self, identity_key: &str, name: &str) -> Result<i64> {
-        crate::sql::repo::upsert(&self.pool, identity_key, name).await
+    async fn upsert_repo(&self, path: &str, name: &str) -> Result<i64> {
+        crate::sql::repo::upsert(&self.pool, path, name).await
     }
 
     async fn repo_by_name(&self, name: &str) -> Result<i64> {
@@ -239,7 +240,7 @@ mod migration_tests {
             (
                 "repos",
                 rows!(
-                    r#"SELECT json_array(id, identity_key, name, created_at) AS "row!: String" FROM repos ORDER BY id"#
+                    r#"SELECT json_array(id, path, name, created_at) AS "row!: String" FROM repos ORDER BY id"#
                 ),
             ),
             (
@@ -616,7 +617,7 @@ mod migration_tests {
 
         // `issues.state` is a real reference, so an issue in an unconfigured
         // state is unrepresentable rather than merely unexpected.
-        sqlx::query("INSERT INTO repos (id, identity_key, name) VALUES (1, 'fk', 'fk')")
+        sqlx::query("INSERT INTO repos (id, path, name) VALUES (1, 'fk', 'fk')")
             .execute(&pool)
             .await
             .unwrap();

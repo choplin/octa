@@ -272,6 +272,40 @@ impl Planner {
         Ok(json_object(pairs))
     }
 
+    /// Projects a repository row.
+    ///
+    /// Scalar-only, so it takes no alias counter and never nests: the
+    /// repository is the outermost scope octa has, and there is nothing above
+    /// it to descend from.
+    pub(super) fn repo(
+        &mut self,
+        fields: &[SelectionField<'_>],
+        repo: &str,
+    ) -> async_graphql::Result<String> {
+        let mut pairs = Vec::new();
+        for merged in merged_fields(fields) {
+            let field = &merged.field;
+            let key = response_key(field);
+            let value = match field.name() {
+                "name" | "createdAt" => format!("{repo}.{}", snake(field.name())),
+                "path" => format!("{repo}.path"),
+                "openIssues" | "inProgressIssues" => {
+                    let state_type = match field.name() {
+                        "openIssues" => "open",
+                        _ => "in progress",
+                    };
+                    format!(
+                        "(SELECT COUNT(*) FROM issues i JOIN issue_states s ON s.name=i.state WHERE i.repo_id={repo}.id AND s.type={})",
+                        quote(state_type)
+                    )
+                }
+                name => return Err(format!("unsupported Repo selection {name}").into()),
+            };
+            pairs.push(json_pair(&key, &value));
+        }
+        Ok(json_object(pairs))
+    }
+
     pub(super) fn label(
         &mut self,
         fields: &[SelectionField<'_>],

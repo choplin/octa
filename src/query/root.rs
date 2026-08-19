@@ -245,6 +245,27 @@ impl QueryRoot {
         db.rows(&sql, WikiPageObject).await
     }
 
+    /// Every repository octa has recorded.
+    ///
+    /// This is the one root that steps outside the active repository, because
+    /// naming a repository the caller is not inside is the whole point of it.
+    async fn repos(
+        &self,
+        ctx: &Context<'_>,
+        offset: Option<i64>,
+        limit: Option<i64>,
+    ) -> async_graphql::Result<Vec<RepoObject>> {
+        let db = ctx.data::<QueryDb>()?;
+        let projection =
+            Planner::new(db.repo).repo(&ctx.field().selection_set().collect::<Vec<_>>(), "r")?;
+        let page = Page::new(offset, limit)?;
+        let sql = format!(
+            "SELECT {projection} FROM repos r ORDER BY r.name,r.id {}",
+            page.sql()
+        );
+        db.rows(&sql, RepoObject).await
+    }
+
     async fn labels(
         &self,
         ctx: &Context<'_>,

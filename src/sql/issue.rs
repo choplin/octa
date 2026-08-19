@@ -967,7 +967,7 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
-        sqlx::query("INSERT INTO repos (id, identity_key, name) VALUES (1, 'test', 'test')")
+        sqlx::query("INSERT INTO repos (id, path, name) VALUES (1, 'test', 'test')")
             .execute(&pool)
             .await
             .unwrap();

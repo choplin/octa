@@ -14,6 +14,7 @@ mod output;
 mod pr;
 mod project;
 mod project_state;
+mod repo;
 mod state;
 mod wiki;
 
@@ -68,7 +69,7 @@ pub struct Cli {
 
 #[derive(Args)]
 struct ScopeArgs {
-    /// Select an already-known repository by name.
+    /// Select an already-known repository by name; `octa repo list` names them.
     #[arg(long, global = true)]
     repo: Option<String>,
     /// Aggregate read-only commands across all repositories.
@@ -131,6 +132,25 @@ enum TopCommand {
     Milestone {
         #[command(subcommand)]
         command: MilestoneCommand,
+    },
+    /// Inspect the repositories octa has recorded.
+    ///
+    /// Registration is implicit: the first octa command run inside a Git
+    /// repository records it, keyed by that repository's Git common directory.
+    /// Every worktree of one repository therefore resolves to the same entry,
+    /// and a repository appears here whether or not it holds any Issues.
+    Repo {
+        #[command(subcommand)]
+        command: RepoCommand,
+    },
+}
+
+#[derive(Subcommand)]
+pub(crate) enum RepoCommand {
+    /// List the repositories octa has recorded.
+    List {
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -791,7 +811,25 @@ pub async fn run(cli: Cli) -> Result<()> {
             anyhow::bail!("configuration is global; --repo does not apply to `octa config`");
         }
     }
-    let store = Store::open(cli.scope.to_scope()).await?;
+    // `octa repo` reports on the store itself, so a repository selector has
+    // nothing to select. Rejecting it says so; ignoring it would let a caller
+    // believe the listing had been narrowed.
+    if matches!(cli.command, TopCommand::Repo { .. }) {
+        if cli.scope.all_repos {
+            anyhow::bail!("`octa repo` already covers every repository; drop --all-repos");
+        }
+        if cli.scope.repo.is_some() {
+            anyhow::bail!("`octa repo` reports on the whole store; --repo does not apply");
+        }
+    }
+    // The listing is store-wide, so it resolves no current repository. That
+    // keeps it usable outside a Git repository and stops a plain listing from
+    // registering the repository the caller happens to be standing in.
+    let scope = match cli.command {
+        TopCommand::Repo { .. } => RepoScope::All,
+        _ => cli.scope.to_scope(),
+    };
+    let store = Store::open(scope).await?;
     match cli.command {
         TopCommand::Query {
             file,
@@ -809,6 +847,7 @@ pub async fn run(cli: Cli) -> Result<()> {
                 Ok(())
             }
         }
+        TopCommand::Repo { command } => repo::run(&store, command).await,
         TopCommand::Issue { command } => issue::run(&store, command).await,
         TopCommand::Pr { command } => pr::run(&store, command).await,
         TopCommand::Wiki { command } => wiki::run(&store, command).await,

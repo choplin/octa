@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO repos (id, path, name) VALUES (1, 'fixture', 'fixture')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": []
+  },
+  "hash": "f2574fa687b2faa847961cb94383c36dcb09da83fb7f32ad9dc74538323edd0e"
+}
