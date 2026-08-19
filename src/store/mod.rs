@@ -6,11 +6,11 @@
 //! Configuration — issue states, labels, and label groups — is global instead:
 //! one set governs every repository.
 //!
-//! Repo identity is the canonicalized git common directory path (works without
-//! a remote; every worktree of a repo shares it). Concurrency rides on SQLite
-//! WAL plus a busy timeout; per-repo issue/PR numbers are assigned atomically by
-//! a single `INSERT ... RETURNING`, and issue leases are acquired with a
-//! compare-and-set.
+//! Repo identity is the repository root derived from the canonicalized git
+//! common directory (works without a remote; every worktree of a repo shares
+//! it). Concurrency rides on SQLite WAL plus a busy timeout; per-repo issue/PR
+//! numbers are assigned atomically by a single `INSERT ... RETURNING`, and
+//! issue leases are acquired with a compare-and-set.
 
 mod issue;
 mod label;
@@ -49,9 +49,10 @@ enum Resolved {
 
 /// Resolve the path and human name of the repository at the cwd.
 ///
-/// The path is the canonicalized `git rev-parse --git-common-dir`, shared by
-/// every worktree of the same repository, and is what identifies it; the name
-/// is the repository root's directory basename.
+/// The path is the repository root derived from the canonicalized
+/// `git rev-parse --git-common-dir`, shared by every worktree of the same
+/// repository, and is what identifies it; the name is that root's directory
+/// basename.
 fn resolve_repo_identity() -> Result<(String, String)> {
     let common = Command::new("git")
         .args(["rev-parse", "--git-common-dir"])
@@ -70,20 +71,33 @@ fn resolve_repo_identity() -> Result<(String, String)> {
     }
     let git_dir = std::fs::canonicalize(&git_dir)
         .with_context(|| format!("cannot resolve git dir {}", git_dir.display()))?;
-    let path = git_dir.to_string_lossy().to_string();
-
-    // Name: the repository root's basename. `--show-toplevel` gives the current
-    // worktree's root; its parent-of-.git works even for bare-ish layouts.
-    let name = repo_name(&git_dir);
+    let root = repo_root(&git_dir);
+    let path = root.to_string_lossy().to_string();
+    let name = repo_name(&root);
     Ok((path, name))
 }
 
-/// Derive a friendly repo name from the common git dir path (its parent's
-/// basename, i.e. the repository directory), falling back to "repo".
-fn repo_name(git_dir: &std::path::Path) -> String {
-    git_dir
-        .parent()
-        .and_then(|p| p.file_name())
+/// Derive the repository root from the canonicalized git common dir.
+///
+/// A normal repository — including every linked worktree, whose common dir is
+/// always the main repository's `.git` — ends in a `.git` component, and its
+/// root is that component's parent. Any other layout (a bare repository such as
+/// `/srv/repo.git`, or a `--separate-git-dir` store) has no `.git` component to
+/// strip, so the common dir itself is the identity. Stripping unconditionally
+/// there would collide every bare repository sharing a parent directory.
+fn repo_root(git_dir: &std::path::Path) -> PathBuf {
+    if git_dir.file_name().is_some_and(|n| n == ".git") {
+        if let Some(parent) = git_dir.parent() {
+            return parent.to_path_buf();
+        }
+    }
+    git_dir.to_path_buf()
+}
+
+/// Derive a friendly repo name from the repository root's basename, falling
+/// back to "repo".
+fn repo_name(root: &std::path::Path) -> String {
+    root.file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| "repo".to_string())
 }
@@ -195,6 +209,39 @@ impl Store {
 
     async fn repo_by_name(&self, name: &str) -> Result<i64> {
         crate::sql::repo::by_name(&self.pool, name).await
+    }
+}
+
+#[cfg(test)]
+mod repo_identity_tests {
+    use super::{repo_name, repo_root};
+    use std::path::Path;
+
+    #[test]
+    fn strips_the_dot_git_component_of_a_normal_repository() {
+        let root = repo_root(Path::new("/home/dev/work/octa/.git"));
+        assert_eq!(root, Path::new("/home/dev/work/octa"));
+        assert_eq!(repo_name(&root), "octa");
+    }
+
+    /// Only the trailing `.git` is stripped; an ancestor directory that happens
+    /// to be named `.git` stays part of the root.
+    #[test]
+    fn strips_only_the_trailing_component() {
+        let root = repo_root(Path::new("/home/.git/checkouts/octa/.git"));
+        assert_eq!(root, Path::new("/home/.git/checkouts/octa"));
+    }
+
+    #[test]
+    fn keeps_a_path_that_does_not_end_in_dot_git() {
+        let root = repo_root(Path::new("/srv/git/octa.git"));
+        assert_eq!(root, Path::new("/srv/git/octa.git"));
+        assert_eq!(repo_name(&root), "octa.git");
+    }
+
+    #[test]
+    fn falls_back_to_repo_when_the_root_has_no_basename() {
+        assert_eq!(repo_name(Path::new("/")), "repo");
     }
 }
 

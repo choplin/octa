@@ -87,11 +87,11 @@ mod tests {
     #[tokio::test]
     async fn lists_a_repository_that_holds_no_issues() {
         let pool = pool().await;
-        sqlx::query("INSERT INTO repos (id, path, name) VALUES (1, '/a/.git', 'alpha')")
+        sqlx::query("INSERT INTO repos (id, path, name) VALUES (1, '/a', 'alpha')")
             .execute(&pool)
             .await
             .unwrap();
-        sqlx::query("INSERT INTO repos (id, path, name) VALUES (2, '/b/.git', 'beta')")
+        sqlx::query("INSERT INTO repos (id, path, name) VALUES (2, '/b', 'beta')")
             .execute(&pool)
             .await
             .unwrap();
@@ -115,7 +115,7 @@ mod tests {
     #[tokio::test]
     async fn counts_group_states_by_their_type() {
         let pool = pool().await;
-        sqlx::query("INSERT INTO repos (id, path, name) VALUES (1, '/a/.git', 'alpha')")
+        sqlx::query("INSERT INTO repos (id, path, name) VALUES (1, '/a', 'alpha')")
             .execute(&pool)
             .await
             .unwrap();
@@ -150,11 +150,11 @@ mod tests {
     #[tokio::test]
     async fn lists_both_repositories_that_share_a_name() {
         let pool = pool().await;
-        sqlx::query("INSERT INTO repos (id, path, name) VALUES (1, '/one/a/.git', 'a')")
+        sqlx::query("INSERT INTO repos (id, path, name) VALUES (1, '/one/a', 'a')")
             .execute(&pool)
             .await
             .unwrap();
-        sqlx::query("INSERT INTO repos (id, path, name) VALUES (2, '/two/a/.git', 'a')")
+        sqlx::query("INSERT INTO repos (id, path, name) VALUES (2, '/two/a', 'a')")
             .execute(&pool)
             .await
             .unwrap();
@@ -162,6 +162,6 @@ mod tests {
         let repos = super::list(&pool).await.unwrap();
 
         let paths: Vec<_> = repos.iter().map(|repo| repo.path.as_str()).collect();
-        assert_eq!(paths, ["/one/a/.git", "/two/a/.git"]);
+        assert_eq!(paths, ["/one/a", "/two/a"]);
     }
 }
