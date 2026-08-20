@@ -77,10 +77,9 @@ impl Store {
         &self,
         name: &str,
         new_name: Option<&str>,
-        state_type: Option<ProjectStateType>,
         default: bool,
-    ) -> Result<bool> {
-        crate::app::project::set_state_config(&self.pool, name, new_name, state_type, default).await
+    ) -> Result<()> {
+        crate::app::project::set_state_config(&self.pool, name, new_name, default).await
     }
 
     pub async fn delete_project_state(&self, name: &str, move_to: Option<&str>) -> Result<i64> {

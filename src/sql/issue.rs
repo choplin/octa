@@ -750,9 +750,16 @@ pub async fn release_lease(
 /// States are global, so this runs once for the store rather than once per
 /// repository. A store whose states were already customized keeps exactly the
 /// set it has.
+///
+/// The states and their defaults go in together, in one transaction: a store
+/// with states but no default would leave every verb with nowhere to go. The
+/// defaults are named outright rather than inferred from insertion order --
+/// order is not a property the schema preserves, so anything that replays these
+/// rows in a different order would silently pick different defaults.
 pub async fn seed_default_states(pool: &SqlitePool) -> Result<()> {
+    let mut tx = pool.begin().await?;
     let configured = sqlx::query_scalar!(r#"SELECT COUNT(*) AS "count!: i64" FROM issue_states"#)
-        .fetch_one(pool)
+        .fetch_one(&mut *tx)
         .await?;
     if configured != 0 {
         return Ok(());
@@ -761,8 +768,6 @@ pub async fn seed_default_states(pool: &SqlitePool) -> Result<()> {
     // reason rather than a fourth type, so it shares the closed type with
     // `closed` instead of extending the axis. Names are lower case to match
     // `prs.state` and the GitHub API's own value spelling.
-    // The first state of each type becomes that type's default by trigger, so
-    // seeding names the defaults simply by inserting them first.
     for (state, state_type) in [
         ("open", "open"),
         ("in progress", "in progress"),
@@ -770,13 +775,27 @@ pub async fn seed_default_states(pool: &SqlitePool) -> Result<()> {
         ("not planned", "closed"),
     ] {
         sqlx::query!(
-            "INSERT OR IGNORE INTO issue_states (name, type) VALUES (?, ?)",
+            "INSERT INTO issue_states (name, type) VALUES (?, ?)",
             state,
             state_type
         )
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
     }
+    for (state_type, state) in [
+        ("open", "open"),
+        ("in progress", "in progress"),
+        ("closed", "closed"),
+    ] {
+        sqlx::query!(
+            "INSERT INTO issue_state_defaults (type, name) VALUES (?, ?)",
+            state_type,
+            state
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
     Ok(())
 }
 
@@ -801,8 +820,10 @@ pub async fn list_states(pool: &SqlitePool) -> Result<Vec<IssueState>> {
 
 /// Create a state, optionally taking its type's default.
 ///
-/// The state alone is enough when the type is empty: a trigger makes the first
-/// state of a type its default.
+/// Both writes share one transaction, so a state that is meant to be its type's
+/// default never exists without being one. Nothing in the schema hands the
+/// default out on its own; the caller decides, which is what keeps a restored
+/// dump's defaults intact.
 pub async fn insert_state(
     pool: &SqlitePool,
     name: &str,
@@ -885,18 +906,6 @@ pub async fn rename_state(pool: &SqlitePool, from: &str, to: &str) -> Result<()>
     sqlx::query!("UPDATE issue_states SET name = ? WHERE name = ?", to, from)
         .execute(pool)
         .await?;
-    Ok(())
-}
-
-pub async fn update_state_type(pool: &SqlitePool, name: &str, state_type: StateType) -> Result<()> {
-    let type_value = state_type.as_str();
-    sqlx::query!(
-        "UPDATE issue_states SET type = ? WHERE name = ?",
-        type_value,
-        name
-    )
-    .execute(pool)
-    .await?;
     Ok(())
 }
 

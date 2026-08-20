@@ -558,7 +558,7 @@ mod migration_tests {
                 ("in progress".to_string(), "in progress".to_string()),
                 ("open".to_string(), "open".to_string()),
             ],
-            "the first state of each type must become that type's default"
+            "seeding must name a default for every type it populates"
         );
 
         let unknown_type =
@@ -649,18 +649,32 @@ mod migration_tests {
         .unwrap();
         assert_eq!(in_progress_defaults, 0);
 
-        // Refilling it hands the default straight to the state that arrives,
-        // by creation or by retyping one in.
-        sqlx::query("UPDATE issue_states SET type = 'in progress' WHERE name = 'not planned'")
+        // Refilling it is a create, never a retype: a state keeps the type it
+        // was created with.
+        let retyped =
+            sqlx::query("UPDATE issue_states SET type = 'in progress' WHERE name = 'not planned'")
+                .execute(&pool)
+                .await;
+        assert!(retyped.is_err(), "a state must not change type");
+        sqlx::query("INSERT INTO issue_states (name, type) VALUES ('wip', 'in progress')")
             .execute(&pool)
             .await
             .unwrap();
-        let refilled: String =
-            sqlx::query_scalar("SELECT name FROM issue_state_defaults WHERE type = 'in progress'")
-                .fetch_one(&pool)
-                .await
-                .unwrap();
-        assert_eq!(refilled, "not planned");
+
+        // The arriving state does not become the default on its own. Nothing in
+        // the schema hands a default out, which is what lets a dump's own
+        // defaults survive being replayed into a fresh database.
+        let unclaimed: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM issue_state_defaults WHERE type = 'in progress'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(unclaimed, 0, "the schema must not name a default by itself");
+        sqlx::query("INSERT INTO issue_state_defaults (type, name) VALUES ('in progress', 'wip')")
+            .execute(&pool)
+            .await
+            .unwrap();
 
         // `issues.state` is a real reference, so an issue in an unconfigured
         // state is unrepresentable rather than merely unexpected.

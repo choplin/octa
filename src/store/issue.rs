@@ -219,10 +219,9 @@ impl Store {
         &self,
         name: &str,
         new_name: Option<&str>,
-        state_type: Option<StateType>,
         default: bool,
-    ) -> Result<bool> {
-        crate::app::issue::set_state_config(&self.pool, name, new_name, state_type, default).await
+    ) -> Result<()> {
+        crate::app::issue::set_state_config(&self.pool, name, new_name, default).await
     }
 
     pub async fn delete_state(&self, name: &str, move_to: Option<&str>) -> Result<i64> {

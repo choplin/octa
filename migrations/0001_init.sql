@@ -19,9 +19,15 @@ CREATE TABLE repos (
 -- picked up, resolved -- so octa deliberately models no finer gradation.
 -- Whether a state closes an issue is read from `type = 'closed'`; it is not a
 -- second stored flag.
+--
+-- `UNIQUE (name, type)` adds no restriction over the primary key alone. It is
+-- there to be referenced: it makes the pair a key that `issue_state_defaults`
+-- can point at, which is what lets the type agreement between the two tables be
+-- a foreign key rather than a trigger.
 CREATE TABLE issue_states (
     name TEXT NOT NULL PRIMARY KEY,
-    type TEXT NOT NULL CHECK (type IN ('open', 'in progress', 'closed'))
+    type TEXT NOT NULL CHECK (type IN ('open', 'in progress', 'closed')),
+    UNIQUE (name, type)
 );
 
 -- Which state each type hands out when a verb is invoked without an explicit
@@ -30,61 +36,37 @@ CREATE TABLE issue_states (
 --
 -- The default is one fact per type, so it is one row per type rather than a
 -- flag spread across `issue_states`. That is what makes it constrainable:
--- `PRIMARY KEY (type)` admits at most one, the reference keeps it pointing at a
--- state that exists, and changing it is a single-row write with no moment in
--- between where the type has none.
+-- `PRIMARY KEY (type)` admits at most one, and changing it is a single-row
+-- write with no moment in between where the type has none.
+--
+-- The reference carries both columns. A single-column one would keep the
+-- default pointing at a state that exists while saying nothing about which type
+-- that state has, so `('open', <a closed state>)` would satisfy it; naming the
+-- pair rejects the mismatch outright. `ON UPDATE CASCADE` is what carries a
+-- renamed state's default along with it.
 CREATE TABLE issue_state_defaults (
     type TEXT NOT NULL PRIMARY KEY CHECK (type IN ('open', 'in progress', 'closed')),
-    name TEXT NOT NULL UNIQUE
-        REFERENCES issue_states(name) ON UPDATE CASCADE ON DELETE CASCADE
+    name TEXT NOT NULL UNIQUE,
+    FOREIGN KEY (name, type) REFERENCES issue_states(name, type)
+        ON UPDATE CASCADE ON DELETE CASCADE
 );
 
--- A CHECK constraint cannot see other rows, so the rules that relate the two
--- tables are triggers. Together they hold one invariant: a type with any states
--- has exactly one default, and that default is a state of that same type.
-
--- The reference alone allows a default of one type to name a state of another.
-CREATE TRIGGER issue_state_defaults_belong_to_their_type_insert
-AFTER INSERT ON issue_state_defaults
-WHEN NOT EXISTS (
-    SELECT 1 FROM issue_states s WHERE s.name = NEW.name AND s.type = NEW.type)
+-- A state's type is fixed at creation. Retyping one would have to hand the old
+-- type's default over and answer whether that type was allowed to lose it, and
+-- there is no use for it that deleting the state and creating the intended one
+-- does not already serve -- that route states where the issues go, which
+-- retyping decides silently.
+CREATE TRIGGER issue_states_keep_their_type
+BEFORE UPDATE OF type ON issue_states
+WHEN NEW.type IS NOT OLD.type
 BEGIN
-    SELECT RAISE(ABORT, 'a default state must belong to the type it is default for');
-END;
-
-CREATE TRIGGER issue_state_defaults_belong_to_their_type_update
-AFTER UPDATE ON issue_state_defaults
-WHEN NOT EXISTS (
-    SELECT 1 FROM issue_states s WHERE s.name = NEW.name AND s.type = NEW.type)
-BEGIN
-    SELECT RAISE(ABORT, 'a default state must belong to the type it is default for');
-END;
-
--- A type gains its default the moment it gains a state, so a populated type is
--- never left with a verb that has nowhere to go.
-CREATE TRIGGER issue_states_first_of_a_type_becomes_its_default
-AFTER INSERT ON issue_states
-WHEN NOT EXISTS (SELECT 1 FROM issue_state_defaults d WHERE d.type = NEW.type)
-BEGIN
-    INSERT INTO issue_state_defaults (type, name) VALUES (NEW.type, NEW.name);
-END;
-
--- A state that changes type stops being the old type's default and, when the
--- new type had none, becomes its default. The delete is what asks whether the
--- old type was allowed to lose it: by now the state has already left, so a type
--- emptied by the move is free to go without one.
-CREATE TRIGGER issue_states_retype_hands_over_the_default
-AFTER UPDATE OF type ON issue_states
-BEGIN
-    DELETE FROM issue_state_defaults WHERE name = NEW.name AND type = OLD.type;
-    INSERT INTO issue_state_defaults (type, name)
-    SELECT NEW.type, NEW.name
-    WHERE NOT EXISTS (SELECT 1 FROM issue_state_defaults d WHERE d.type = NEW.type);
+    SELECT RAISE(ABORT, 'a state cannot change type; delete it and create the intended one');
 END;
 
 -- Deleting a state cascades its default row away. Losing it is only legal when
 -- the state was the last of its type; otherwise the type would be left with
--- states and no default.
+-- states and no default. A CHECK constraint cannot see the other table, so this
+-- one rule remains a trigger.
 CREATE TRIGGER issue_state_defaults_a_populated_type_keeps_one
 AFTER DELETE ON issue_state_defaults
 WHEN EXISTS (SELECT 1 FROM issue_states s WHERE s.type = OLD.type)
@@ -224,52 +206,29 @@ CREATE TABLE project_labels (
 -- state `Planned` or `In Progress` remains a matter of the name.
 CREATE TABLE project_states (
     name TEXT NOT NULL PRIMARY KEY,
-    type TEXT NOT NULL CHECK (type IN ('open', 'closed'))
+    type TEXT NOT NULL CHECK (type IN ('open', 'closed')),
+    UNIQUE (name, type)
 );
 
 -- Which state each type hands out when a verb is invoked without an explicit
 -- target: `project create` resolves the open default, `close` the closed one.
--- One fact per type, so one row per type, for the reasons `issue_state_defaults`
--- records.
+-- One fact per type, so one row per type, and the reference names the pair, for
+-- the reasons `issue_state_defaults` records.
 CREATE TABLE project_state_defaults (
     type TEXT NOT NULL PRIMARY KEY CHECK (type IN ('open', 'closed')),
-    name TEXT NOT NULL UNIQUE
-        REFERENCES project_states(name) ON UPDATE CASCADE ON DELETE CASCADE
+    name TEXT NOT NULL UNIQUE,
+    FOREIGN KEY (name, type) REFERENCES project_states(name, type)
+        ON UPDATE CASCADE ON DELETE CASCADE
 );
 
--- The same four rules that hold `issue_state_defaults` together, over two types
--- instead of three: a type with any states has exactly one default, and that
--- default is a state of that same type.
-CREATE TRIGGER project_state_defaults_belong_to_their_type_insert
-AFTER INSERT ON project_state_defaults
-WHEN NOT EXISTS (
-    SELECT 1 FROM project_states s WHERE s.name = NEW.name AND s.type = NEW.type)
+-- The same two rules that hold `issue_state_defaults` together, over two types
+-- instead of three: a state keeps the type it was created with, and a type with
+-- any states keeps exactly one default.
+CREATE TRIGGER project_states_keep_their_type
+BEFORE UPDATE OF type ON project_states
+WHEN NEW.type IS NOT OLD.type
 BEGIN
-    SELECT RAISE(ABORT, 'a default state must belong to the type it is default for');
-END;
-
-CREATE TRIGGER project_state_defaults_belong_to_their_type_update
-AFTER UPDATE ON project_state_defaults
-WHEN NOT EXISTS (
-    SELECT 1 FROM project_states s WHERE s.name = NEW.name AND s.type = NEW.type)
-BEGIN
-    SELECT RAISE(ABORT, 'a default state must belong to the type it is default for');
-END;
-
-CREATE TRIGGER project_states_first_of_a_type_becomes_its_default
-AFTER INSERT ON project_states
-WHEN NOT EXISTS (SELECT 1 FROM project_state_defaults d WHERE d.type = NEW.type)
-BEGIN
-    INSERT INTO project_state_defaults (type, name) VALUES (NEW.type, NEW.name);
-END;
-
-CREATE TRIGGER project_states_retype_hands_over_the_default
-AFTER UPDATE OF type ON project_states
-BEGIN
-    DELETE FROM project_state_defaults WHERE name = NEW.name AND type = OLD.type;
-    INSERT INTO project_state_defaults (type, name)
-    SELECT NEW.type, NEW.name
-    WHERE NOT EXISTS (SELECT 1 FROM project_state_defaults d WHERE d.type = NEW.type);
+    SELECT RAISE(ABORT, 'a state cannot change type; delete it and create the intended one');
 END;
 
 CREATE TRIGGER project_state_defaults_a_populated_type_keeps_one

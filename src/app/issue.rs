@@ -706,36 +706,21 @@ async fn require_default_can_be_released(pool: &SqlitePool, state: &IssueState) 
     Ok(())
 }
 
-/// Update a state's name or type, or make it its type's default. Returns
-/// whether it became a default unasked.
+/// Update a state's name, or make it its type's default.
 ///
 /// Renaming repoints every issue in the state, so no issue is left pointing at
 /// a name that no longer exists. `default` needs no type argument: a state
 /// already carries exactly one type, so naming it again could only contradict
-/// it. When both are given the state is retyped first, then made the default of
-/// the type it ends up in. Moving a state into an empty type makes it that
-/// type's default for the same reason creating one there does.
+/// it.
 pub async fn set_state_config(
     pool: &SqlitePool,
     name: &str,
     new_name: Option<&str>,
-    state_type: Option<StateType>,
     default: bool,
-) -> Result<bool> {
+) -> Result<()> {
     let state = require_state(pool, name).await?;
-    if new_name.is_none() && state_type.is_none() && !default {
-        bail!("nothing to update; pass --name, --type, or --default");
-    }
-
-    // Read before anything moves: once the state has been retyped it is itself
-    // a member of the destination type.
-    let mut promoted = false;
-    if let Some(state_type) = state_type {
-        if state_type != state.state_type {
-            require_type_stays_populated(pool, state.state_type, name).await?;
-            require_default_can_be_released(pool, &state).await?;
-            promoted = !default && type_is_empty(pool, state_type).await?;
-        }
+    if new_name.is_none() && !default {
+        bail!("nothing to update; pass --name or --default");
     }
 
     let mut name = name.to_string();
@@ -751,16 +736,10 @@ pub async fn set_state_config(
             name = new_name.to_string();
         }
     }
-    if let Some(state_type) = state_type {
-        if state_type != state.state_type {
-            crate::sql::issue::update_state_type(pool, &name, state_type).await?;
-        }
+    if default {
+        crate::sql::issue::set_default_state(pool, &name, state.state_type).await?;
     }
-    if default || promoted {
-        let state_type = state_type.unwrap_or(state.state_type);
-        crate::sql::issue::set_default_state(pool, &name, state_type).await?;
-    }
-    Ok(promoted)
+    Ok(())
 }
 
 /// Delete a state, moving any issues that reference it to `move_to`.

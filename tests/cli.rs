@@ -501,6 +501,13 @@ fn withdrawn_options_and_flag_conflicts_are_rejected() {
         vec!["issue", "list", "--open"],
         vec!["issue", "list", "--closed"],
         vec!["issue", "start", "1", "--as", "in progress"],
+        // A state keeps the type it was created with; there is no retype.
+        vec![
+            "config", "issue", "state", "set", "open", "--type", "closed",
+        ],
+        vec![
+            "config", "project", "state", "set", "open", "--type", "closed",
+        ],
     ] {
         assert!(
             !env.run(&withdrawn).status.success(),
@@ -1228,11 +1235,11 @@ fn a_populated_type_always_has_exactly_one_default() {
     };
     assert_eq!(defaults(&env, "open"), vec!["open".to_string()]);
 
-    // Moving a state into an empty type makes it that type's default, the same
-    // way creating one there does.
+    // An emptied type refills by creating a state into it. A state cannot be
+    // moved across the axis, so creation is the only way in.
     env.ok(&["config", "issue", "state", "delete", "in progress"]);
     assert!(defaults(&env, "in progress").is_empty());
-    let updated = env.ok(&[
+    let moved = env.run(&[
         "config",
         "issue",
         "state",
@@ -1242,10 +1249,23 @@ fn a_populated_type_always_has_exactly_one_default() {
         "in progress",
     ]);
     assert!(
-        updated.contains("now that type's default"),
-        "the promotion must not be silent: {updated}"
+        !moved.status.success(),
+        "a state must not be movable across the type axis"
     );
-    assert_eq!(defaults(&env, "in progress"), vec!["triage".to_string()]);
+    let created = env.ok(&[
+        "config",
+        "issue",
+        "state",
+        "create",
+        "wip",
+        "--type",
+        "in progress",
+    ]);
+    assert!(
+        created.contains("now that type's default"),
+        "the promotion must not be silent: {created}"
+    );
+    assert_eq!(defaults(&env, "in progress"), vec!["wip".to_string()]);
     assert_eq!(defaults(&env, "open"), vec!["open".to_string()]);
 }
 
@@ -1270,12 +1290,11 @@ fn required_types_cannot_be_emptied_and_defaults_cannot_be_dropped() {
     env.ok(&["config", "issue", "state", "set", "triage", "--default"]);
     env.ok(&["config", "issue", "state", "delete", "open"]);
 
-    // Retyping is guarded the same way: closed cannot be emptied either.
+    // closed is guarded the same way: it cannot be emptied either.
     env.ok(&["config", "issue", "state", "delete", "not planned"]);
-    let only_closed = env.run(&[
-        "config", "issue", "state", "set", "closed", "--type", "open",
-    ]);
+    let only_closed = env.run(&["config", "issue", "state", "delete", "closed"]);
     assert!(!only_closed.status.success());
+    assert!(String::from_utf8_lossy(&only_closed.stderr).contains("only \"closed\" state"));
 
     // in progress may be emptied: a workflow that never distinguishes
     // picked-up work is coherent.
@@ -1343,31 +1362,6 @@ fn renaming_a_state_carries_its_issues_and_rejects_collisions() {
     let empty = env.run(&["config", "issue", "state", "set", "Ready"]);
     assert!(!empty.status.success());
     assert!(String::from_utf8_lossy(&empty.stderr).contains("nothing to update"));
-
-    // Retyping a state moves the issues in it across the axis with it.
-    env.ok(&[
-        "config", "issue", "state", "create", "triage", "--type", "open",
-    ]);
-    env.ok(&["config", "issue", "state", "set", "triage", "--default"]);
-    env.ok(&[
-        "config",
-        "issue",
-        "state",
-        "set",
-        "Ready",
-        "--type",
-        "in progress",
-    ]);
-    assert_eq!(
-        issue_numbers(&json(&env.ok(&[
-            "issue",
-            "list",
-            "--state-type",
-            "in progress",
-            "--json"
-        ]))),
-        vec![1]
-    );
 }
 
 #[test]
@@ -2579,15 +2573,7 @@ fn help_enumerates_value_sets_fixed_in_code() {
             vec!["open", "in progress", "closed"],
         ),
         (
-            vec!["config", "issue", "state", "set", "--help"],
-            vec!["open", "in progress", "closed"],
-        ),
-        (
             vec!["config", "project", "state", "create", "--help"],
-            vec!["open", "closed"],
-        ),
-        (
-            vec!["config", "project", "state", "set", "--help"],
             vec!["open", "closed"],
         ),
         (

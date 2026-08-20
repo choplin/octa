@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO issue_state_defaults (type, name) VALUES (?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "b67bfae9cc817f0ef3a90b747b358a26ef09e87a6a03b7d1d08d2b31b335d7a8"
+}

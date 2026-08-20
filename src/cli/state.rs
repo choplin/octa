@@ -35,22 +35,16 @@ pub(crate) async fn run(store: &Store, command: StateCommand) -> Result<()> {
         StateCommand::Set {
             name,
             new_name,
-            state_type,
             default,
         } => {
-            let state_type = state_type.as_deref().map(StateType::parse).transpose()?;
-            let promoted = store
-                .set_state_config(&name, new_name.as_deref(), state_type, default)
+            store
+                .set_state_config(&name, new_name.as_deref(), default)
                 .await?;
             let message = match &new_name {
                 Some(new_name) if new_name != &name => {
                     format!("updated state {name} -> {new_name}")
                 }
                 _ => format!("updated state {name}"),
-            };
-            let message = match state_type {
-                Some(state_type) => promotion_note(message, promoted, state_type),
-                None => message,
             };
             output.print(output.line(Tone::Success, message));
         }
@@ -70,7 +64,7 @@ pub(crate) async fn run(store: &Store, command: StateCommand) -> Result<()> {
 }
 
 /// Say so when a state became its type's default without being asked to, so the
-/// promotion is never a silent side effect of creating or retyping it.
+/// promotion is never a silent side effect of creating it.
 fn promotion_note(message: String, promoted: bool, state_type: StateType) -> String {
     if promoted {
         format!("{message}; it is the first {state_type} state, so it is now that type's default")

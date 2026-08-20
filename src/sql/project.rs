@@ -249,14 +249,13 @@ pub async fn tally(pool: &SqlitePool, repo: i64, id: i64) -> Result<ProjectTally
 ///
 /// States are global, so this runs once for the store rather than once per
 /// repository. A store whose states were already customized keeps exactly the
-/// set it has. The shape mirrors `issue::seed_default_states`: one state per
-/// type, plus the second way an outcome ends. `not planned` is a reason rather
-/// than a third type, so it shares the closed type with `closed`. The first
-/// state of each type becomes that type's default by trigger, so seeding names
-/// the defaults simply by inserting them first.
+/// set it has. The shape mirrors `issue::seed_default_states`, defaults and
+/// all: one state per type plus the second way an outcome ends, with the
+/// defaults named outright rather than inferred from insertion order.
 pub async fn seed_default_states(pool: &SqlitePool) -> Result<()> {
+    let mut tx = pool.begin().await?;
     let configured = sqlx::query_scalar!(r#"SELECT COUNT(*) AS "count!: i64" FROM project_states"#)
-        .fetch_one(pool)
+        .fetch_one(&mut *tx)
         .await?;
     if configured != 0 {
         return Ok(());
@@ -267,13 +266,23 @@ pub async fn seed_default_states(pool: &SqlitePool) -> Result<()> {
         ("not planned", "closed"),
     ] {
         sqlx::query!(
-            "INSERT OR IGNORE INTO project_states (name, type) VALUES (?, ?)",
+            "INSERT INTO project_states (name, type) VALUES (?, ?)",
             state,
             state_type
         )
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
     }
+    for (state_type, state) in [("open", "open"), ("closed", "closed")] {
+        sqlx::query!(
+            "INSERT INTO project_state_defaults (type, name) VALUES (?, ?)",
+            state_type,
+            state
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
     Ok(())
 }
 
@@ -298,8 +307,10 @@ pub async fn list_states(pool: &SqlitePool) -> Result<Vec<ProjectState>> {
 
 /// Create a state, optionally taking its type's default.
 ///
-/// The state alone is enough when the type is empty: a trigger makes the first
-/// state of a type its default.
+/// Both writes share one transaction, so a state that is meant to be its type's
+/// default never exists without being one. Nothing in the schema hands the
+/// default out on its own; the caller decides, which is what keeps a restored
+/// dump's defaults intact.
 pub async fn insert_state(
     pool: &SqlitePool,
     name: &str,
@@ -396,22 +407,6 @@ pub async fn rename_state(pool: &SqlitePool, from: &str, to: &str) -> Result<()>
         "UPDATE project_states SET name = ? WHERE name = ?",
         to,
         from
-    )
-    .execute(pool)
-    .await?;
-    Ok(())
-}
-
-pub async fn update_state_type(
-    pool: &SqlitePool,
-    name: &str,
-    state_type: ProjectStateType,
-) -> Result<()> {
-    let type_value = state_type.as_str();
-    sqlx::query!(
-        "UPDATE project_states SET type = ? WHERE name = ?",
-        type_value,
-        name
     )
     .execute(pool)
     .await?;

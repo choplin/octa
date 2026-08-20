@@ -607,9 +607,6 @@ pub(crate) enum StateCommand {
         /// New name for the state.
         #[arg(long = "name")]
         new_name: Option<String>,
-        /// New state type.
-        #[arg(long = "type", value_name = "TYPE", value_parser = issue_state_types())]
-        state_type: Option<String>,
         /// Make this its type's default, replacing the current one.
         #[arg(long)]
         default: bool,
@@ -651,9 +648,6 @@ pub(crate) enum ProjectStateCommand {
         /// New name for the state.
         #[arg(long = "name")]
         new_name: Option<String>,
-        /// New state type.
-        #[arg(long = "type", value_name = "TYPE", value_parser = project_state_types())]
-        state_type: Option<String>,
         /// Make this its type's default, replacing the current one.
         #[arg(long)]
         default: bool,
