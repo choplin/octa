@@ -9,7 +9,7 @@ pub struct MilestoneRef {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ProjectMilestone {
     #[serde(skip)]
-    pub(crate) repo_id: i64,
+    pub(crate) repository_id: i64,
     pub project_id: i64,
     pub id: i64,
     pub position: i64,

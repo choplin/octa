@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM issue_parents WHERE repository_id = ? AND child_number = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "5af7c6ac88a673597f40860f130b42aa75b09bd5882051d4bcc3dc9a1aa32574"
+}

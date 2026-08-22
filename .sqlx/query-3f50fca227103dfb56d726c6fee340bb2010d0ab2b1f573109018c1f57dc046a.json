@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        SELECT from_slug AS \"s!: String\"\n        FROM\n            wiki_links\n        WHERE\n            repository_id = ?\n        AND\n            to_slug = ?\n        ORDER BY\n            from_slug\n    ",
+  "describe": {
+    "columns": [
+      {
+        "name": "s!: String",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "3f50fca227103dfb56d726c6fee340bb2010d0ab2b1f573109018c1f57dc046a"
+}

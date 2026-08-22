@@ -19,7 +19,7 @@ impl Store {
     ) -> Result<i64> {
         crate::app::issue::create(
             &self.pool,
-            self.repo_id()?,
+            self.repository_id()?,
             title,
             body,
             state,
@@ -39,10 +39,10 @@ impl Store {
         related_to: Option<i64>,
         unblocked: bool,
     ) -> Result<Vec<Issue>> {
-        let repo = (!self.is_all()).then(|| self.repo_id()).transpose()?;
+        let repository = (!self.is_all()).then(|| self.repository_id()).transpose()?;
         crate::app::issue::list(
             &self.pool,
-            repo,
+            repository,
             crate::app::issue::ListQuery {
                 selector,
                 label,
@@ -56,15 +56,15 @@ impl Store {
     }
 
     pub async fn issue_detail(&self, number: i64) -> Result<IssueDetail> {
-        crate::app::issue::detail(&self.pool, self.repo_id()?, number).await
+        crate::app::issue::detail(&self.pool, self.repository_id()?, number).await
     }
 
     /// All issues for the repository-scoped, read-only browser.
     pub async fn list_all_issue_details(&self) -> Result<Vec<IssueDetail>> {
-        let repo = self.repo_id()?;
+        let repository = self.repository_id()?;
         let issues = crate::app::issue::list(
             &self.pool,
-            Some(repo),
+            Some(repository),
             crate::app::issue::ListQuery {
                 selector: IssueListSelector::All,
                 label: None,
@@ -77,13 +77,13 @@ impl Store {
         .await?;
         let mut details = Vec::with_capacity(issues.len());
         for issue in issues {
-            details.push(crate::app::issue::detail(&self.pool, repo, issue.number).await?);
+            details.push(crate::app::issue::detail(&self.pool, repository, issue.number).await?);
         }
         Ok(details)
     }
 
     pub async fn add_issue_comment(&self, number: i64, body: &str) -> Result<()> {
-        crate::app::issue::comment(&self.pool, self.repo_id()?, number, body).await
+        crate::app::issue::comment(&self.pool, self.repository_id()?, number, body).await
     }
 
     pub async fn set_issue_project(
@@ -92,11 +92,12 @@ impl Store {
         project: &str,
         lease: Option<&str>,
     ) -> Result<()> {
-        crate::app::issue::set_project(&self.pool, self.repo_id()?, number, project, lease).await
+        crate::app::issue::set_project(&self.pool, self.repository_id()?, number, project, lease)
+            .await
     }
 
     pub async fn clear_issue_project(&self, number: i64, lease: Option<&str>) -> Result<()> {
-        crate::app::issue::clear_project(&self.pool, self.repo_id()?, number, lease).await
+        crate::app::issue::clear_project(&self.pool, self.repository_id()?, number, lease).await
     }
 
     pub async fn set_issue_milestone(
@@ -105,12 +106,18 @@ impl Store {
         milestone: &str,
         lease: Option<&str>,
     ) -> Result<()> {
-        crate::app::issue::set_milestone(&self.pool, self.repo_id()?, number, milestone, lease)
-            .await
+        crate::app::issue::set_milestone(
+            &self.pool,
+            self.repository_id()?,
+            number,
+            milestone,
+            lease,
+        )
+        .await
     }
 
     pub async fn clear_issue_milestone(&self, number: i64, lease: Option<&str>) -> Result<()> {
-        crate::app::issue::clear_milestone(&self.pool, self.repo_id()?, number, lease).await
+        crate::app::issue::clear_milestone(&self.pool, self.repository_id()?, number, lease).await
     }
 
     pub async fn set_issue_parent(
@@ -119,11 +126,11 @@ impl Store {
         parent: i64,
         lease: Option<&str>,
     ) -> Result<()> {
-        crate::app::issue::set_parent(&self.pool, self.repo_id()?, child, parent, lease).await
+        crate::app::issue::set_parent(&self.pool, self.repository_id()?, child, parent, lease).await
     }
 
     pub async fn clear_issue_parent(&self, child: i64, lease: Option<&str>) -> Result<()> {
-        crate::app::issue::clear_parent(&self.pool, self.repo_id()?, child, lease).await
+        crate::app::issue::clear_parent(&self.pool, self.repository_id()?, child, lease).await
     }
 
     pub async fn set_issue_state(
@@ -132,7 +139,7 @@ impl Store {
         state: &str,
         lease: Option<&str>,
     ) -> Result<()> {
-        crate::app::issue::set_state(&self.pool, self.repo_id()?, number, state, lease).await
+        crate::app::issue::set_state(&self.pool, self.repository_id()?, number, state, lease).await
     }
 
     pub async fn edit_issue(
@@ -142,7 +149,15 @@ impl Store {
         body: Option<&str>,
         lease: Option<&str>,
     ) -> Result<()> {
-        crate::app::issue::edit(&self.pool, self.repo_id()?, number, title, body, lease).await
+        crate::app::issue::edit(
+            &self.pool,
+            self.repository_id()?,
+            number,
+            title,
+            body,
+            lease,
+        )
+        .await
     }
 
     pub async fn add_dependency(
@@ -154,7 +169,7 @@ impl Store {
     ) -> Result<()> {
         crate::app::issue::add_dependency(
             &self.pool,
-            self.repo_id()?,
+            self.repository_id()?,
             leased_issue,
             blocker,
             blocked,
@@ -172,7 +187,7 @@ impl Store {
     ) -> Result<()> {
         crate::app::issue::remove_dependency(
             &self.pool,
-            self.repo_id()?,
+            self.repository_id()?,
             leased_issue,
             blocker,
             blocked,
@@ -182,15 +197,15 @@ impl Store {
     }
 
     pub async fn add_issue_relation(&self, a: i64, b: i64, lease: Option<&str>) -> Result<()> {
-        crate::app::issue::add_relation(&self.pool, self.repo_id()?, a, b, lease).await
+        crate::app::issue::add_relation(&self.pool, self.repository_id()?, a, b, lease).await
     }
 
     pub async fn remove_issue_relation(&self, a: i64, b: i64, lease: Option<&str>) -> Result<()> {
-        crate::app::issue::remove_relation(&self.pool, self.repo_id()?, a, b, lease).await
+        crate::app::issue::remove_relation(&self.pool, self.repository_id()?, a, b, lease).await
     }
 
     pub async fn lock_issue(&self, number: i64) -> Result<LeaseOutcome> {
-        crate::app::issue::lock(&self.pool, self.repo_id()?, number).await
+        crate::app::issue::lock(&self.pool, self.repository_id()?, number).await
     }
 
     pub async fn unlock_issue(
@@ -199,7 +214,7 @@ impl Store {
         lease: Option<&str>,
         force: bool,
     ) -> Result<bool> {
-        crate::app::issue::unlock(&self.pool, self.repo_id()?, number, lease, force).await
+        crate::app::issue::unlock(&self.pool, self.repository_id()?, number, lease, force).await
     }
 
     pub async fn list_states(&self) -> Result<Vec<IssueState>> {
@@ -229,7 +244,7 @@ impl Store {
     }
 
     pub async fn start_issue(&self, number: i64, lease: Option<&str>) -> Result<String> {
-        crate::app::issue::start(&self.pool, self.repo_id()?, number, lease).await
+        crate::app::issue::start(&self.pool, self.repository_id()?, number, lease).await
     }
 
     pub async fn close_issue(
@@ -238,7 +253,7 @@ impl Store {
         as_state: Option<&str>,
         lease: Option<&str>,
     ) -> Result<String> {
-        crate::app::issue::close(&self.pool, self.repo_id()?, number, as_state, lease).await
+        crate::app::issue::close(&self.pool, self.repository_id()?, number, as_state, lease).await
     }
 
     pub async fn reopen_issue(
@@ -247,6 +262,6 @@ impl Store {
         as_state: Option<&str>,
         lease: Option<&str>,
     ) -> Result<String> {
-        crate::app::issue::reopen(&self.pool, self.repo_id()?, number, as_state, lease).await
+        crate::app::issue::reopen(&self.pool, self.repository_id()?, number, as_state, lease).await
     }
 }

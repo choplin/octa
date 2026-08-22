@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR IGNORE INTO issue_dependencies (repository_id, blocker_number, blocked_number) VALUES (?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "adcd6db2c548d63c762789749c5b2122402a4be3f5e7e188c73fab997b0ea889"
+}

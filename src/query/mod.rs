@@ -27,7 +27,7 @@ type QuerySchema = Schema<QueryRoot, EmptyMutation, EmptySubscription>;
 fn schema(store: &Store) -> Result<QuerySchema> {
     let db = QueryDb {
         pool: store.pool.clone(),
-        repo: store.repo_id()?,
+        repository: store.repository_id()?,
         accesses: Arc::new(AtomicUsize::new(0)),
         #[cfg(test)]
         statements: Arc::new(Mutex::new(Vec::new())),

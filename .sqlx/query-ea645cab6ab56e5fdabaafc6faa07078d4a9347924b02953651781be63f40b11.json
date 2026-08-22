@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE pull_requests SET body = ? WHERE repository_id = ? AND number = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "ea645cab6ab56e5fdabaafc6faa07078d4a9347924b02953651781be63f40b11"
+}

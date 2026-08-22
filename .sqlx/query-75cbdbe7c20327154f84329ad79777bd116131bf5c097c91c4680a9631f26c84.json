@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT json_array(repository_id, low_number, high_number, created_at) AS \"row!: String\" FROM issue_relations ORDER BY repository_id, low_number, high_number",
+  "describe": {
+    "columns": [
+      {
+        "name": "row!: String",
+        "ordinal": 0,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "75cbdbe7c20327154f84329ad79777bd116131bf5c097c91c4680a9631f26c84"
+}

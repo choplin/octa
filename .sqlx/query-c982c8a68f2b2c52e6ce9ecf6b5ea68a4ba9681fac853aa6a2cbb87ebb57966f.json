@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT label_name AS \"l!: String\" FROM issue_labels WHERE repository_id = ? AND issue_number = ? ORDER BY label_name",
+  "describe": {
+    "columns": [
+      {
+        "name": "l!: String",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "c982c8a68f2b2c52e6ce9ecf6b5ea68a4ba9681fac853aa6a2cbb87ebb57966f"
+}

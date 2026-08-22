@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR IGNORE INTO project_label_links (repository_id, project_id, label_name) VALUES (?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "722b4fcc28cbe4043aefdf8509e41346348f4f1fad91b7ae48622b2a585a9687"
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM issue_leases\n               WHERE repository_id = ? AND issue_number = ? AND lease_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "9b63faa1df014a965ef1505c8c84c6233cfd54cc5f32dfbc56eb88d1cfaede2b"
+}

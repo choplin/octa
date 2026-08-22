@@ -1,11 +1,14 @@
-use crate::domain::{milestone::MilestoneRef, pr::PrRef, project::ProjectRef, Comment};
+use crate::domain::{
+    milestone::MilestoneRef, project::ProjectRef, pull_request::PullRequestRef, Comment,
+};
 use anyhow::{anyhow, Result};
 use serde::Serialize;
 use std::fmt;
 
 #[derive(Debug, Serialize)]
 pub struct Issue {
-    pub repo: String,
+    #[serde(rename = "repo")]
+    pub repository: String,
     pub number: i64,
     pub title: String,
     pub body: String,
@@ -32,7 +35,7 @@ pub struct IssueDetail {
     pub blocks: Vec<i64>,
     pub blocked_by: Vec<i64>,
     pub related: Vec<i64>,
-    pub pull_requests: Vec<PrRef>,
+    pub pull_requests: Vec<PullRequestRef>,
     pub parent: Option<IssueRef>,
     pub sub_issues: Vec<IssueRef>,
     pub comments: Vec<Comment>,

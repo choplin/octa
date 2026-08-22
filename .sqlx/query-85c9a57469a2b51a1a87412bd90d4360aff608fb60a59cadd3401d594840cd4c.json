@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT json_array(repository_id, id, name, summary, description, state, created_at, updated_at) AS \"row!: String\" FROM projects ORDER BY repository_id, id",
+  "describe": {
+    "columns": [
+      {
+        "name": "row!: String",
+        "ordinal": 0,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "85c9a57469a2b51a1a87412bd90d4360aff608fb60a59cadd3401d594840cd4c"
+}

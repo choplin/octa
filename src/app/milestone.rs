@@ -4,13 +4,13 @@ use sqlx::SqlitePool;
 
 pub async fn resolve(
     pool: &SqlitePool,
-    repo: i64,
+    repository: i64,
     project: i64,
     reference: &str,
 ) -> Result<ProjectMilestone> {
     let milestone = match reference.parse::<i64>() {
-        Ok(id) => crate::sql::milestone::get_by_id(pool, repo, project, id).await?,
-        Err(_) => crate::sql::milestone::get_by_name(pool, repo, project, reference).await?,
+        Ok(id) => crate::sql::milestone::get_by_id(pool, repository, project, id).await?,
+        Err(_) => crate::sql::milestone::get_by_name(pool, repository, project, reference).await?,
     };
     milestone.ok_or_else(|| anyhow!("milestone {reference:?} not found in project"))
 }
@@ -35,7 +35,7 @@ fn validate_position(position: i64) -> Result<i64> {
 #[allow(clippy::too_many_arguments)]
 pub async fn create(
     pool: &SqlitePool,
-    repo: i64,
+    repository: i64,
     project_reference: &str,
     name: &str,
     description: &str,
@@ -45,10 +45,10 @@ pub async fn create(
     target_date: Option<&str>,
 ) -> Result<i64> {
     validate_name(name)?;
-    let project = crate::app::project::resolve(pool, repo, project_reference).await?;
+    let project = crate::app::project::resolve(pool, repository, project_reference).await?;
     crate::sql::milestone::insert(
         pool,
-        repo,
+        repository,
         project.id,
         name,
         description,
@@ -62,27 +62,27 @@ pub async fn create(
 
 pub async fn list(
     pool: &SqlitePool,
-    repo: i64,
+    repository: i64,
     project_reference: &str,
 ) -> Result<Vec<ProjectMilestone>> {
-    let project = crate::app::project::resolve(pool, repo, project_reference).await?;
-    crate::sql::milestone::list(pool, repo, project.id).await
+    let project = crate::app::project::resolve(pool, repository, project_reference).await?;
+    crate::sql::milestone::list(pool, repository, project.id).await
 }
 
 pub async fn show(
     pool: &SqlitePool,
-    repo: i64,
+    repository: i64,
     project_reference: &str,
     reference: &str,
 ) -> Result<ProjectMilestone> {
-    let project = crate::app::project::resolve(pool, repo, project_reference).await?;
-    resolve(pool, repo, project.id, reference).await
+    let project = crate::app::project::resolve(pool, repository, project_reference).await?;
+    resolve(pool, repository, project.id, reference).await
 }
 
 #[allow(clippy::too_many_arguments)]
 pub async fn edit(
     pool: &SqlitePool,
-    repo: i64,
+    repository: i64,
     project_reference: &str,
     reference: &str,
     name: Option<&str>,
@@ -114,11 +114,11 @@ pub async fn edit(
     if let Some(name) = name {
         validate_name(name)?;
     }
-    let project = crate::app::project::resolve(pool, repo, project_reference).await?;
-    let milestone = resolve(pool, repo, project.id, reference).await?;
+    let project = crate::app::project::resolve(pool, repository, project_reference).await?;
+    let milestone = resolve(pool, repository, project.id, reference).await?;
     crate::sql::milestone::update(
         pool,
-        repo,
+        repository,
         project.id,
         milestone.id,
         name,

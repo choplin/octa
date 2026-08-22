@@ -4,7 +4,7 @@ use sqlx::{Sqlite, SqlitePool, Transaction};
 
 pub async fn insert(
     pool: &SqlitePool,
-    repo: i64,
+    repository: i64,
     name: &str,
     summary: &str,
     description: &str,
@@ -13,13 +13,13 @@ pub async fn insert(
     Ok(sqlx::query_scalar!(
         r#"
         INSERT INTO projects
-            (repo_id, id, name, summary, description, state)
-        VALUES (?, (SELECT COALESCE(MAX(id), 0) + 1 FROM projects WHERE repo_id = ?),
+            (repository_id, id, name, summary, description, state)
+        VALUES (?, (SELECT COALESCE(MAX(id), 0) + 1 FROM projects WHERE repository_id = ?),
                 ?, ?, ?, ?)
         RETURNING id AS "id!: i64"
         "#,
-        repo,
-        repo,
+        repository,
+        repository,
         name,
         summary,
         description,
@@ -39,8 +39,8 @@ macro_rules! project_rows {
         rows.into_iter()
             .map(|row| {
                 Ok(Project {
-                    repo_id: row.repo_id,
-                    repo: row.repo,
+                    repository_id: row.repository_id,
+                    repository: row.repository,
                     id: row.id,
                     name: row.name,
                     summary: row.summary,
@@ -55,114 +55,128 @@ macro_rules! project_rows {
     }};
 }
 
-pub async fn get_by_id(pool: &SqlitePool, repo: i64, id: i64) -> Result<Option<Project>> {
+pub async fn get_by_id(pool: &SqlitePool, repository: i64, id: i64) -> Result<Option<Project>> {
     Ok(project_rows!(
         pool,
-        r#"SELECT p.repo_id AS "repo_id!: i64", r.name AS "repo!: String",
+        r#"SELECT p.repository_id AS "repository_id!: i64", r.name AS "repository!: String",
                   p.id AS "id!: i64", p.name AS "name!: String",
                   p.summary AS "summary!: String", p.description AS "description!: String",
                   p.state AS "state!: String", s.type AS "state_type!: String",
                   p.created_at AS "created_at!: String",
                   p.updated_at AS "updated_at!: String"
-           FROM projects p JOIN repos r ON r.id = p.repo_id
+           FROM projects p JOIN repositories r ON r.id = p.repository_id
                            JOIN project_states s ON s.name = p.state
-           WHERE p.repo_id = ? AND p.id = ?"#,
-        repo,
+           WHERE p.repository_id = ? AND p.id = ?"#,
+        repository,
         id
     )?
     .pop())
 }
 
-pub async fn get_by_name(pool: &SqlitePool, repo: i64, name: &str) -> Result<Option<Project>> {
+pub async fn get_by_name(
+    pool: &SqlitePool,
+    repository: i64,
+    name: &str,
+) -> Result<Option<Project>> {
     Ok(project_rows!(
         pool,
-        r#"SELECT p.repo_id AS "repo_id!: i64", r.name AS "repo!: String",
+        r#"SELECT p.repository_id AS "repository_id!: i64", r.name AS "repository!: String",
                   p.id AS "id!: i64", p.name AS "name!: String",
                   p.summary AS "summary!: String", p.description AS "description!: String",
                   p.state AS "state!: String", s.type AS "state_type!: String",
                   p.created_at AS "created_at!: String",
                   p.updated_at AS "updated_at!: String"
-           FROM projects p JOIN repos r ON r.id = p.repo_id
+           FROM projects p JOIN repositories r ON r.id = p.repository_id
                            JOIN project_states s ON s.name = p.state
-           WHERE p.repo_id = ? AND p.name = ? COLLATE NOCASE"#,
-        repo,
+           WHERE p.repository_id = ? AND p.name = ? COLLATE NOCASE"#,
+        repository,
         name
     )?
     .pop())
 }
 
-pub async fn list(pool: &SqlitePool, repo: Option<i64>, active_only: bool) -> Result<Vec<Project>> {
+pub async fn list(
+    pool: &SqlitePool,
+    repository: Option<i64>,
+    active_only: bool,
+) -> Result<Vec<Project>> {
     // Keep each optional-filter shape as a static, SQLx-verified query. This is
     // intentionally repetitive: invalid column/type changes now fail prepare
     // or offline compilation rather than surfacing only at runtime.
-    match (repo, active_only) {
-        (Some(repo), true) => project_list_for_repo_active(pool, repo).await,
-        (Some(repo), false) => project_list_for_repo_all(pool, repo).await,
-        (None, true) => project_list_all_repos_active(pool).await,
-        (None, false) => project_list_all_repos_all(pool).await,
+    match (repository, active_only) {
+        (Some(repository), true) => project_list_for_repository_active(pool, repository).await,
+        (Some(repository), false) => project_list_for_repository_all(pool, repository).await,
+        (None, true) => project_list_all_repositories_active(pool).await,
+        (None, false) => project_list_all_repositories_all(pool).await,
     }
 }
 
-async fn project_list_for_repo_active(pool: &SqlitePool, repo: i64) -> Result<Vec<Project>> {
+async fn project_list_for_repository_active(
+    pool: &SqlitePool,
+    repository: i64,
+) -> Result<Vec<Project>> {
     project_rows!(
         pool,
-        r#"SELECT p.repo_id AS "repo_id!: i64", r.name AS "repo!: String",
+        r#"SELECT p.repository_id AS "repository_id!: i64", r.name AS "repository!: String",
                   p.id AS "id!: i64", p.name AS "name!: String",
                   p.summary AS "summary!: String", p.description AS "description!: String",
                   p.state AS "state!: String", s.type AS "state_type!: String",
                   p.created_at AS "created_at!: String",
                   p.updated_at AS "updated_at!: String"
-           FROM projects p JOIN repos r ON r.id = p.repo_id
+           FROM projects p JOIN repositories r ON r.id = p.repository_id
                            JOIN project_states s ON s.name = p.state
-           WHERE p.repo_id = ? AND s.type <> 'closed'
+           WHERE p.repository_id = ? AND s.type <> 'closed'
            ORDER BY r.name, p.id"#,
-        repo
+        repository
     )
 }
 
-async fn project_list_for_repo_all(pool: &SqlitePool, repo: i64) -> Result<Vec<Project>> {
+async fn project_list_for_repository_all(
+    pool: &SqlitePool,
+    repository: i64,
+) -> Result<Vec<Project>> {
     project_rows!(
         pool,
-        r#"SELECT p.repo_id AS "repo_id!: i64", r.name AS "repo!: String",
+        r#"SELECT p.repository_id AS "repository_id!: i64", r.name AS "repository!: String",
                   p.id AS "id!: i64", p.name AS "name!: String",
                   p.summary AS "summary!: String", p.description AS "description!: String",
                   p.state AS "state!: String", s.type AS "state_type!: String",
                   p.created_at AS "created_at!: String",
                   p.updated_at AS "updated_at!: String"
-           FROM projects p JOIN repos r ON r.id = p.repo_id
+           FROM projects p JOIN repositories r ON r.id = p.repository_id
                            JOIN project_states s ON s.name = p.state
-           WHERE p.repo_id = ?
+           WHERE p.repository_id = ?
            ORDER BY r.name, p.id"#,
-        repo
+        repository
     )
 }
 
-async fn project_list_all_repos_active(pool: &SqlitePool) -> Result<Vec<Project>> {
+async fn project_list_all_repositories_active(pool: &SqlitePool) -> Result<Vec<Project>> {
     project_rows!(
         pool,
-        r#"SELECT p.repo_id AS "repo_id!: i64", r.name AS "repo!: String",
+        r#"SELECT p.repository_id AS "repository_id!: i64", r.name AS "repository!: String",
                   p.id AS "id!: i64", p.name AS "name!: String",
                   p.summary AS "summary!: String", p.description AS "description!: String",
                   p.state AS "state!: String", s.type AS "state_type!: String",
                   p.created_at AS "created_at!: String",
                   p.updated_at AS "updated_at!: String"
-           FROM projects p JOIN repos r ON r.id = p.repo_id
+           FROM projects p JOIN repositories r ON r.id = p.repository_id
                            JOIN project_states s ON s.name = p.state
            WHERE s.type <> 'closed'
            ORDER BY r.name, p.id"#
     )
 }
 
-async fn project_list_all_repos_all(pool: &SqlitePool) -> Result<Vec<Project>> {
+async fn project_list_all_repositories_all(pool: &SqlitePool) -> Result<Vec<Project>> {
     project_rows!(
         pool,
-        r#"SELECT p.repo_id AS "repo_id!: i64", r.name AS "repo!: String",
+        r#"SELECT p.repository_id AS "repository_id!: i64", r.name AS "repository!: String",
                   p.id AS "id!: i64", p.name AS "name!: String",
                   p.summary AS "summary!: String", p.description AS "description!: String",
                   p.state AS "state!: String", s.type AS "state_type!: String",
                   p.created_at AS "created_at!: String",
                   p.updated_at AS "updated_at!: String"
-           FROM projects p JOIN repos r ON r.id = p.repo_id
+           FROM projects p JOIN repositories r ON r.id = p.repository_id
                            JOIN project_states s ON s.name = p.state
            ORDER BY r.name, p.id"#
     )
@@ -170,7 +184,7 @@ async fn project_list_all_repos_all(pool: &SqlitePool) -> Result<Vec<Project>> {
 
 pub async fn update(
     pool: &SqlitePool,
-    repo: i64,
+    repository: i64,
     id: i64,
     name: Option<&str>,
     summary: Option<&str>,
@@ -182,11 +196,11 @@ pub async fn update(
                summary = COALESCE(?, summary),
                description = COALESCE(?, description),
                updated_at = datetime('now')
-           WHERE repo_id = ? AND id = ?"#,
+           WHERE repository_id = ? AND id = ?"#,
         name,
         summary,
         description,
-        repo,
+        repository,
         id
     )
     .execute(pool)
@@ -194,11 +208,11 @@ pub async fn update(
     Ok(())
 }
 
-pub async fn set_state(pool: &SqlitePool, repo: i64, id: i64, state: &str) -> Result<()> {
+pub async fn set_state(pool: &SqlitePool, repository: i64, id: i64, state: &str) -> Result<()> {
     sqlx::query!(
-        "UPDATE projects SET state = ?, updated_at = datetime('now') WHERE repo_id = ? AND id = ?",
+        "UPDATE projects SET state = ?, updated_at = datetime('now') WHERE repository_id = ? AND id = ?",
         state,
-        repo,
+        repository,
         id
     )
     .execute(pool)
@@ -206,29 +220,29 @@ pub async fn set_state(pool: &SqlitePool, repo: i64, id: i64, state: &str) -> Re
     Ok(())
 }
 
-pub async fn issue_numbers(pool: &SqlitePool, repo: i64, id: i64) -> Result<Vec<i64>> {
+pub async fn issue_numbers(pool: &SqlitePool, repository: i64, id: i64) -> Result<Vec<i64>> {
     Ok(sqlx::query_scalar!(
         r#"SELECT issue_number AS "issue_number!: i64"
            FROM issue_projects
-           WHERE repo_id = ? AND project_id = ?
+           WHERE repository_id = ? AND project_id = ?
            ORDER BY issue_number"#,
-        repo,
+        repository,
         id
     )
     .fetch_all(pool)
     .await?)
 }
 
-pub async fn tally(pool: &SqlitePool, repo: i64, id: i64) -> Result<ProjectTally> {
+pub async fn tally(pool: &SqlitePool, repository: i64, id: i64) -> Result<ProjectTally> {
     let rows = sqlx::query!(
         r#"SELECT s.type = 'closed' AS "is_closed!: bool",
                   COUNT(*) AS "count!: i64"
            FROM issue_projects ip
-           JOIN issues i ON i.repo_id = ip.repo_id AND i.number = ip.issue_number
+           JOIN issues i ON i.repository_id = ip.repository_id AND i.number = ip.issue_number
            JOIN issue_states s ON s.name = i.state
-           WHERE ip.repo_id = ? AND ip.project_id = ?
+           WHERE ip.repository_id = ? AND ip.project_id = ?
            GROUP BY s.type = 'closed'"#,
-        repo,
+        repository,
         id
     )
     .fetch_all(pool)

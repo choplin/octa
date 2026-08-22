@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        SELECT\n            id AS \"id!: i64\",\n            body AS \"body!: String\",\n            created_at AS \"created_at!: String\"\n        FROM\n            pull_request_comments\n        WHERE\n            repository_id = ?\n        AND\n            pull_request_number = ?\n        ORDER BY\n            id\n    ",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "body!: String",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!: String",
+        "ordinal": 2,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "6bbffeccc0df5dc15e817032cefdc76c696c260b2e1fab470959c35b2a1a3c47"
+}

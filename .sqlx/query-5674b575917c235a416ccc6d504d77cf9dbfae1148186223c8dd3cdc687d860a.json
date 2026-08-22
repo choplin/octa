@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT EXISTS(\n                   SELECT 1 FROM issue_leases\n                   WHERE repository_id = ? AND issue_number = ?\n               ) AS \"leased!: bool\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "leased!: bool",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "5674b575917c235a416ccc6d504d77cf9dbfae1148186223c8dd3cdc687d860a"
+}

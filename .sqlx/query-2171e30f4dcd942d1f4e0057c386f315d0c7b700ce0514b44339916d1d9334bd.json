@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT json_array(repository_id, child_number, parent_number, created_at) AS \"row!: String\" FROM issue_parents ORDER BY repository_id, child_number",
+  "describe": {
+    "columns": [
+      {
+        "name": "row!: String",
+        "ordinal": 0,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "2171e30f4dcd942d1f4e0057c386f315d0c7b700ce0514b44339916d1d9334bd"
+}

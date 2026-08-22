@@ -60,11 +60,11 @@ issue open|create|list|show|start|close|reopen|set|unset|add|remove|comment|lock
 Important constraints:
 
 - `issue lock N` returns a random opaque non-expiring lease ID once. A second acquisition fails while the Issue is leased.
-- `issue start`, `close`, `reopen`, `set`, `unset`, `add`, and `remove` require the target Issue's `--lease`. So do Issue–PR link changes through `pr create --issue`, `pr add`, and `pr remove`.
+- `issue start`, `close`, `reopen`, `set`, `unset`, `add`, and `remove` require the target Issue's `--lease`. So do Issue–Pull Request link changes through `pull-request create --issue`, `pull-request add`, and `pull-request remove`.
 - Normal `issue unlock` requires the matching `--lease`. `issue unlock --force` accepts no lease and invalidates the old credential immediately; use it only for recovery.
-- `issue open` (alias `create`), `issue comment`, unlinked `pr create`, `pr comment`, `pr set`, `pr set-state`, and Project, Milestone, Wiki, and config operations do not require an Issue lease. Read commands and lease acquisition also require no existing lease credential.
+- `issue open` (alias `create`), `issue comment`, unlinked `pull-request create`, `pull-request comment`, `pull-request set`, `pull-request set-state`, and Project, Milestone, Wiki, and config operations do not require an Issue lease. Read commands and lease acquisition also require no existing lease credential.
 - Each verb without an explicit target moves the Issue to its type's default state: `open` to the `open` default, `start` to the `in progress` default, `close` to the `closed` default, `reopen` back to the `open` default. `--as <state>` picks another state of that verb's own type and rejects any other type, `issue open` included. `start` has no `--as`. `issue set --as <state>` is the only unconstrained move and reaches any configured state; capturing work that is already underway is `open` then `start`.
-- With no state selector, `issue list` returns Issues outside the `closed` type. `--state <names>` matches configured state names, `--state-type <types>` matches state types, both comma-separated and matching any listed value, and `--all` applies no filter. These three selectors are mutually exclusive. States are global configuration, so `--state` and `--state-type` also work under `--all-repos`.
+- With no state selector, `issue list` returns Issues outside the `closed` type. `--state <names>` matches configured state names, `--state-type <types>` matches state types, both comma-separated and matching any listed value, and `--all` applies no filter. These three selectors are mutually exclusive. States are global configuration, so `--state` and `--state-type` also work under `--all-repositories`.
 - A Milestone belongs to a Project. `issue open --milestone` requires `--project`.
 - Unset an Issue's Milestone before changing or unsetting its Project.
 - Parent/child relations are repository-local and independent of Project membership. Parent and child may belong to different Projects, or only one may have a Project.
@@ -84,10 +84,10 @@ Projects and Milestones accept a numeric id or name where shown by help. Milesto
 ## Pull Request
 
 ```text
-pr create|list|show|set|comment|set-state|add|remove
+pull-request create|list|show|set|comment|set-state|add|remove
 ```
 
-octa records PR metadata and discussion; Git remains the source for code and diffs. Issue-to-PR links are explicit and many-to-many within a repository; identical pairs are stored once.
+octa records Pull Request metadata and discussion; Git remains the source for code and diffs. Issue-to-Pull Request links are explicit and many-to-many within a repository; identical pairs are stored once. The former `pr` command remains a compatibility alias.
 
 ## Wiki, Label, and State
 
@@ -121,7 +121,7 @@ Commands exposing `--json` write one JSON value to stdout:
 - Project list/show tallies count all assigned Issues and expose open, closed, and total; closed work is never subtracted implicitly.
 - Projects are ordered by repository name, then by Project id. octa has no built-in priority; express one with a `single` label group when needed.
 - `project show` also includes `issue_numbers`, `labels`, and the full tally.
-- `pr show` includes PR fields and `comments`.
+- `pull-request show` includes Pull Request fields and `comments`.
 - `wiki show` includes page fields, `links_to`, and `backlinks`.
 
 Do not depend on human-readable column spacing. When exact future fields matter, run the command and inspect the returned JSON because additive fields may appear.

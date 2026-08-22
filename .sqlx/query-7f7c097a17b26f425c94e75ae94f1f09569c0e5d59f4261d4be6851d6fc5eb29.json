@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT json_array(repository_id, issue_number, lease_id, acquired_at) AS \"row!: String\" FROM issue_leases ORDER BY repository_id, issue_number",
+  "describe": {
+    "columns": [
+      {
+        "name": "row!: String",
+        "ordinal": 0,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "7f7c097a17b26f425c94e75ae94f1f09569c0e5d59f4261d4be6851d6fc5eb29"
+}

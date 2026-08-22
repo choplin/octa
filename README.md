@@ -97,7 +97,7 @@ octa issue unlock 1 --force
 LEASE=$(octa issue lock 1)
 ```
 
-`issue start`, `close`, `reopen`, `set`, `unset`, `add`, `remove`, a regular `unlock`, and the commands that change the link between an Issue and a PR — `pr create --issue`, `pr add`, `pr remove` — all require the target Issue's `--lease`.
+`issue start`, `close`, `reopen`, `set`, `unset`, `add`, `remove`, a regular `unlock`, and the commands that change the link between an Issue and a Pull Request — `pull-request create --issue`, `pull-request add`, `pull-request remove` — all require the target Issue's `--lease`.
 Creating and commenting on Issues, commenting on PRs, creating a PR that links to no Issue, `set` / `set-state` on the PR itself, and Project, Milestone, Wiki, and config operations need no lease.
 Neither do read operations.
 Lease IDs appearing in tool logs and command arguments is expected. Do not put them in
@@ -395,16 +395,16 @@ A Pull Request in octa is a numbered discussion entity tied to a branch.
 Git handles the code and the diff; octa holds the state and the comments.
 
 ```sh
-octa pr create \
+octa pull-request create \
   --title "Add the release process" \
   --branch docs/release-process \
   --body "Update the Wiki and the README." \
   --issue 1 \
   --lease "$LEASE"
 
-octa pr comment 1 --body "Please take a look."
-octa pr show 1
-octa pr set-state 1 closed
+octa pull-request comment 1 --body "Please take a look."
+octa pull-request show 1
+octa pull-request set-state 1 closed
 ```
 
 An existing PR keeps working exactly as it was created, and can be explicitly linked to an Issue only
@@ -412,16 +412,16 @@ when that becomes necessary.
 One Issue can link to several PRs and one PR to several Issues. The same pair is never stored twice.
 
 ```sh
-octa pr add 2 --issue 1 --lease "$LEASE"
+octa pull-request add 2 --issue 1 --lease "$LEASE"
 octa issue show 1
-octa pr remove 2 --issue 1 --lease "$LEASE"
+octa pull-request remove 2 --issue 1 --lease "$LEASE"
 ```
 
 PR listings can be filtered with `open`, `closed`, or `all`.
 
 ```sh
-octa pr list --state open
-octa pr list --state all
+octa pull-request list --state open
+octa pull-request list --state all
 ```
 
 ## Keeping policies and procedures in the Wiki
@@ -516,7 +516,7 @@ For automation and agents, pass `--json` to the commands that support it.
 octa issue create --title "Investigate" --json
 octa issue list --all --json
 octa issue show 1 --json
-octa pr list --state all --json
+octa pull-request list --state all --json
 octa wiki show release-process --json
 octa config issue label list --json
 ```
@@ -528,23 +528,26 @@ Normally the target is the Git repository you are currently in.
 Because the Git common directory is used as the identifier, multiple worktrees of the same repository
 share the same octa data.
 
-To name another registered repository explicitly, use `--repo`.
+To name another registered repository explicitly, use `--repository`.
 
 ```sh
-octa --repo other-repository issue list
+octa --repository other-repository issue list
 ```
 
-Some read-only listings can span registered repositories with `--all-repos`.
+Some read-only listings can span registered repositories with `--all-repositories`.
 
 ```sh
-octa --all-repos issue list --all
-octa --all-repos pr list --state all
-octa --all-repos wiki list
+octa --all-repositories issue list --all
+octa --all-repositories pull-request list --state all
+octa --all-repositories wiki list
 ```
 
 Mutating operations, and Issue filtering by `--label`, `--project`, `--milestone`, `--related-to`, and
 `--unblocked`, must be run against a single repository. State configuration is global across
-repositories, so `--state` and `--state-type` also work with `--all-repos`.
+repositories, so `--state` and `--state-type` also work with `--all-repositories`.
+
+The former `pr`, `repo`, `--repo`, `--all-repos`, and `--pr` spellings remain available as
+compatibility aliases, but help and examples use the full names.
 
 ## Storage location and backups
 
@@ -571,7 +574,7 @@ octa --help
 octa issue --help
 octa issue add --help
 octa milestone --help
-octa pr --help
+octa pull-request --help
 octa wiki --help
 octa config --help
 octa config issue --help

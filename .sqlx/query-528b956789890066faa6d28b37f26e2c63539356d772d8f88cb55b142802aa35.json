@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE wiki_pages SET body = ?, updated_at = datetime('now') WHERE repository_id = ? AND slug = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "528b956789890066faa6d28b37f26e2c63539356d772d8f88cb55b142802aa35"
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO issue_milestones (repository_id, issue_number, project_id, milestone_id) VALUES (1, 1, 2, 1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": []
+  },
+  "hash": "7279ecc754551b1f36dd35f1b3c50e421918e96a77677d9a0fc75c195aec0990"
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM wiki_links WHERE repository_id = ? AND from_slug = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "d9eacf78ba8d048388ad9f2cff04a3a72f88162abf09fa4d1f579d23c095163c"
+}

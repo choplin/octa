@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        SELECT\n            r.name AS \"repository!: String\",\n            w.slug AS \"slug!: String\",\n            w.title AS \"title!: String\",\n            w.body AS \"body!: String\",\n            w.created_at AS \"created_at!: String\",\n            w.updated_at AS \"updated_at!: String\"\n        FROM\n            wiki_pages w\n        JOIN\n            repositories r ON r.id = w.repository_id\n        WHERE\n            w.repository_id = ?\n        AND\n            w.slug = ?\n    ",
+  "describe": {
+    "columns": [
+      {
+        "name": "repository!: String",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "slug!: String",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "title!: String",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "body!: String",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!: String",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_at!: String",
+        "ordinal": 5,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "4543fa1b022ac3eb2965e1aa4ba8641992e815b7efcfe2411e8fa40fb7dda512"
+}

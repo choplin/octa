@@ -20,7 +20,7 @@ Use octa as a repository-scoped local collaboration tool that does not require a
 - Issue: `octa issue ...` for create/list/show/set/unset/add/remove, comments, state transitions, and leases.
 - Project: `octa project ...` for create/list/show/set/add/remove and state transitions.
 - Milestone: `octa milestone ...`; every operation requires `--project`.
-- Pull Request: `octa pr ...` for branch-associated records, comments, states, and explicit many-to-many Issue links through `add`/`remove`.
+- Pull Request: `octa pull-request ...` for branch-associated records, comments, states, and explicit many-to-many Issue links through `add`/`remove`. The former `pr` spelling remains a compatibility alias.
 - Wiki: `octa wiki ...` for pages, `[[slug]]` links, and backlinks.
 - Configuration: `octa config issue state|label|label-group ...` and `octa config project label|label-group ...`; the record being configured is part of the command path.
 

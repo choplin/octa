@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT i.number AS \"number!: i64\", i.title AS \"title!: String\"\n           FROM issue_parents p\n           JOIN issues i ON i.repository_id = p.repository_id AND i.number = p.parent_number\n           WHERE p.repository_id = ? AND p.child_number = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "number!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "title!: String",
+        "ordinal": 1,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "08e779c2ae61148353b9c79b1a735e7730fc43a309669de741282589fda8f0bc"
+}

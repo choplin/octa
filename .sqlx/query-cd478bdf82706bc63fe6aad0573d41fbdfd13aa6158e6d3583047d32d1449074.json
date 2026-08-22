@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO project_milestones\n               (repository_id, project_id, id, position, name, description, status,\n                start_date, target_date)\n           VALUES (\n               ?, ?,\n               (SELECT COALESCE(MAX(id), 0) + 1 FROM project_milestones\n                WHERE repository_id = ? AND project_id = ?),\n               COALESCE(?, (SELECT COALESCE(MAX(position), -1) + 1\n                            FROM project_milestones\n                            WHERE repository_id = ? AND project_id = ?)),\n               ?, ?, ?, ?, ?\n           )\n           RETURNING id AS \"id!: i64\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 12
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "cd478bdf82706bc63fe6aad0573d41fbdfd13aa6158e6d3583047d32d1449074"
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO issue_pull_request_links (repository_id, issue_number, pull_request_number)\n           VALUES (?, ?, ?)\n           ON CONFLICT(repository_id, issue_number, pull_request_number) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "5790997bf8cda7336813ff3d31526a85631f69dbcd8f3b2312d5e6c77ce45ac0"
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO issue_milestones\n               (repository_id, issue_number, project_id, milestone_id)\n           VALUES (?, ?, ?, ?)\n           ON CONFLICT(repository_id, issue_number) DO UPDATE SET\n               project_id = excluded.project_id,\n               milestone_id = excluded.milestone_id",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "589021e406706bdb3d1311579446d93313c9b7c7808329a7447fc1f3b7e6f4e4"
+}

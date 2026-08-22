@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            INSERT INTO pull_requests (repository_id, number, title, body, branch)\n            VALUES (\n                ?,\n                (SELECT COALESCE(MAX(number), 0) + 1 FROM pull_requests WHERE repository_id = ?),\n                ?, ?, ?\n            )\n            RETURNING number AS \"number!: i64\"\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "number!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6bfd68d9a5f76fc1d2c6936484593fa5db93e736183e8cb76a821e07cacc419c"
+}

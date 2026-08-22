@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO issue_parents (repository_id, child_number, parent_number) VALUES (1, 2, 1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": []
+  },
+  "hash": "381f84aa6d6eeccf09dbbc6902fa225ed78cdac2a73a5fe23cbf0b96212028dc"
+}

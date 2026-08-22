@@ -1,0 +1,74 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT p.repository_id AS \"repository_id!: i64\", r.name AS \"repository!: String\",\n                  p.id AS \"id!: i64\", p.name AS \"name!: String\",\n                  p.summary AS \"summary!: String\", p.description AS \"description!: String\",\n                  p.state AS \"state!: String\", s.type AS \"state_type!: String\",\n                  p.created_at AS \"created_at!: String\",\n                  p.updated_at AS \"updated_at!: String\"\n           FROM projects p JOIN repositories r ON r.id = p.repository_id\n                           JOIN project_states s ON s.name = p.state\n           WHERE p.repository_id = ? AND p.id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "repository_id!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "repository!: String",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "id!: i64",
+        "ordinal": 2,
+        "type_info": "Integer"
+      },
+      {
+        "name": "name!: String",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "summary!: String",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "description!: String",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "state!: String",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "state_type!: String",
+        "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!: String",
+        "ordinal": 8,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_at!: String",
+        "ordinal": 9,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "b45342aa91562faf2a7cead63ef0b2bea00a7b4a289bb5a902974dda0dcc1a6b"
+}

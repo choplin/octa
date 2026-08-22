@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO repositories (path, name) VALUES (?, ?) ON CONFLICT(path) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "5320cf13ff7b92c9eb4223c0b5cdbc97569a0de00a6d30a956176cfa86487621"
+}

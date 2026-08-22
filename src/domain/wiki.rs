@@ -2,7 +2,8 @@ use serde::Serialize;
 
 #[derive(Debug, Serialize)]
 pub struct WikiPage {
-    pub repo: String,
+    #[serde(rename = "repo")]
+    pub repository: String,
     pub slug: String,
     pub title: String,
     pub body: String,

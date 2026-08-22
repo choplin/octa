@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO wiki_pages (repository_id, slug, title, body) VALUES (?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "cab7c713c577753a0abfa9784f5f8c7be5cd2cd7d038c3f72b2a4b858828c433"
+}

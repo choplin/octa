@@ -1,23 +1,23 @@
 //! Storage layer for octa: a single global SQLite database under the XDG data
 //! directory holds every entity for every repository. Entity rows carry a
-//! `repo_id`, so the store is physically central but logically scoped per
+//! `repository_id`, so the store is physically central but logically scoped per
 //! repository — the current repository by default (resolved from cwd via the
 //! git common directory), any named repository, or all of them at once.
 //! Configuration — issue states, labels, and label groups — is global instead:
 //! one set governs every repository.
 //!
-//! Repo identity is the repository root derived from the canonicalized git
-//! common directory (works without a remote; every worktree of a repo shares
-//! it). Concurrency rides on SQLite WAL plus a busy timeout; per-repo issue/PR
+//! Repository identity is the repository root derived from the canonicalized git
+//! common directory (works without a remote; every worktree of a repository shares
+//! it). Concurrency rides on SQLite WAL plus a busy timeout; per-repository issue/pull request
 //! numbers are assigned atomically by a single `INSERT ... RETURNING`, and
 //! issue leases are acquired with a compare-and-set.
 
 mod issue;
 mod label;
 mod milestone;
-mod pr;
 mod project;
-mod repo;
+mod pull_request;
+mod repository;
 mod wiki;
 
 pub use crate::domain::{
@@ -33,7 +33,7 @@ use std::time::Duration;
 
 /// Which repositories an operation targets.
 #[derive(Debug, Clone)]
-pub enum RepoScope {
+pub enum RepositoryScope {
     /// The repository containing the current working directory (default).
     Current,
     /// A named repository already known to the store.
@@ -53,7 +53,7 @@ enum Resolved {
 /// `git rev-parse --git-common-dir`, shared by every worktree of the same
 /// repository, and is what identifies it; the name is that root's directory
 /// basename.
-fn resolve_repo_identity() -> Result<(String, String)> {
+fn resolve_repository_identity() -> Result<(String, String)> {
     let common = Command::new("git")
         .args(["rev-parse", "--git-common-dir"])
         .output()
@@ -71,9 +71,9 @@ fn resolve_repo_identity() -> Result<(String, String)> {
     }
     let git_dir = std::fs::canonicalize(&git_dir)
         .with_context(|| format!("cannot resolve git dir {}", git_dir.display()))?;
-    let root = repo_root(&git_dir);
+    let root = repository_root(&git_dir);
     let path = root.to_string_lossy().to_string();
-    let name = repo_name(&root);
+    let name = repository_name(&root);
     Ok((path, name))
 }
 
@@ -82,10 +82,10 @@ fn resolve_repo_identity() -> Result<(String, String)> {
 /// A normal repository — including every linked worktree, whose common dir is
 /// always the main repository's `.git` — ends in a `.git` component, and its
 /// root is that component's parent. Any other layout (a bare repository such as
-/// `/srv/repo.git`, or a `--separate-git-dir` store) has no `.git` component to
+/// `/srv/repository.git`, or a `--separate-git-dir` store) has no `.git` component to
 /// strip, so the common dir itself is the identity. Stripping unconditionally
 /// there would collide every bare repository sharing a parent directory.
-fn repo_root(git_dir: &std::path::Path) -> PathBuf {
+fn repository_root(git_dir: &std::path::Path) -> PathBuf {
     if git_dir.file_name().is_some_and(|n| n == ".git") {
         if let Some(parent) = git_dir.parent() {
             return parent.to_path_buf();
@@ -94,12 +94,12 @@ fn repo_root(git_dir: &std::path::Path) -> PathBuf {
     git_dir.to_path_buf()
 }
 
-/// Derive a friendly repo name from the repository root's basename, falling
-/// back to "repo".
-fn repo_name(root: &std::path::Path) -> String {
+/// Derive a friendly repository name from the repository root's basename, falling
+/// back to "repository".
+fn repository_name(root: &std::path::Path) -> String {
     root.file_name()
         .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_else(|| "repo".to_string())
+        .unwrap_or_else(|| "repository".to_string())
 }
 
 /// Resolve the path to the single global database under the XDG data directory.
@@ -152,7 +152,7 @@ pub struct Store {
 impl Store {
     /// Open the global database (creating it if needed), apply migrations, and
     /// resolve the requested scope.
-    pub async fn open(scope: RepoScope) -> Result<Self> {
+    pub async fn open(scope: RepositoryScope) -> Result<Self> {
         let path = resolve_db_path()?;
         let options = SqliteConnectOptions::new()
             .filename(&path)
@@ -177,12 +177,12 @@ impl Store {
             scope: Resolved::All,
         };
         let scope = match scope {
-            RepoScope::Current => {
-                let (path, name) = resolve_repo_identity()?;
-                Resolved::One(store.upsert_repo(&path, &name).await?)
+            RepositoryScope::Current => {
+                let (path, name) = resolve_repository_identity()?;
+                Resolved::One(store.upsert_repository(&path, &name).await?)
             }
-            RepoScope::Named(name) => Resolved::One(store.repo_by_name(&name).await?),
-            RepoScope::All => Resolved::All,
+            RepositoryScope::Named(name) => Resolved::One(store.repository_by_name(&name).await?),
+            RepositoryScope::All => Resolved::All,
         };
         Ok(Self {
             pool: store.pool,
@@ -190,11 +190,13 @@ impl Store {
         })
     }
 
-    /// The active single repo, or an error when the scope is `--all-repos`.
-    pub(crate) fn repo_id(&self) -> Result<i64> {
+    /// The active single repository, or an error when the scope is `--all-repositories`.
+    pub(crate) fn repository_id(&self) -> Result<i64> {
         match self.scope {
             Resolved::One(id) => Ok(id),
-            Resolved::All => bail!("this command needs a single repository; drop --all-repos"),
+            Resolved::All => {
+                bail!("this command needs a single repository; drop --all-repositories")
+            }
         }
     }
 
@@ -202,46 +204,46 @@ impl Store {
         matches!(self.scope, Resolved::All)
     }
 
-    /// Insert the repo if new and return its id.
-    async fn upsert_repo(&self, path: &str, name: &str) -> Result<i64> {
-        crate::sql::repo::upsert(&self.pool, path, name).await
+    /// Insert the repository if new and return its id.
+    async fn upsert_repository(&self, path: &str, name: &str) -> Result<i64> {
+        crate::sql::repository::upsert(&self.pool, path, name).await
     }
 
-    async fn repo_by_name(&self, name: &str) -> Result<i64> {
-        crate::sql::repo::by_name(&self.pool, name).await
+    async fn repository_by_name(&self, name: &str) -> Result<i64> {
+        crate::sql::repository::by_name(&self.pool, name).await
     }
 }
 
 #[cfg(test)]
-mod repo_identity_tests {
-    use super::{repo_name, repo_root};
+mod repository_identity_tests {
+    use super::{repository_name, repository_root};
     use std::path::Path;
 
     #[test]
     fn strips_the_dot_git_component_of_a_normal_repository() {
-        let root = repo_root(Path::new("/home/dev/work/octa/.git"));
+        let root = repository_root(Path::new("/home/dev/work/octa/.git"));
         assert_eq!(root, Path::new("/home/dev/work/octa"));
-        assert_eq!(repo_name(&root), "octa");
+        assert_eq!(repository_name(&root), "octa");
     }
 
     /// Only the trailing `.git` is stripped; an ancestor directory that happens
     /// to be named `.git` stays part of the root.
     #[test]
     fn strips_only_the_trailing_component() {
-        let root = repo_root(Path::new("/home/.git/checkouts/octa/.git"));
+        let root = repository_root(Path::new("/home/.git/checkouts/octa/.git"));
         assert_eq!(root, Path::new("/home/.git/checkouts/octa"));
     }
 
     #[test]
     fn keeps_a_path_that_does_not_end_in_dot_git() {
-        let root = repo_root(Path::new("/srv/git/octa.git"));
+        let root = repository_root(Path::new("/srv/git/octa.git"));
         assert_eq!(root, Path::new("/srv/git/octa.git"));
-        assert_eq!(repo_name(&root), "octa.git");
+        assert_eq!(repository_name(&root), "octa.git");
     }
 
     #[test]
-    fn falls_back_to_repo_when_the_root_has_no_basename() {
-        assert_eq!(repo_name(Path::new("/")), "repo");
+    fn falls_back_to_repository_when_the_root_has_no_basename() {
+        assert_eq!(repository_name(Path::new("/")), "repository");
     }
 }
 
@@ -285,9 +287,9 @@ mod migration_tests {
 
         LogicalSnapshot(vec![
             (
-                "repos",
+                "repositories",
                 rows!(
-                    r#"SELECT json_array(id, path, name, created_at) AS "row!: String" FROM repos ORDER BY id"#
+                    r#"SELECT json_array(id, path, name, created_at) AS "row!: String" FROM repositories ORDER BY id"#
                 ),
             ),
             (
@@ -305,49 +307,49 @@ mod migration_tests {
             (
                 "issues",
                 rows!(
-                    r#"SELECT json_array(repo_id, number, title, body, state, created_at, updated_at) AS "row!: String" FROM issues ORDER BY repo_id, number"#
+                    r#"SELECT json_array(repository_id, number, title, body, state, created_at, updated_at) AS "row!: String" FROM issues ORDER BY repository_id, number"#
                 ),
             ),
             (
                 "issue_leases",
                 rows!(
-                    r#"SELECT json_array(repo_id, issue_number, lease_id, acquired_at) AS "row!: String" FROM issue_leases ORDER BY repo_id, issue_number"#
+                    r#"SELECT json_array(repository_id, issue_number, lease_id, acquired_at) AS "row!: String" FROM issue_leases ORDER BY repository_id, issue_number"#
                 ),
             ),
             (
-                "comments",
+                "issue_comments",
                 rows!(
-                    r#"SELECT json_array(id, repo_id, issue_number, body, created_at) AS "row!: String" FROM comments ORDER BY id"#
+                    r#"SELECT json_array(id, repository_id, issue_number, body, created_at) AS "row!: String" FROM issue_comments ORDER BY id"#
                 ),
             ),
             (
-                "issue_deps",
+                "issue_dependencies",
                 rows!(
-                    r#"SELECT json_array(repo_id, blocker_number, blocked_number, created_at) AS "row!: String" FROM issue_deps ORDER BY repo_id, blocker_number, blocked_number"#
+                    r#"SELECT json_array(repository_id, blocker_number, blocked_number, created_at) AS "row!: String" FROM issue_dependencies ORDER BY repository_id, blocker_number, blocked_number"#
                 ),
             ),
             (
-                "prs",
+                "pull_requests",
                 rows!(
-                    r#"SELECT json_array(repo_id, number, title, body, branch, state, created_at, updated_at) AS "row!: String" FROM prs ORDER BY repo_id, number"#
+                    r#"SELECT json_array(repository_id, number, title, body, branch, state, created_at, updated_at) AS "row!: String" FROM pull_requests ORDER BY repository_id, number"#
                 ),
             ),
             (
-                "pr_comments",
+                "pull_request_comments",
                 rows!(
-                    r#"SELECT json_array(id, repo_id, pr_number, body, created_at) AS "row!: String" FROM pr_comments ORDER BY id"#
+                    r#"SELECT json_array(id, repository_id, pull_request_number, body, created_at) AS "row!: String" FROM pull_request_comments ORDER BY id"#
                 ),
             ),
             (
                 "wiki_pages",
                 rows!(
-                    r#"SELECT json_array(repo_id, slug, title, body, created_at, updated_at) AS "row!: String" FROM wiki_pages ORDER BY repo_id, slug"#
+                    r#"SELECT json_array(repository_id, slug, title, body, created_at, updated_at) AS "row!: String" FROM wiki_pages ORDER BY repository_id, slug"#
                 ),
             ),
             (
                 "wiki_links",
                 rows!(
-                    r#"SELECT json_array(repo_id, from_slug, to_slug) AS "row!: String" FROM wiki_links ORDER BY repo_id, from_slug, to_slug"#
+                    r#"SELECT json_array(repository_id, from_slug, to_slug) AS "row!: String" FROM wiki_links ORDER BY repository_id, from_slug, to_slug"#
                 ),
             ),
             (
@@ -365,7 +367,7 @@ mod migration_tests {
             (
                 "issue_labels",
                 rows!(
-                    r#"SELECT json_array(repo_id, issue_number, label_name) AS "row!: String" FROM issue_labels ORDER BY repo_id, issue_number, label_name"#
+                    r#"SELECT json_array(repository_id, issue_number, label_name) AS "row!: String" FROM issue_labels ORDER BY repository_id, issue_number, label_name"#
                 ),
             ),
             (
@@ -395,37 +397,37 @@ mod migration_tests {
             (
                 "projects",
                 rows!(
-                    r#"SELECT json_array(repo_id, id, name, summary, description, state, created_at, updated_at) AS "row!: String" FROM projects ORDER BY repo_id, id"#
+                    r#"SELECT json_array(repository_id, id, name, summary, description, state, created_at, updated_at) AS "row!: String" FROM projects ORDER BY repository_id, id"#
                 ),
             ),
             (
                 "project_label_links",
                 rows!(
-                    r#"SELECT json_array(repo_id, project_id, label_name) AS "row!: String" FROM project_label_links ORDER BY repo_id, project_id, label_name"#
+                    r#"SELECT json_array(repository_id, project_id, label_name) AS "row!: String" FROM project_label_links ORDER BY repository_id, project_id, label_name"#
                 ),
             ),
             (
                 "issue_projects",
                 rows!(
-                    r#"SELECT json_array(repo_id, issue_number, project_id) AS "row!: String" FROM issue_projects ORDER BY repo_id, issue_number"#
+                    r#"SELECT json_array(repository_id, issue_number, project_id) AS "row!: String" FROM issue_projects ORDER BY repository_id, issue_number"#
                 ),
             ),
             (
                 "issue_parents",
                 rows!(
-                    r#"SELECT json_array(repo_id, child_number, parent_number, created_at) AS "row!: String" FROM issue_parents ORDER BY repo_id, child_number"#
+                    r#"SELECT json_array(repository_id, child_number, parent_number, created_at) AS "row!: String" FROM issue_parents ORDER BY repository_id, child_number"#
                 ),
             ),
             (
                 "issue_relations",
                 rows!(
-                    r#"SELECT json_array(repo_id, low_number, high_number, created_at) AS "row!: String" FROM issue_relations ORDER BY repo_id, low_number, high_number"#
+                    r#"SELECT json_array(repository_id, low_number, high_number, created_at) AS "row!: String" FROM issue_relations ORDER BY repository_id, low_number, high_number"#
                 ),
             ),
             (
-                "issue_pr_links",
+                "issue_pull_request_links",
                 rows!(
-                    r#"SELECT json_array(repo_id, issue_number, pr_number, created_at) AS "row!: String" FROM issue_pr_links ORDER BY repo_id, issue_number"#
+                    r#"SELECT json_array(repository_id, issue_number, pull_request_number, created_at) AS "row!: String" FROM issue_pull_request_links ORDER BY repository_id, issue_number"#
                 ),
             ),
         ])
@@ -440,12 +442,12 @@ mod migration_tests {
             .unwrap();
         sqlx::migrate!("./migrations").run(&pool).await.unwrap();
         crate::sql::issue::seed_default_states(&pool).await.unwrap();
-        let repo = crate::sql::repo::upsert(&pool, "/test/.git", "test")
+        let repository = crate::sql::repository::upsert(&pool, "/test/.git", "test")
             .await
             .unwrap();
         let store = Store {
             pool,
-            scope: Resolved::One(repo),
+            scope: Resolved::One(repository),
         };
         // open, in progress, closed, and not planned come from the seed. Issues
         // reach the non-open types through the verbs, which is the only way in.
@@ -500,7 +502,7 @@ mod migration_tests {
             .await
             .unwrap();
 
-        // Store migrations, repo/state seeding, and fixture writes are complete
+        // Store migrations, repository/state seeding, and fixture writes are complete
         // before the baseline. WAL/checkpoint bytes are intentionally ignored.
         let before = logical_snapshot(&store.pool).await;
         let details = store.list_all_issue_details().await.unwrap();
@@ -512,7 +514,7 @@ mod migration_tests {
             vec![first, second, review, done, canceled, legacy_closed]
         );
         crate::tui::exercise_view_for_test(details);
-        crate::sql::repo::upsert(&store.pool, "/test/.git", "test")
+        crate::sql::repository::upsert(&store.pool, "/test/.git", "test")
             .await
             .unwrap();
         let after = logical_snapshot(&store.pool).await;
@@ -678,12 +680,12 @@ mod migration_tests {
 
         // `issues.state` is a real reference, so an issue in an unconfigured
         // state is unrepresentable rather than merely unexpected.
-        sqlx::query("INSERT INTO repos (id, path, name) VALUES (1, 'fk', 'fk')")
+        sqlx::query("INSERT INTO repositories (id, path, name) VALUES (1, 'fk', 'fk')")
             .execute(&pool)
             .await
             .unwrap();
         let unconfigured = sqlx::query(
-            "INSERT INTO issues (repo_id, number, title, state) VALUES (1, 1, 'Orphan', 'nowhere')",
+            "INSERT INTO issues (repository_id, number, title, state) VALUES (1, 1, 'Orphan', 'nowhere')",
         )
         .execute(&pool)
         .await;
@@ -692,7 +694,7 @@ mod migration_tests {
             "an issue must not reference a state that is not configured"
         );
         sqlx::query(
-            "INSERT INTO issues (repo_id, number, title, state) VALUES (1, 1, 'Real', 'open')",
+            "INSERT INTO issues (repository_id, number, title, state) VALUES (1, 1, 'Real', 'open')",
         )
         .execute(&pool)
         .await
@@ -747,7 +749,7 @@ mod migration_tests {
             "issue_projects",
             "issue_parents",
             "issue_relations",
-            "issue_pr_links",
+            "issue_pull_request_links",
             "project_label_groups",
             "project_labels",
             "project_label_links",
@@ -776,7 +778,7 @@ mod migration_tests {
             .unwrap();
         sqlx::migrate!("./migrations").run(&pool).await.unwrap();
         crate::sql::issue::seed_default_states(&pool).await.unwrap();
-        let repo = crate::sql::repo::upsert(&pool, "/seed/.git", "seed")
+        let repository = crate::sql::repository::upsert(&pool, "/seed/.git", "seed")
             .await
             .unwrap();
 
@@ -818,7 +820,7 @@ mod migration_tests {
             .unwrap();
         crate::app::issue::create(
             &pool,
-            repo,
+            repository,
             "Preserved",
             "body",
             Some("Custom"),
@@ -840,14 +842,14 @@ mod migration_tests {
         .unwrap();
         let issues_before: Vec<String> = sqlx::query_scalar!(
             r#"SELECT json_array(number, title, body, state) AS "issue!: String"
-               FROM issues WHERE repo_id = ? ORDER BY number"#,
-            repo
+               FROM issues WHERE repository_id = ? ORDER BY number"#,
+            repository
         )
         .fetch_all(&pool)
         .await
         .unwrap();
 
-        crate::sql::repo::upsert(&pool, "/seed/.git", "seed")
+        crate::sql::repository::upsert(&pool, "/seed/.git", "seed")
             .await
             .unwrap();
         crate::sql::issue::seed_default_states(&pool).await.unwrap();
@@ -863,8 +865,8 @@ mod migration_tests {
         .unwrap();
         let issues_after: Vec<String> = sqlx::query_scalar!(
             r#"SELECT json_array(number, title, body, state) AS "issue!: String"
-               FROM issues WHERE repo_id = ? ORDER BY number"#,
-            repo
+               FROM issues WHERE repository_id = ? ORDER BY number"#,
+            repository
         )
         .fetch_all(&pool)
         .await
@@ -874,7 +876,7 @@ mod migration_tests {
     }
 
     #[tokio::test]
-    async fn relation_and_pr_link_schema_enforce_repo_scope_and_atomicity() {
+    async fn relation_and_pull_request_link_schema_enforce_repository_scope_and_atomicity() {
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
             .connect("sqlite::memory:")
@@ -882,19 +884,19 @@ mod migration_tests {
             .unwrap();
         sqlx::migrate!("./migrations").run(&pool).await.unwrap();
         crate::sql::issue::seed_default_states(&pool).await.unwrap();
-        let first_repo = crate::sql::repo::upsert(&pool, "/first/.git", "first")
+        let first_repository = crate::sql::repository::upsert(&pool, "/first/.git", "first")
             .await
             .unwrap();
-        let second_repo = crate::sql::repo::upsert(&pool, "/second/.git", "second")
+        let second_repository = crate::sql::repository::upsert(&pool, "/second/.git", "second")
             .await
             .unwrap();
-        crate::app::issue::create(&pool, first_repo, "First", "", None, None, None, None)
+        crate::app::issue::create(&pool, first_repository, "First", "", None, None, None, None)
             .await
             .unwrap();
         crate::app::issue::create(
             &pool,
-            first_repo,
-            "First repo second issue",
+            first_repository,
+            "First repository second issue",
             "",
             None,
             None,
@@ -903,97 +905,122 @@ mod migration_tests {
         )
         .await
         .unwrap();
-        crate::app::issue::create(&pool, second_repo, "Second", "", None, None, None, None)
+        crate::app::issue::create(
+            &pool,
+            second_repository,
+            "Second",
+            "",
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        crate::app::pull_request::create(&pool, first_repository, "One", "", "one", None, None)
             .await
             .unwrap();
-        crate::app::pr::create(&pool, first_repo, "One", "", "one", None, None)
-            .await
-            .unwrap();
-        crate::app::pr::create(&pool, first_repo, "Two", "", "two", None, None)
+        crate::app::pull_request::create(&pool, first_repository, "Two", "", "two", None, None)
             .await
             .unwrap();
 
-        let cross_repo_relation = sqlx::query!(
-            "INSERT INTO issue_relations (repo_id, low_number, high_number) VALUES (?, 1, 2)",
-            second_repo
+        let cross_repository_relation = sqlx::query!(
+            "INSERT INTO issue_relations (repository_id, low_number, high_number) VALUES (?, 1, 2)",
+            second_repository
         )
         .execute(&pool)
         .await;
-        assert!(cross_repo_relation.is_err());
+        assert!(cross_repository_relation.is_err());
 
-        let cross_repo_pr = sqlx::query!(
-            "INSERT INTO issue_pr_links (repo_id, issue_number, pr_number) VALUES (?, 1, 2)",
-            second_repo
+        let cross_repository_pull_request = sqlx::query!(
+            "INSERT INTO issue_pull_request_links (repository_id, issue_number, pull_request_number) VALUES (?, 1, 2)",
+            second_repository
         )
         .execute(&pool)
         .await;
-        assert!(cross_repo_pr.is_err());
+        assert!(cross_repository_pull_request.is_err());
 
-        let first_lease = crate::sql::issue::acquire_lease(&pool, first_repo, 1)
+        let first_lease = crate::sql::issue::acquire_lease(&pool, first_repository, 1)
             .await
             .unwrap()
             .unwrap();
-        let second_lease = crate::sql::issue::acquire_lease(&pool, first_repo, 2)
+        let second_lease = crate::sql::issue::acquire_lease(&pool, first_repository, 2)
             .await
             .unwrap()
             .unwrap();
-        for (issue, pr, lease) in [
+        for (issue, pull_request, lease) in [
             (1, 1, first_lease.as_str()),
             (1, 2, first_lease.as_str()),
             (2, 1, second_lease.as_str()),
         ] {
-            crate::app::pr::link(&pool, first_repo, issue, pr, Some(lease))
-                .await
-                .unwrap();
+            crate::app::pull_request::link(
+                &pool,
+                first_repository,
+                issue,
+                pull_request,
+                Some(lease),
+            )
+            .await
+            .unwrap();
         }
         let links: Vec<(i64, i64)> = sqlx::query!(
-            r#"SELECT issue_number AS "issue_number!: i64", pr_number AS "pr_number!: i64"
-               FROM issue_pr_links WHERE repo_id = ? ORDER BY issue_number, pr_number"#,
-            first_repo
+            r#"SELECT issue_number AS "issue_number!: i64", pull_request_number AS "pull_request_number!: i64"
+               FROM issue_pull_request_links WHERE repository_id = ? ORDER BY issue_number, pull_request_number"#,
+            first_repository
         )
         .fetch_all(&pool)
         .await
         .unwrap()
         .into_iter()
-        .map(|row| (row.issue_number, row.pr_number))
+        .map(|row| (row.issue_number, row.pull_request_number))
         .collect();
         assert_eq!(links, vec![(1, 1), (1, 2), (2, 1)]);
 
-        crate::app::pr::link(&pool, first_repo, 1, 1, Some(&first_lease))
+        crate::app::pull_request::link(&pool, first_repository, 1, 1, Some(&first_lease))
             .await
             .unwrap();
         let duplicate_pair = sqlx::query!(
-            "INSERT INTO issue_pr_links (repo_id, issue_number, pr_number) VALUES (?, 1, 1)",
-            first_repo
+            "INSERT INTO issue_pull_request_links (repository_id, issue_number, pull_request_number) VALUES (?, 1, 1)",
+            first_repository
         )
         .execute(&pool)
         .await;
         assert!(duplicate_pair.is_err());
 
-        crate::app::pr::unlink(&pool, first_repo, 1, 1, Some(&first_lease))
+        crate::app::pull_request::unlink(&pool, first_repository, 1, 1, Some(&first_lease))
             .await
             .unwrap();
         let remaining: Vec<(i64, i64)> = sqlx::query!(
-            r#"SELECT issue_number AS "issue_number!: i64", pr_number AS "pr_number!: i64"
-               FROM issue_pr_links WHERE repo_id = ? ORDER BY issue_number, pr_number"#,
-            first_repo
+            r#"SELECT issue_number AS "issue_number!: i64", pull_request_number AS "pull_request_number!: i64"
+               FROM issue_pull_request_links WHERE repository_id = ? ORDER BY issue_number, pull_request_number"#,
+            first_repository
         )
         .fetch_all(&pool)
         .await
         .unwrap()
         .into_iter()
-        .map(|row| (row.issue_number, row.pr_number))
+        .map(|row| (row.issue_number, row.pull_request_number))
         .collect();
         assert_eq!(remaining, vec![(1, 2), (2, 1)]);
 
-        let failed =
-            crate::sql::pr::insert_linked(&pool, second_repo, "Orphan", "", "orphan", 999, None)
-                .await;
+        let failed = crate::sql::pull_request::insert_linked(
+            &pool,
+            second_repository,
+            "Orphan",
+            "",
+            "orphan",
+            999,
+            None,
+        )
+        .await;
         assert!(failed.is_err());
-        let count = sqlx::query_scalar!("SELECT COUNT(*) FROM prs WHERE repo_id = ?", second_repo)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-        assert_eq!(count, 0, "failed linked create left an orphan PR");
+        let count = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM pull_requests WHERE repository_id = ?",
+            second_repository
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 0, "failed linked create left an orphan pull request");
     }
 }

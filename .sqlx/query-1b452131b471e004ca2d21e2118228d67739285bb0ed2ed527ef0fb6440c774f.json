@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT json_array(repository_id, slug, title, body, created_at, updated_at) AS \"row!: String\" FROM wiki_pages ORDER BY repository_id, slug",
+  "describe": {
+    "columns": [
+      {
+        "name": "row!: String",
+        "ordinal": 0,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "1b452131b471e004ca2d21e2118228d67739285bb0ed2ed527ef0fb6440c774f"
+}

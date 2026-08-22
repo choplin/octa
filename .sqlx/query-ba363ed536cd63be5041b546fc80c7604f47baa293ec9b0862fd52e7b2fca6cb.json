@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE issues SET updated_at = datetime('now') WHERE repository_id = ? AND number = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "ba363ed536cd63be5041b546fc80c7604f47baa293ec9b0862fd52e7b2fca6cb"
+}

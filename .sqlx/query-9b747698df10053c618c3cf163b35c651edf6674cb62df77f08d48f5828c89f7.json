@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM issue_projects WHERE repository_id = ? AND issue_number = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "9b747698df10053c618c3cf163b35c651edf6674cb62df77f08d48f5828c89f7"
+}

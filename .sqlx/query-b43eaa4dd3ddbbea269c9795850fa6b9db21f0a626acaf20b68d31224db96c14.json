@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT blocked_number AS \"n!: i64\" FROM issue_dependencies WHERE repository_id = ? AND blocker_number = ? ORDER BY blocked_number",
+  "describe": {
+    "columns": [
+      {
+        "name": "n!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "b43eaa4dd3ddbbea269c9795850fa6b9db21f0a626acaf20b68d31224db96c14"
+}

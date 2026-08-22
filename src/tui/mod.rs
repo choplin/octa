@@ -354,10 +354,13 @@ fn detail_text(detail: &IssueDetail) -> Text<'static> {
         detail
             .pull_requests
             .iter()
-            .map(|pr| {
+            .map(|pull_request| {
                 format!(
                     "#{} {} · branch: {} · state: {}",
-                    pr.number, pr.title, pr.branch, pr.state
+                    pull_request.number,
+                    pull_request.title,
+                    pull_request.branch,
+                    pull_request.state
                 )
             })
             .collect::<Vec<_>>()
@@ -454,8 +457,8 @@ mod tests {
     use crate::domain::{
         issue::{Issue, IssueRef},
         milestone::MilestoneRef,
-        pr::PrRef,
         project::ProjectRef,
+        pull_request::PullRequestRef,
         Comment,
     };
     use ratatui::{backend::TestBackend, Terminal};
@@ -463,7 +466,7 @@ mod tests {
     fn issue(number: i64, title: &str) -> IssueDetail {
         IssueDetail {
             issue: Issue {
-                repo: "octa".into(),
+                repository: "octa".into(),
                 number,
                 title: title.into(),
                 body: "A body that can be read.".into(),
@@ -484,7 +487,7 @@ mod tests {
             blocks: vec![3],
             blocked_by: vec![1],
             related: vec![4],
-            pull_requests: vec![PrRef {
+            pull_requests: vec![PullRequestRef {
                 number: 8,
                 title: "Ship the TUI".into(),
                 branch: "feat/tui".into(),

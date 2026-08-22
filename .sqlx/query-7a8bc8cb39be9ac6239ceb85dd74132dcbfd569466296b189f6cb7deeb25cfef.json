@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT issue_number AS \"n!: i64\" FROM issue_labels WHERE repository_id = ? AND label_name = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "n!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "7a8bc8cb39be9ac6239ceb85dd74132dcbfd569466296b189f6cb7deeb25cfef"
+}

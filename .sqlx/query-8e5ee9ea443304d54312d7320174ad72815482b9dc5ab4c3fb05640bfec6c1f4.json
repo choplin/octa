@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT CASE\n               WHEN low_number = ? THEN high_number\n               ELSE low_number\n           END AS \"number!: i64\"\n           FROM issue_relations\n           WHERE repository_id = ? AND (low_number = ? OR high_number = ?)\n           ORDER BY 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "number!: i64",
+        "ordinal": 0,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "8e5ee9ea443304d54312d7320174ad72815482b9dc5ab4c3fb05640bfec6c1f4"
+}

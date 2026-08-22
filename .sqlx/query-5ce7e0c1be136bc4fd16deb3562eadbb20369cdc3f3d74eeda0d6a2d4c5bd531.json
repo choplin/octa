@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT json_array(id, repository_id, pull_request_number, body, created_at) AS \"row!: String\" FROM pull_request_comments ORDER BY id",
+  "describe": {
+    "columns": [
+      {
+        "name": "row!: String",
+        "ordinal": 0,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "5ce7e0c1be136bc4fd16deb3562eadbb20369cdc3f3d74eeda0d6a2d4c5bd531"
+}

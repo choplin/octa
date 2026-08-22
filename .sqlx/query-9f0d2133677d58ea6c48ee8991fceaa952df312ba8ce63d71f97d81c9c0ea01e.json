@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO issue_pull_request_links (repository_id, issue_number, pull_request_number) VALUES (?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "9f0d2133677d58ea6c48ee8991fceaa952df312ba8ce63d71f97d81c9c0ea01e"
+}

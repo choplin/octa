@@ -16,7 +16,7 @@ impl Store {
     ) -> Result<i64> {
         crate::app::milestone::create(
             &self.pool,
-            self.repo_id()?,
+            self.repository_id()?,
             project,
             name,
             description,
@@ -29,7 +29,7 @@ impl Store {
     }
 
     pub async fn list_project_milestones(&self, project: &str) -> Result<Vec<ProjectMilestone>> {
-        crate::app::milestone::list(&self.pool, self.repo_id()?, project).await
+        crate::app::milestone::list(&self.pool, self.repository_id()?, project).await
     }
 
     pub async fn project_milestone(
@@ -37,7 +37,7 @@ impl Store {
         project: &str,
         milestone: &str,
     ) -> Result<ProjectMilestone> {
-        crate::app::milestone::show(&self.pool, self.repo_id()?, project, milestone).await
+        crate::app::milestone::show(&self.pool, self.repository_id()?, project, milestone).await
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -56,7 +56,7 @@ impl Store {
     ) -> Result<()> {
         crate::app::milestone::edit(
             &self.pool,
-            self.repo_id()?,
+            self.repository_id()?,
             project,
             milestone,
             name,

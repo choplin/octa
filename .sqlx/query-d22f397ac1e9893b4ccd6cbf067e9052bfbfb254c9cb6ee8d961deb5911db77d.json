@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO issues (repository_id, number, title, state) VALUES (1, ?, ?, 'open')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "d22f397ac1e9893b4ccd6cbf067e9052bfbfb254c9cb6ee8d961deb5911db77d"
+}

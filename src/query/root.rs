@@ -17,7 +17,7 @@ use std::sync::{
 #[derive(Clone)]
 pub(super) struct QueryDb {
     pub(super) pool: sqlx::SqlitePool,
-    pub(super) repo: i64,
+    pub(super) repository: i64,
     pub(super) accesses: Arc<AtomicUsize>,
     #[cfg(test)]
     pub(super) statements: Arc<Mutex<Vec<String>>>,
@@ -61,11 +61,11 @@ impl QueryRoot {
         let db = ctx.data::<QueryDb>()?;
         let fields = ctx.field().selection_set().collect::<Vec<_>>();
         let state = issue_state_join(&fields, "i", "s", false);
-        let projection = Planner::new(db.repo).issue(&fields, "i", state.alias())?;
+        let projection = Planner::new(db.repository).issue(&fields, "i", state.alias())?;
         let sql = format!(
-            "SELECT {projection} FROM issues i {} WHERE i.repo_id={} AND i.number={number}",
+            "SELECT {projection} FROM issues i {} WHERE i.repository_id={} AND i.number={number}",
             state.sql(),
-            db.repo
+            db.repository
         );
         db.optional(&sql, IssueObject).await
     }
@@ -82,12 +82,12 @@ impl QueryRoot {
         let page = Page::new(offset, limit)?;
         let filter = filter.unwrap_or_default();
         let state = issue_state_join(&fields, "i", "s", filter.state_type.is_some());
-        let projection = Planner::new(db.repo).issue(&fields, "i", state.alias())?;
+        let projection = Planner::new(db.repository).issue(&fields, "i", state.alias())?;
         let filter = issue_filter_sql("i", state.alias(), &filter);
         let sql = format!(
-            "SELECT {projection} FROM issues i {} WHERE i.repo_id={} {filter} ORDER BY i.number {}",
+            "SELECT {projection} FROM issues i {} WHERE i.repository_id={} {filter} ORDER BY i.number {}",
             state.sql(),
-            db.repo,
+            db.repository,
             page.sql()
         );
         db.rows(&sql, IssueObject).await
@@ -107,11 +107,11 @@ impl QueryRoot {
         };
         let fields = ctx.field().selection_set().collect::<Vec<_>>();
         let state = project_state_join(&fields, "p", "ps", false);
-        let projection = Planner::new(db.repo).project(&fields, "p", state.alias())?;
+        let projection = Planner::new(db.repository).project(&fields, "p", state.alias())?;
         let sql = format!(
-            "SELECT {projection} FROM projects p {} WHERE p.repo_id={} AND {predicate}",
+            "SELECT {projection} FROM projects p {} WHERE p.repository_id={} AND {predicate}",
             state.sql(),
-            db.repo
+            db.repository
         );
         db.optional(&sql, ProjectObject).await
     }
@@ -133,13 +133,13 @@ impl QueryRoot {
             }
         }
         let state = project_state_join(&fields, "p", "ps", filter.state_type.is_some());
-        let projection = Planner::new(db.repo).project(&fields, "p", state.alias())?;
+        let projection = Planner::new(db.repository).project(&fields, "p", state.alias())?;
         let filter = project_filter_sql("p", state.alias(), &filter);
         let page = Page::new(offset, limit)?;
         let sql = format!(
-            "SELECT {projection} FROM projects p {} WHERE p.repo_id={} {filter} ORDER BY p.id {}",
+            "SELECT {projection} FROM projects p {} WHERE p.repository_id={} {filter} ORDER BY p.id {}",
             state.sql(),
-            db.repo,
+            db.repository,
             page.sql()
         );
         db.rows(&sql, ProjectObject).await
@@ -152,9 +152,9 @@ impl QueryRoot {
         id: i64,
     ) -> async_graphql::Result<Option<MilestoneObject>> {
         let db = ctx.data::<QueryDb>()?;
-        let projection = Planner::new(db.repo)
+        let projection = Planner::new(db.repository)
             .milestone(&ctx.field().selection_set().collect::<Vec<_>>(), "m")?;
-        let sql = format!("SELECT {projection} FROM project_milestones m WHERE m.repo_id={} AND m.project_id={project_id} AND m.id={id}", db.repo);
+        let sql = format!("SELECT {projection} FROM project_milestones m WHERE m.repository_id={} AND m.project_id={project_id} AND m.id={id}", db.repository);
         db.optional(&sql, MilestoneObject).await
     }
 
@@ -166,10 +166,10 @@ impl QueryRoot {
         limit: Option<i64>,
     ) -> async_graphql::Result<Vec<MilestoneObject>> {
         let db = ctx.data::<QueryDb>()?;
-        let projection = Planner::new(db.repo)
+        let projection = Planner::new(db.repository)
             .milestone(&ctx.field().selection_set().collect::<Vec<_>>(), "m")?;
         let page = Page::new(offset, limit)?;
-        let sql = format!("SELECT {projection} FROM project_milestones m WHERE m.repo_id={} AND m.project_id={project_id} ORDER BY m.position,m.id {}", db.repo, page.sql());
+        let sql = format!("SELECT {projection} FROM project_milestones m WHERE m.repository_id={} AND m.project_id={project_id} ORDER BY m.position,m.id {}", db.repository, page.sql());
         db.rows(&sql, MilestoneObject).await
     }
 
@@ -179,11 +179,11 @@ impl QueryRoot {
         number: i64,
     ) -> async_graphql::Result<Option<PullRequestObject>> {
         let db = ctx.data::<QueryDb>()?;
-        let projection = Planner::new(db.repo)
+        let projection = Planner::new(db.repository)
             .pull_request(&ctx.field().selection_set().collect::<Vec<_>>(), "p")?;
         let sql = format!(
-            "SELECT {projection} FROM prs p WHERE p.repo_id={} AND p.number={number}",
-            db.repo
+            "SELECT {projection} FROM pull_requests p WHERE p.repository_id={} AND p.number={number}",
+            db.repository
         );
         db.optional(&sql, PullRequestObject).await
     }
@@ -196,7 +196,7 @@ impl QueryRoot {
         limit: Option<i64>,
     ) -> async_graphql::Result<Vec<PullRequestObject>> {
         let db = ctx.data::<QueryDb>()?;
-        let projection = Planner::new(db.repo)
+        let projection = Planner::new(db.repository)
             .pull_request(&ctx.field().selection_set().collect::<Vec<_>>(), "p")?;
         let state = filter
             .and_then(|filter| filter.state)
@@ -204,8 +204,8 @@ impl QueryRoot {
             .unwrap_or_default();
         let page = Page::new(offset, limit)?;
         let sql = format!(
-            "SELECT {projection} FROM prs p WHERE p.repo_id={} {state} ORDER BY p.number {}",
-            db.repo,
+            "SELECT {projection} FROM pull_requests p WHERE p.repository_id={} {state} ORDER BY p.number {}",
+            db.repository,
             page.sql()
         );
         db.rows(&sql, PullRequestObject).await
@@ -217,11 +217,11 @@ impl QueryRoot {
         slug: String,
     ) -> async_graphql::Result<Option<WikiPageObject>> {
         let db = ctx.data::<QueryDb>()?;
-        let projection =
-            Planner::new(db.repo).wiki(&ctx.field().selection_set().collect::<Vec<_>>(), "w")?;
+        let projection = Planner::new(db.repository)
+            .wiki(&ctx.field().selection_set().collect::<Vec<_>>(), "w")?;
         let sql = format!(
-            "SELECT {projection} FROM wiki_pages w WHERE w.repo_id={} AND w.slug={}",
-            db.repo,
+            "SELECT {projection} FROM wiki_pages w WHERE w.repository_id={} AND w.slug={}",
+            db.repository,
             quote(&slug)
         );
         db.optional(&sql, WikiPageObject).await
@@ -234,12 +234,12 @@ impl QueryRoot {
         limit: Option<i64>,
     ) -> async_graphql::Result<Vec<WikiPageObject>> {
         let db = ctx.data::<QueryDb>()?;
-        let projection =
-            Planner::new(db.repo).wiki(&ctx.field().selection_set().collect::<Vec<_>>(), "w")?;
+        let projection = Planner::new(db.repository)
+            .wiki(&ctx.field().selection_set().collect::<Vec<_>>(), "w")?;
         let page = Page::new(offset, limit)?;
         let sql = format!(
-            "SELECT {projection} FROM wiki_pages w WHERE w.repo_id={} ORDER BY w.slug {}",
-            db.repo,
+            "SELECT {projection} FROM wiki_pages w WHERE w.repository_id={} ORDER BY w.slug {}",
+            db.repository,
             page.sql()
         );
         db.rows(&sql, WikiPageObject).await
@@ -249,18 +249,37 @@ impl QueryRoot {
     ///
     /// This is the one root that steps outside the active repository, because
     /// naming a repository the caller is not inside is the whole point of it.
-    async fn repos(
+    async fn repositories(
+        &self,
+        ctx: &Context<'_>,
+        offset: Option<i64>,
+        limit: Option<i64>,
+    ) -> async_graphql::Result<Vec<RepositoryObject>> {
+        let db = ctx.data::<QueryDb>()?;
+        let projection = Planner::new(db.repository)
+            .repository(&ctx.field().selection_set().collect::<Vec<_>>(), "r")?;
+        let page = Page::new(offset, limit)?;
+        let sql = format!(
+            "SELECT {projection} FROM repositories r ORDER BY r.name,r.id {}",
+            page.sql()
+        );
+        db.rows(&sql, RepositoryObject).await
+    }
+
+    /// Deprecated compatibility alias for `repositories`.
+    #[graphql(name = "repos", deprecation = "Use `repositories`")]
+    async fn legacy_repositories(
         &self,
         ctx: &Context<'_>,
         offset: Option<i64>,
         limit: Option<i64>,
     ) -> async_graphql::Result<Vec<RepoObject>> {
         let db = ctx.data::<QueryDb>()?;
-        let projection =
-            Planner::new(db.repo).repo(&ctx.field().selection_set().collect::<Vec<_>>(), "r")?;
+        let projection = Planner::new(db.repository)
+            .repository(&ctx.field().selection_set().collect::<Vec<_>>(), "r")?;
         let page = Page::new(offset, limit)?;
         let sql = format!(
-            "SELECT {projection} FROM repos r ORDER BY r.name,r.id {}",
+            "SELECT {projection} FROM repositories r ORDER BY r.name,r.id {}",
             page.sql()
         );
         db.rows(&sql, RepoObject).await
@@ -278,7 +297,7 @@ impl QueryRoot {
             LabelTarget::Issue => ("labels", "ISSUE"),
             LabelTarget::Project => ("project_labels", "PROJECT"),
         };
-        let projection = Planner::new(db.repo).label(
+        let projection = Planner::new(db.repository).label(
             &ctx.field().selection_set().collect::<Vec<_>>(),
             "l",
             target,

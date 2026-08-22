@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE pull_requests SET updated_at = datetime('now') WHERE repository_id = ? AND number = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "f5b42c7fe79c83ef8953a4d192b834474304af4a7d1e109ee6c014c0773bad3e"
+}

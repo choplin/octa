@@ -12,8 +12,9 @@ pub struct ProjectRef {
 #[derive(Debug, Serialize)]
 pub struct Project {
     #[serde(skip)]
-    pub(crate) repo_id: i64,
-    pub repo: String,
+    pub(crate) repository_id: i64,
+    #[serde(rename = "repo")]
+    pub repository: String,
     pub id: i64,
     pub name: String,
     pub summary: String,

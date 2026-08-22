@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM issue_pull_request_links WHERE repository_id = ? AND issue_number = ? AND pull_request_number = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "0b9418f9567330c31830581dadcee83c47ee8683da5ca3826ce481b080af15d9"
+}

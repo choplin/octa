@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE issue_leases SET lease_id = lease_id\n           WHERE repository_id = ? AND issue_number = ? AND lease_id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "a12fe5e04095025302ad2089fc14b56f82e2260e8aa5e87df8f70c4b972ffbaf"
+}

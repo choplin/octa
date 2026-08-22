@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM issue_dependencies WHERE repository_id = ? AND blocker_number = ? AND blocked_number = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "0dcd604522a9af1bcf53c4fdbdeb6af534ab5534bc2bab2e5e5e7cb89a6f20db"
+}

@@ -49,17 +49,17 @@ async fn target_state(
     Ok(state.name)
 }
 
-pub async fn resolve(pool: &SqlitePool, repo: i64, reference: &str) -> Result<Project> {
+pub async fn resolve(pool: &SqlitePool, repository: i64, reference: &str) -> Result<Project> {
     let project = match reference.parse::<i64>() {
-        Ok(id) => crate::sql::project::get_by_id(pool, repo, id).await?,
-        Err(_) => crate::sql::project::get_by_name(pool, repo, reference).await?,
+        Ok(id) => crate::sql::project::get_by_id(pool, repository, id).await?,
+        Err(_) => crate::sql::project::get_by_name(pool, repository, reference).await?,
     };
     project.ok_or_else(|| anyhow!("project {reference:?} not found"))
 }
 
 pub async fn create(
     pool: &SqlitePool,
-    repo: i64,
+    repository: i64,
     name: &str,
     summary: &str,
     description: &str,
@@ -67,19 +67,20 @@ pub async fn create(
 ) -> Result<i64> {
     validate_name(name)?;
     let state = target_state(pool, ProjectStateType::Open, state).await?;
-    crate::sql::project::insert(pool, repo, name, summary, description, &state).await
+    crate::sql::project::insert(pool, repository, name, summary, description, &state).await
 }
 
 pub async fn list(
     pool: &SqlitePool,
-    repo: Option<i64>,
+    repository: Option<i64>,
     active_only: bool,
 ) -> Result<Vec<ProjectOverview>> {
-    let projects = crate::sql::project::list(pool, repo, active_only).await?;
+    let projects = crate::sql::project::list(pool, repository, active_only).await?;
     let mut overview = Vec::with_capacity(projects.len());
     for project in projects {
-        let tally = crate::sql::project::tally(pool, project.repo_id, project.id).await?;
-        let milestones = crate::sql::milestone::list(pool, project.repo_id, project.id).await?;
+        let tally = crate::sql::project::tally(pool, project.repository_id, project.id).await?;
+        let milestones =
+            crate::sql::milestone::list(pool, project.repository_id, project.id).await?;
         overview.push(ProjectOverview {
             project,
             tally,
@@ -89,13 +90,13 @@ pub async fn list(
     Ok(overview)
 }
 
-pub async fn detail(pool: &SqlitePool, repo: i64, reference: &str) -> Result<ProjectDetail> {
-    let project = resolve(pool, repo, reference).await?;
+pub async fn detail(pool: &SqlitePool, repository: i64, reference: &str) -> Result<ProjectDetail> {
+    let project = resolve(pool, repository, reference).await?;
     Ok(ProjectDetail {
-        tally: crate::sql::project::tally(pool, repo, project.id).await?,
-        issue_numbers: crate::sql::project::issue_numbers(pool, repo, project.id).await?,
-        milestones: crate::sql::milestone::list(pool, repo, project.id).await?,
-        labels: crate::sql::label::labels_for_project(pool, repo, project.id).await?,
+        tally: crate::sql::project::tally(pool, repository, project.id).await?,
+        issue_numbers: crate::sql::project::issue_numbers(pool, repository, project.id).await?,
+        milestones: crate::sql::milestone::list(pool, repository, project.id).await?,
+        labels: crate::sql::label::labels_for_project(pool, repository, project.id).await?,
         project,
     })
 }
@@ -112,7 +113,7 @@ fn validate_name(name: &str) -> Result<()> {
 
 pub async fn edit(
     pool: &SqlitePool,
-    repo: i64,
+    repository: i64,
     reference: &str,
     name: Option<&str>,
     summary: Option<&str>,
@@ -121,48 +122,53 @@ pub async fn edit(
     if name.is_none() && summary.is_none() && description.is_none() {
         bail!("nothing to update: pass --name, --summary and/or --description");
     }
-    let project = resolve(pool, repo, reference).await?;
+    let project = resolve(pool, repository, reference).await?;
     if let Some(name) = name {
         validate_name(name)?;
     }
-    crate::sql::project::update(pool, repo, project.id, name, summary, description).await
+    crate::sql::project::update(pool, repository, project.id, name, summary, description).await
 }
 
 /// Move a project to any configured state. Backs `project set --as`.
-pub async fn set_state(pool: &SqlitePool, repo: i64, reference: &str, state: &str) -> Result<()> {
+pub async fn set_state(
+    pool: &SqlitePool,
+    repository: i64,
+    reference: &str,
+    state: &str,
+) -> Result<()> {
     if !crate::sql::project::state_exists(pool, state).await? {
         bail!(
             "unknown project state {state:?}; available states are: {}",
             state_names(pool).await?
         );
     }
-    let project = resolve(pool, repo, reference).await?;
-    crate::sql::project::set_state(pool, repo, project.id, state).await
+    let project = resolve(pool, repository, reference).await?;
+    crate::sql::project::set_state(pool, repository, project.id, state).await
 }
 
 /// Move a project to a closed-type state.
 pub async fn close(
     pool: &SqlitePool,
-    repo: i64,
+    repository: i64,
     reference: &str,
     as_state: Option<&str>,
 ) -> Result<String> {
     let state = target_state(pool, ProjectStateType::Closed, as_state).await?;
-    let project = resolve(pool, repo, reference).await?;
-    crate::sql::project::set_state(pool, repo, project.id, &state).await?;
+    let project = resolve(pool, repository, reference).await?;
+    crate::sql::project::set_state(pool, repository, project.id, &state).await?;
     Ok(state)
 }
 
 /// Move a project back to an open-type state.
 pub async fn reopen(
     pool: &SqlitePool,
-    repo: i64,
+    repository: i64,
     reference: &str,
     as_state: Option<&str>,
 ) -> Result<String> {
     let state = target_state(pool, ProjectStateType::Open, as_state).await?;
-    let project = resolve(pool, repo, reference).await?;
-    crate::sql::project::set_state(pool, repo, project.id, &state).await?;
+    let project = resolve(pool, repository, reference).await?;
+    crate::sql::project::set_state(pool, repository, project.id, &state).await?;
     Ok(state)
 }
 

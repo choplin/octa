@@ -20,7 +20,7 @@ async fn executed_sql(document: &str) -> String {
     let statements = Arc::new(Mutex::new(Vec::new()));
     let db = QueryDb {
         pool,
-        repo: 1,
+        repository: 1,
         accesses: Arc::new(AtomicUsize::new(0)),
         statements: statements.clone(),
     };
@@ -53,7 +53,7 @@ mod projection {
 
         assert!(sql.contains("'$.number',json(json_quote(i.number))"));
         assert!(sql.contains("'$.title',json(json_quote(i.title))"));
-        assert!(sql.ends_with("FROM issues i  WHERE i.repo_id=1 AND i.number=7"));
+        assert!(sql.ends_with("FROM issues i  WHERE i.repository_id=1 AND i.number=7"));
         assert!(!sql.contains(" JOIN "));
         for unselected in ["i.body", "i.created_at", "i.updated_at"] {
             assert!(
@@ -87,7 +87,7 @@ mod projection {
             &sql,
             &[
                 "EXISTS(SELECT 1 FROM issue_leases lease1",
-                "lease1.repo_id=i.repo_id",
+                "lease1.repository_id=i.repository_id",
                 "lease1.issue_number=i.number",
             ],
         );
@@ -148,8 +148,8 @@ mod issue_relations {
                 "'$.id',json(json_quote(p1.id))",
                 "'$.name',json(json_quote(p1.name))",
                 "FROM issue_projects ip2 JOIN projects p1",
-                "p1.repo_id=ip2.repo_id AND p1.id=ip2.project_id",
-                "WHERE ip2.repo_id=i.repo_id AND ip2.issue_number=i.number",
+                "p1.repository_id=ip2.repository_id AND p1.id=ip2.project_id",
+                "WHERE ip2.repository_id=i.repository_id AND ip2.issue_number=i.number",
             ],
         );
         assert_eq!(sql.matches("JOIN projects").count(), 1);
@@ -164,10 +164,10 @@ mod issue_relations {
             &sql,
             &[
                 "FROM projects p3",
-                "p3.repo_id=m1.repo_id AND p3.id=m1.project_id",
+                "p3.repository_id=m1.repository_id AND p3.id=m1.project_id",
                 "FROM issue_milestones im2 JOIN project_milestones m1",
-                "m1.repo_id=im2.repo_id AND m1.project_id=im2.project_id AND m1.id=im2.milestone_id",
-                "WHERE im2.repo_id=i.repo_id AND im2.issue_number=i.number",
+                "m1.repository_id=im2.repository_id AND m1.project_id=im2.project_id AND m1.id=im2.milestone_id",
+                "WHERE im2.repository_id=i.repository_id AND im2.issue_number=i.number",
             ],
         );
     }
@@ -182,7 +182,7 @@ mod issue_relations {
             &[
                 "FROM issue_labels il2 JOIN labels l1",
                 "l1.name=il2.label_name",
-                "WHERE il2.repo_id=i.repo_id AND il2.issue_number=i.number",
+                "WHERE il2.repository_id=i.repository_id AND il2.issue_number=i.number",
                 "ORDER BY l1.name LIMIT 8 OFFSET 3",
             ],
         );
@@ -200,13 +200,13 @@ mod issue_relations {
         assert_contains_in_order(
             &sql,
             &[
-                "FROM issue_deps d3 JOIN issues i1",
+                "FROM issue_dependencies d3 JOIN issues i1",
                 "i1.number=d3.blocked_number",
-                "WHERE d3.repo_id=i.repo_id AND d3.blocker_number=i.number",
+                "WHERE d3.repository_id=i.repository_id AND d3.blocker_number=i.number",
                 "ORDER BY i1.number LIMIT 2 OFFSET 0",
-                "FROM issue_deps d6 JOIN issues i4",
+                "FROM issue_dependencies d6 JOIN issues i4",
                 "i4.number=d6.blocker_number",
-                "WHERE d6.repo_id=i.repo_id AND d6.blocked_number=i.number",
+                "WHERE d6.repository_id=i.repository_id AND d6.blocked_number=i.number",
                 "ORDER BY i4.number LIMIT 3 OFFSET 0",
             ],
         );
@@ -220,7 +220,7 @@ mod issue_relations {
             &[
                 "FROM issue_relations r3 JOIN issues i1",
                 "i1.number=CASE WHEN r3.low_number=i.number THEN r3.high_number ELSE r3.low_number END",
-                "WHERE r3.repo_id=i.repo_id AND (r3.low_number=i.number OR r3.high_number=i.number)",
+                "WHERE r3.repository_id=i.repository_id AND (r3.low_number=i.number OR r3.high_number=i.number)",
             ],
         );
 
@@ -231,10 +231,10 @@ mod issue_relations {
             &[
                 "FROM issue_parents par3 JOIN issues i1",
                 "i1.number=par3.parent_number",
-                "WHERE par3.repo_id=i.repo_id AND par3.child_number=i.number",
+                "WHERE par3.repository_id=i.repository_id AND par3.child_number=i.number",
                 "FROM issue_parents par6 JOIN issues i4",
                 "i4.number=par6.child_number",
-                "WHERE par6.repo_id=i.repo_id AND par6.parent_number=i.number",
+                "WHERE par6.repository_id=i.repository_id AND par6.parent_number=i.number",
             ],
         );
     }
@@ -249,23 +249,23 @@ mod other_relations {
         assert_contains_in_order(
             &from_issue,
             &[
-                "FROM issue_pr_links ipl2 JOIN prs pr1",
-                "pr1.repo_id=ipl2.repo_id AND pr1.number=ipl2.pr_number",
-                "WHERE ipl2.repo_id=i.repo_id AND ipl2.issue_number=i.number",
-                "ORDER BY pr1.number LIMIT 2 OFFSET 0",
+                "FROM issue_pull_request_links ipl2 JOIN pull_requests pull_request1",
+                "pull_request1.repository_id=ipl2.repository_id AND pull_request1.number=ipl2.pull_request_number",
+                "WHERE ipl2.repository_id=i.repository_id AND ipl2.issue_number=i.number",
+                "ORDER BY pull_request1.number LIMIT 2 OFFSET 0",
             ],
         );
 
-        let from_pr =
+        let from_pull_request =
             executed_sql("{ pullRequest(number: 9) { issues(limit: 4) { number } } }").await;
         assert_contains_in_order(
-            &from_pr,
+            &from_pull_request,
             &[
-                "FROM issue_pr_links ipl3 JOIN issues i1",
-                "i1.repo_id=ipl3.repo_id AND i1.number=ipl3.issue_number",
-                "WHERE ipl3.repo_id=p.repo_id AND ipl3.pr_number=p.number",
+                "FROM issue_pull_request_links ipl3 JOIN issues i1",
+                "i1.repository_id=ipl3.repository_id AND i1.number=ipl3.issue_number",
+                "WHERE ipl3.repository_id=p.repository_id AND ipl3.pull_request_number=p.number",
                 "ORDER BY i1.number LIMIT 4 OFFSET 0",
-                "FROM prs p",
+                "FROM pull_requests p",
             ],
         );
     }
@@ -282,11 +282,11 @@ mod other_relations {
             &[
                 "FROM wiki_links wl2 JOIN wiki_pages w1",
                 "w1.slug=wl2.to_slug",
-                "WHERE wl2.repo_id=w.repo_id AND wl2.from_slug=w.slug",
+                "WHERE wl2.repository_id=w.repository_id AND wl2.from_slug=w.slug",
                 "ORDER BY w1.slug LIMIT 2 OFFSET 0",
                 "FROM wiki_links wl4 JOIN wiki_pages w3",
                 "w3.slug=wl4.from_slug",
-                "WHERE wl4.repo_id=w.repo_id AND wl4.to_slug=w.slug",
+                "WHERE wl4.repository_id=w.repository_id AND wl4.to_slug=w.slug",
                 "ORDER BY w3.slug LIMIT 3 OFFSET 0",
             ],
         );
@@ -301,7 +301,7 @@ mod other_relations {
                     "FROM issue_labels il3 JOIN issues i1",
                     // Labels are global, so the reverse relation is scoped by
                     // the active repository rather than by the label row.
-                    "WHERE il3.repo_id=1 AND il3.label_name=l.name",
+                    "WHERE il3.repository_id=1 AND il3.label_name=l.name",
                     "ORDER BY i1.number LIMIT 2 OFFSET 0",
                     "FROM labels l ORDER BY l.name",
                 ],
@@ -310,7 +310,7 @@ mod other_relations {
                 "{ labels(target: PROJECT) { projects(limit: 3) { id } } }",
                 [
                     "FROM project_label_links pl2 JOIN projects p1",
-                    "WHERE pl2.repo_id=1 AND pl2.label_name=l.name",
+                    "WHERE pl2.repository_id=1 AND pl2.label_name=l.name",
                     "ORDER BY p1.id LIMIT 3 OFFSET 0",
                     "FROM project_labels l ORDER BY l.name",
                 ],
@@ -358,10 +358,10 @@ mod filters_and_roots {
             &[
                 "FROM issues i",
                 "EXISTS(SELECT 1 FROM issue_labels fx",
-                "fx.repo_id=i.repo_id AND fx.issue_number=i.number",
+                "fx.repository_id=i.repository_id AND fx.issue_number=i.number",
                 "fx.label_name='reader''s-choice'",
                 "EXISTS(SELECT 1 FROM issue_projects fp",
-                "fp.repo_id=i.repo_id AND fp.issue_number=i.number AND fp.project_id=7",
+                "fp.repository_id=i.repository_id AND fp.issue_number=i.number AND fp.project_id=7",
                 "ORDER BY i.number LIMIT 12 OFFSET 4",
             ],
         );
@@ -417,34 +417,34 @@ mod filters_and_roots {
         let cases = [
             (
                 "{ milestone(projectId: 4, id: 2) { id } }",
-                "FROM project_milestones m WHERE m.repo_id=1 AND m.project_id=4 AND m.id=2",
+                "FROM project_milestones m WHERE m.repository_id=1 AND m.project_id=4 AND m.id=2",
             ),
             (
                 "{ project(name: \"reader's roadmap\") { id } }",
                 // Two spaces: the optional `project_states` join sits between
                 // the table and the predicate and is empty unless `stateType`
                 // is selected, exactly as the issue root does.
-                "FROM projects p  WHERE p.repo_id=1 AND p.name='reader''s roadmap' COLLATE NOCASE",
+                "FROM projects p  WHERE p.repository_id=1 AND p.name='reader''s roadmap' COLLATE NOCASE",
             ),
             (
                 "{ milestones(projectId: 4, offset: 2, limit: 7) { id } }",
-                "FROM project_milestones m WHERE m.repo_id=1 AND m.project_id=4 ORDER BY m.position,m.id LIMIT 7 OFFSET 2",
+                "FROM project_milestones m WHERE m.repository_id=1 AND m.project_id=4 ORDER BY m.position,m.id LIMIT 7 OFFSET 2",
             ),
             (
                 "{ pullRequest(number: 8) { number } }",
-                "FROM prs p WHERE p.repo_id=1 AND p.number=8",
+                "FROM pull_requests p WHERE p.repository_id=1 AND p.number=8",
             ),
             (
                 "{ pullRequests(filter: { state: \"open\" }, offset: 1, limit: 6) { number } }",
-                "FROM prs p WHERE p.repo_id=1 AND p.state='open' ORDER BY p.number LIMIT 6 OFFSET 1",
+                "FROM pull_requests p WHERE p.repository_id=1 AND p.state='open' ORDER BY p.number LIMIT 6 OFFSET 1",
             ),
             (
                 "{ wikiPage(slug: \"reader's-guide\") { slug } }",
-                "FROM wiki_pages w WHERE w.repo_id=1 AND w.slug='reader''s-guide'",
+                "FROM wiki_pages w WHERE w.repository_id=1 AND w.slug='reader''s-guide'",
             ),
             (
                 "{ wikiPages(offset: 3, limit: 9) { slug } }",
-                "FROM wiki_pages w WHERE w.repo_id=1 ORDER BY w.slug LIMIT 9 OFFSET 3",
+                "FROM wiki_pages w WHERE w.repository_id=1 ORDER BY w.slug LIMIT 9 OFFSET 3",
             ),
         ];
 
@@ -455,46 +455,16 @@ mod filters_and_roots {
     }
 }
 
-mod repos {
+mod repositories {
     use super::*;
 
-    /// `repos` is the one root that must not be narrowed to the active
-    /// repository, so the compiled SQL carries no `repo_id` predicate.
     #[tokio::test]
-    async fn repos_root_compiles_without_a_repo_predicate() {
-        let sql = executed_sql("{ repos { name path createdAt } }").await;
+    async fn deprecated_repos_field_matches_the_formal_repositories_field() {
+        let formal = executed_sql("{ repositories { name path createdAt } }").await;
+        let legacy = executed_sql("{ repos { name path createdAt } }").await;
 
-        assert_contains_in_order(
-            &sql,
-            &[
-                "'$.name',json(json_quote(r.name))",
-                "'$.path',json(json_quote(r.path))",
-                "'$.createdAt',json(json_quote(r.created_at))",
-                "FROM repos r ORDER BY r.name,r.id LIMIT 50 OFFSET 0",
-            ],
-        );
-        assert!(!sql.contains("repo_id"), "repos must not be scoped:\n{sql}");
-    }
+        assert_eq!(formal, legacy);
 
-    /// The counts are the reason the listing beats an aggregate over Issues, and
-    /// each one selects a state type rather than a state name.
-    #[tokio::test]
-    async fn issue_counts_compile_to_correlated_subqueries_per_state_type() {
-        let sql = executed_sql("{ repos { openIssues inProgressIssues } }").await;
-
-        assert_contains_in_order(
-            &sql,
-            &[
-                "WHERE i.repo_id=r.id AND s.type='open'",
-                "WHERE i.repo_id=r.id AND s.type='in progress'",
-            ],
-        );
-    }
-
-    /// Scalar-only by design: descending into Issues would contradict the
-    /// single-active-repository premise the other roots compile against.
-    #[tokio::test]
-    async fn repos_root_has_no_relation_fields() {
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
             .connect("sqlite::memory:")
@@ -502,7 +472,67 @@ mod repos {
             .unwrap();
         let db = QueryDb {
             pool,
-            repo: 1,
+            repository: 1,
+            accesses: Arc::new(AtomicUsize::new(0)),
+            statements: Arc::new(Mutex::new(Vec::new())),
+        };
+        let schema = Schema::build(QueryRoot, EmptyMutation, EmptySubscription)
+            .data(db)
+            .finish();
+        let sdl = schema.sdl();
+
+        assert!(sdl.contains("repositories(offset: Int, limit: Int): [RepositoryObject!]!"));
+        assert!(sdl.contains("repos(offset: Int, limit: Int): [RepoObject!]! @deprecated"));
+    }
+
+    /// `repositories` is the one root that must not be narrowed to the active
+    /// repository, so the compiled SQL carries no `repository_id` predicate.
+    #[tokio::test]
+    async fn repositories_root_compiles_without_a_repository_predicate() {
+        let sql = executed_sql("{ repositories { name path createdAt } }").await;
+
+        assert_contains_in_order(
+            &sql,
+            &[
+                "'$.name',json(json_quote(r.name))",
+                "'$.path',json(json_quote(r.path))",
+                "'$.createdAt',json(json_quote(r.created_at))",
+                "FROM repositories r ORDER BY r.name,r.id LIMIT 50 OFFSET 0",
+            ],
+        );
+        assert!(
+            !sql.contains("repository_id"),
+            "repositories must not be scoped:\n{sql}"
+        );
+    }
+
+    /// The counts are the reason the listing beats an aggregate over Issues, and
+    /// each one selects a state type rather than a state name.
+    #[tokio::test]
+    async fn issue_counts_compile_to_correlated_subqueries_per_state_type() {
+        let sql = executed_sql("{ repositories { openIssues inProgressIssues } }").await;
+
+        assert_contains_in_order(
+            &sql,
+            &[
+                "WHERE i.repository_id=r.id AND s.type='open'",
+                "WHERE i.repository_id=r.id AND s.type='in progress'",
+            ],
+        );
+    }
+
+    /// Scalar-only by design: descending into Issues would contradict the
+    /// single-active-repository premise the other roots compile against.
+    #[tokio::test]
+    async fn repositories_root_has_no_relation_fields() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        let db = QueryDb {
+            pool,
+            repository: 1,
             accesses: Arc::new(AtomicUsize::new(0)),
             statements: Arc::new(Mutex::new(Vec::new())),
         };
@@ -510,7 +540,9 @@ mod repos {
             .data(db)
             .finish();
 
-        let response = schema.execute("{ repos { issues { number } } }").await;
+        let response = schema
+            .execute("{ repositories { issues { number } } }")
+            .await;
 
         assert!(!response.errors.is_empty());
     }
@@ -537,10 +569,10 @@ mod multi_hop {
             &sql,
             &[
                 "FROM project_label_links pl5 JOIN project_labels l4",
-                "WHERE pl5.repo_id=p1.repo_id AND pl5.project_id=p1.id",
+                "WHERE pl5.repository_id=p1.repository_id AND pl5.project_id=p1.id",
                 "ORDER BY l4.name LIMIT 10 OFFSET 2",
                 "FROM issue_projects ip2 JOIN projects p1",
-                "WHERE ip2.repo_id=i.repo_id AND ip2.issue_number=i.number",
+                "WHERE ip2.repository_id=i.repository_id AND ip2.issue_number=i.number",
                 "FROM issues i",
             ],
         );
@@ -568,11 +600,11 @@ mod multi_hop {
             &sql,
             &[
                 "FROM issue_labels il5 JOIN labels l4",
-                "WHERE il5.repo_id=i1.repo_id AND il5.issue_number=i1.number",
+                "WHERE il5.repository_id=i1.repository_id AND il5.issue_number=i1.number",
                 "ORDER BY l4.name LIMIT 3 OFFSET 0",
                 "FROM issue_projects ip3 JOIN issues i1",
                 "JOIN issue_states s2",
-                "WHERE ip3.repo_id=p.repo_id AND ip3.project_id=p.id",
+                "WHERE ip3.repository_id=p.repository_id AND ip3.project_id=p.id",
                 "s2.type IN ('open','in progress')",
                 "ORDER BY i1.number LIMIT 5 OFFSET 0",
                 "FROM projects p",
@@ -603,12 +635,12 @@ mod multi_hop {
             &sql,
             &[
                 "FROM issue_projects ip6 JOIN projects p5",
-                "WHERE ip6.repo_id=i2.repo_id AND ip6.issue_number=i2.number",
+                "WHERE ip6.repository_id=i2.repository_id AND ip6.issue_number=i2.number",
                 "FROM issue_milestones im4 JOIN issues i2",
-                "WHERE im4.repo_id=m1.repo_id AND im4.project_id=m1.project_id AND im4.milestone_id=m1.id",
+                "WHERE im4.repository_id=m1.repository_id AND im4.project_id=m1.project_id AND im4.milestone_id=m1.id",
                 "ORDER BY i2.number LIMIT 6 OFFSET 0",
                 "FROM project_milestones m1",
-                "WHERE m1.repo_id=p.repo_id AND m1.project_id=p.id",
+                "WHERE m1.repository_id=p.repository_id AND m1.project_id=p.id",
                 "ORDER BY m1.position,m1.id LIMIT 4 OFFSET 0",
                 "FROM projects p",
             ],

@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT issue_number AS \"issue_number!: i64\", pull_request_number AS \"pull_request_number!: i64\"\n               FROM issue_pull_request_links WHERE repository_id = ? ORDER BY issue_number, pull_request_number",
+  "describe": {
+    "columns": [
+      {
+        "name": "issue_number!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "pull_request_number!: i64",
+        "ordinal": 1,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "bd024c3cabbf581cde2833473bf8e56025f79f481a845a2ba78f5420dc06c09c"
+}

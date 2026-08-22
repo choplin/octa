@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR IGNORE INTO wiki_links (repository_id, from_slug, to_slug) VALUES (?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "fcbbb57dc73b8c777125e54ccb273df849a8faa9f7e2dad41d4a45e84d5360e6"
+}

@@ -27,30 +27,33 @@ fn git(dir: &Path, args: &[&str]) {
 
 /// A throwaway repository plus its own isolated global store.
 struct Env {
-    repo: TempDir,
+    repository: TempDir,
     xdg: TempDir,
     leases: RefCell<HashMap<(PathBuf, String), String>>,
 }
 
 impl Env {
     fn new() -> Self {
-        let repo = TempDir::new().unwrap();
-        git(repo.path(), &["init", "-q", "-b", "main"]);
-        git(repo.path(), &["config", "user.email", "test@example.com"]);
-        git(repo.path(), &["config", "user.name", "test"]);
+        let repository = TempDir::new().unwrap();
+        git(repository.path(), &["init", "-q", "-b", "main"]);
         git(
-            repo.path(),
+            repository.path(),
+            &["config", "user.email", "test@example.com"],
+        );
+        git(repository.path(), &["config", "user.name", "test"]);
+        git(
+            repository.path(),
             &["commit", "-q", "--allow-empty", "-m", "init"],
         );
         Env {
-            repo,
+            repository,
             xdg: TempDir::new().unwrap(),
             leases: RefCell::new(HashMap::new()),
         }
     }
 
     fn path(&self) -> &Path {
-        self.repo.path()
+        self.repository.path()
     }
 
     /// Run octa in `dir`, pointing its global store at this env's XDG dir.
@@ -187,7 +190,8 @@ fn protected_issue_number<'a>(args: &'a [&str]) -> Option<&'a str> {
         {
             Some(number)
         }
-        ["pr", "create", rest @ ..] | ["pr", "add" | "remove", rest @ ..] => rest
+        ["pull-request" | "pr", "create", rest @ ..]
+        | ["pull-request" | "pr", "add" | "remove", rest @ ..] => rest
             .windows(2)
             .find_map(|pair| (pair[0] == "--issue").then_some(pair[1])),
         _ => None,
@@ -258,9 +262,62 @@ fn help_routes_label_lookups_from_the_top_level() {
 }
 
 #[test]
-fn issue_tui_rejects_ambiguous_all_repo_details_before_terminal_mode() {
+fn formal_repository_and_pull_request_names_keep_short_aliases() {
     let env = Env::new();
-    let output = env.run(&["issue", "tui", "--all-repos"]);
+    env.ok(&["issue", "open", "--title", "Naming"]);
+
+    let help = env.help(&["--help"]);
+    assert!(help.contains("repository"));
+    assert!(help.contains("pull-request"));
+
+    let formal_repositories = json(&env.ok(&["repository", "list", "--json"]));
+    let alias_repositories = json(&env.ok(&["repo", "list", "--json"]));
+    assert_eq!(formal_repositories, alias_repositories);
+    let repository_name = formal_repositories[0]["name"].as_str().unwrap();
+
+    let issue = json(&env.ok(&["issue", "show", "1", "--json"]));
+    assert_eq!(issue["repo"], repository_name);
+    assert!(issue.get("repository").is_none());
+
+    assert_eq!(
+        json(&env.ok(&["issue", "list", "--repository", repository_name, "--json",])),
+        json(&env.ok(&["issue", "list", "--repo", repository_name, "--json"])),
+    );
+    assert_eq!(
+        json(&env.ok(&["issue", "list", "--all-repositories", "--json"])),
+        json(&env.ok(&["issue", "list", "--all-repos", "--json"])),
+    );
+
+    env.ok(&["pr", "create", "--title", "Alias", "--branch", "alias"]);
+    let pull_request = json(&env.ok(&["pull-request", "show", "1", "--json"]));
+    assert_eq!(pull_request["title"], "Alias");
+    assert_eq!(pull_request["repo"], repository_name);
+    assert!(pull_request.get("repository").is_none());
+
+    let graphql = env.query_stdin(
+        "{ formal: repositories { name } legacy: repos { name } }",
+        &[],
+    );
+    assert!(graphql.status.success());
+    let graphql = json(&String::from_utf8(graphql.stdout).unwrap());
+    assert_eq!(graphql["data"]["formal"], graphql["data"]["legacy"]);
+
+    env.ok(&["issue", "add", "1", "--pull-request", "1"]);
+    assert_eq!(
+        json(&env.ok(&["issue", "show", "1", "--json"]))["pull_requests"][0]["number"],
+        1,
+    );
+    env.ok(&["issue", "remove", "1", "--pr", "1"]);
+    assert_eq!(
+        json(&env.ok(&["issue", "show", "1", "--json"]))["pull_requests"],
+        serde_json::json!([]),
+    );
+}
+
+#[test]
+fn issue_tui_rejects_ambiguous_all_repository_details_before_terminal_mode() {
+    let env = Env::new();
+    let output = env.run(&["issue", "tui", "--all-repositories"]);
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("single repository"));
 }
@@ -275,7 +332,7 @@ fn create_list_show_roundtrip() {
             .trim(),
         "#1"
     );
-    // Per-repo sequential numbering.
+    // Per-repository sequential numbering.
     assert_eq!(env.ok(&["issue", "open", "--title", "Second"]).trim(), "#2");
 
     let listed = env.ok(&["issue", "list"]);
@@ -743,18 +800,27 @@ fn parent_child_project_mutations_are_independent_and_inheritance_is_initial_onl
 #[test]
 fn parent_references_are_repository_scoped() {
     let env = Env::new();
-    env.ok(&["issue", "open", "--title", "Repo one child"]);
+    env.ok(&["issue", "open", "--title", "Repository one child"]);
 
-    let repo2 = TempDir::new().unwrap();
-    git(repo2.path(), &["init", "-q", "-b", "main"]);
-    git(repo2.path(), &["config", "user.email", "test@example.com"]);
-    git(repo2.path(), &["config", "user.name", "test"]);
+    let repository2 = TempDir::new().unwrap();
+    git(repository2.path(), &["init", "-q", "-b", "main"]);
     git(
-        repo2.path(),
+        repository2.path(),
+        &["config", "user.email", "test@example.com"],
+    );
+    git(repository2.path(), &["config", "user.name", "test"]);
+    git(
+        repository2.path(),
         &["commit", "-q", "--allow-empty", "-m", "init"],
     );
-    env.ok_in(repo2.path(), &["issue", "open", "--title", "Repo two one"]);
-    env.ok_in(repo2.path(), &["issue", "open", "--title", "Repo two two"]);
+    env.ok_in(
+        repository2.path(),
+        &["issue", "open", "--title", "Repository two one"],
+    );
+    env.ok_in(
+        repository2.path(),
+        &["issue", "open", "--title", "Repository two two"],
+    );
 
     let rejected = env.run(&["issue", "set", "1", "--parent", "2"]);
     assert!(!rejected.status.success());
@@ -1501,7 +1567,7 @@ fn every_issue_mutation_surface_rejects_missing_and_mismatched_leases() {
     env.ok(&["issue", "open", "--title", "Peer"]);
     env.ok(&["config", "issue", "label", "create", "guarded"]);
     env.ok(&[
-        "pr",
+        "pull-request",
         "create",
         "--title",
         "Implementation",
@@ -1516,12 +1582,19 @@ fn every_issue_mutation_surface_rejects_missing_and_mismatched_leases() {
         vec!["issue", "unset", "1", "--parent"],
         vec!["issue", "add", "1", "--label", "guarded"],
         vec!["issue", "remove", "1", "--label", "guarded"],
-        vec!["issue", "add", "1", "--pr", "1"],
-        vec!["issue", "remove", "1", "--pr", "1"],
-        vec!["pr", "add", "1", "--issue", "1"],
-        vec!["pr", "remove", "1", "--issue", "1"],
+        vec!["issue", "add", "1", "--pull-request", "1"],
+        vec!["issue", "remove", "1", "--pull-request", "1"],
+        vec!["pull-request", "add", "1", "--issue", "1"],
+        vec!["pull-request", "remove", "1", "--issue", "1"],
         vec![
-            "pr", "create", "--title", "Linked", "--branch", "linked", "--issue", "1",
+            "pull-request",
+            "create",
+            "--title",
+            "Linked",
+            "--branch",
+            "linked",
+            "--issue",
+            "1",
         ],
     ];
     for command in commands {
@@ -1530,10 +1603,20 @@ fn every_issue_mutation_surface_rejects_missing_and_mismatched_leases() {
             !missing.status.success(),
             "missing lease unexpectedly accepted for {command:?}"
         );
+        assert!(
+            String::from_utf8_lossy(&missing.stderr).contains("lease"),
+            "missing lease failed for the wrong reason for {command:?}: {}",
+            String::from_utf8_lossy(&missing.stderr)
+        );
         let mismatch = env.run_with_lease(&command, "incorrect-lease");
         assert!(
             !mismatch.status.success(),
             "mismatched lease unexpectedly accepted for {command:?}"
+        );
+        assert!(
+            String::from_utf8_lossy(&mismatch.stderr).contains("lease"),
+            "mismatched lease failed for the wrong reason for {command:?}: {}",
+            String::from_utf8_lossy(&mismatch.stderr)
         );
     }
 
@@ -1552,12 +1635,12 @@ fn concurrent_lease_acquisition_has_exactly_one_winner() {
     let mut workers = Vec::new();
     for _ in 0..2 {
         let barrier = Arc::clone(&barrier);
-        let repo = env.path().to_path_buf();
+        let repository = env.path().to_path_buf();
         let xdg = env.xdg.path().to_path_buf();
         workers.push(thread::spawn(move || {
             barrier.wait();
             Command::new(bin())
-                .current_dir(repo)
+                .current_dir(repository)
                 .env("XDG_DATA_HOME", xdg)
                 .args(["issue", "lock", "1"])
                 .output()
@@ -1766,10 +1849,10 @@ fn related_issues_are_symmetric_idempotent_and_filterable() {
 // --- Pull requests ----------------------------------------------------------
 
 #[test]
-fn pr_lifecycle_tracks_branch_and_comments() {
+fn pull_request_lifecycle_tracks_branch_and_comments() {
     let env = Env::new();
     let created = env.ok(&[
-        "pr",
+        "pull-request",
         "create",
         "--title",
         "Add feature",
@@ -1778,32 +1861,35 @@ fn pr_lifecycle_tracks_branch_and_comments() {
     ]);
     assert_eq!(created.trim(), "#1");
 
-    env.ok(&["pr", "comment", "1", "--body", "looks good"]);
-    let show = json(&env.ok(&["pr", "show", "1", "--json"]));
+    env.ok(&["pull-request", "comment", "1", "--body", "looks good"]);
+    let show = json(&env.ok(&["pull-request", "show", "1", "--json"]));
     assert_eq!(show["branch"], "feat/x");
     assert_eq!(show["comments"].as_array().unwrap().len(), 1);
-    let text_show = env.ok(&["pr", "show", "1"]);
+    let text_show = env.ok(&["pull-request", "show", "1"]);
     assert!(text_show.contains("--- comments ---"));
     assert!(text_show.contains("looks good"));
 
-    env.ok(&["pr", "set-state", "1", "closed"]);
-    let open = env.ok(&["pr", "list"]);
+    env.ok(&["pull-request", "set-state", "1", "closed"]);
+    let open = env.ok(&["pull-request", "list"]);
     assert!(
         !open.contains("Add feature"),
-        "closed PR still open: {open}"
+        "closed pull request still open: {open}"
     );
-    let all = env.ok(&["pr", "list", "--state", "all"]);
-    assert!(all.contains("Add feature"), "PR missing from all: {all}");
+    let all = env.ok(&["pull-request", "list", "--state", "all"]);
+    assert!(
+        all.contains("Add feature"),
+        "pull request missing from all: {all}"
+    );
 }
 
 #[test]
-fn issue_pr_links_are_many_to_many_idempotent_and_unlink_exact_pairs() {
+fn issue_pull_request_links_are_many_to_many_idempotent_and_unlink_exact_pairs() {
     let env = Env::new();
     env.ok(&["issue", "open", "--title", "Implement"]);
     env.ok(&["issue", "open", "--title", "Other"]);
 
     env.ok(&[
-        "pr",
+        "pull-request",
         "create",
         "--title",
         "Implementation",
@@ -1821,19 +1907,19 @@ fn issue_pr_links_are_many_to_many_idempotent_and_unlink_exact_pairs() {
     assert!(text.contains("pull request: #1 Implementation"));
     assert!(text.contains("branch: feat/implementation"));
 
-    let second_pr = env.ok(&[
-        "pr",
+    let second_pull_request = env.ok(&[
+        "pull-request",
         "create",
         "--title",
-        "Existing compatible PR",
+        "Existing compatible pull request",
         "--branch",
         "feat/existing",
     ]);
-    assert_eq!(second_pr.trim(), "#2");
-    env.ok(&["pr", "add", "2", "--issue", "2"]);
-    env.ok(&["pr", "add", "2", "--issue", "1"]);
-    env.ok(&["pr", "add", "1", "--issue", "2"]);
-    env.ok(&["pr", "add", "1", "--issue", "1"]);
+    assert_eq!(second_pull_request.trim(), "#2");
+    env.ok(&["pull-request", "add", "2", "--issue", "2"]);
+    env.ok(&["pull-request", "add", "2", "--issue", "1"]);
+    env.ok(&["pull-request", "add", "1", "--issue", "2"]);
+    env.ok(&["pull-request", "add", "1", "--issue", "1"]);
 
     let first_issue = json(&env.ok(&["issue", "show", "1", "--json"]));
     assert_eq!(
@@ -1841,7 +1927,7 @@ fn issue_pr_links_are_many_to_many_idempotent_and_unlink_exact_pairs() {
             .as_array()
             .unwrap()
             .iter()
-            .map(|pr| pr["number"].as_i64().unwrap())
+            .map(|pull_request| pull_request["number"].as_i64().unwrap())
             .collect::<Vec<_>>(),
         vec![1, 2]
     );
@@ -1851,14 +1937,14 @@ fn issue_pr_links_are_many_to_many_idempotent_and_unlink_exact_pairs() {
             .as_array()
             .unwrap()
             .iter()
-            .map(|pr| pr["number"].as_i64().unwrap())
+            .map(|pull_request| pull_request["number"].as_i64().unwrap())
             .collect::<Vec<_>>(),
         vec![1, 2]
     );
 
     // Unlink removes only the requested pair, leaving both other cardinality
     // directions intact.
-    env.ok(&["pr", "remove", "1", "--issue", "1"]);
+    env.ok(&["pull-request", "remove", "1", "--issue", "1"]);
     let first_issue = json(&env.ok(&["issue", "show", "1", "--json"]));
     assert_eq!(first_issue["pull_requests"].as_array().unwrap().len(), 1);
     assert_eq!(first_issue["pull_requests"][0]["number"], 2);
@@ -1867,11 +1953,11 @@ fn issue_pr_links_are_many_to_many_idempotent_and_unlink_exact_pairs() {
         1
     );
 
-    let missing_pair = env.run(&["pr", "remove", "1", "--issue", "1"]);
+    let missing_pair = env.run(&["pull-request", "remove", "1", "--issue", "1"]);
     assert!(!missing_pair.status.success());
     assert!(String::from_utf8_lossy(&missing_pair.stderr).contains("is not linked"));
-    env.ok(&["pr", "add", "1", "--issue", "1"]);
-    env.ok(&["pr", "add", "1", "--issue", "1"]);
+    env.ok(&["pull-request", "add", "1", "--issue", "1"]);
+    env.ok(&["pull-request", "add", "1", "--issue", "1"]);
     assert_eq!(
         json(&env.ok(&["issue", "show", "1", "--json"]))["pull_requests"]
             .as_array()
@@ -1883,18 +1969,25 @@ fn issue_pr_links_are_many_to_many_idempotent_and_unlink_exact_pairs() {
 }
 
 #[test]
-fn linked_pr_create_failure_leaves_no_orphan_and_links_are_repo_local() {
+fn linked_pull_request_create_failure_leaves_no_orphan_and_links_are_repository_local() {
     let env = Env::new();
     env.ok(&["issue", "open", "--title", "Owner"]);
     env.ok(&[
-        "pr", "create", "--title", "Owned", "--branch", "owned", "--issue", "1",
+        "pull-request",
+        "create",
+        "--title",
+        "Owned",
+        "--branch",
+        "owned",
+        "--issue",
+        "1",
     ]);
 
     let second = env.ok(&[
-        "pr",
+        "pull-request",
         "create",
         "--title",
-        "Second linked PR",
+        "Second linked pull request",
         "--branch",
         "second",
         "--issue",
@@ -1903,7 +1996,7 @@ fn linked_pr_create_failure_leaves_no_orphan_and_links_are_repo_local() {
     assert_eq!(second.trim(), "#2");
 
     let missing_issue = env.run(&[
-        "pr",
+        "pull-request",
         "create",
         "--title",
         "Must not exist",
@@ -1913,28 +2006,37 @@ fn linked_pr_create_failure_leaves_no_orphan_and_links_are_repo_local() {
         "999",
     ]);
     assert!(!missing_issue.status.success());
-    let prs = json(&env.ok(&["pr", "list", "--state", "all", "--json"]));
-    assert_eq!(prs.as_array().unwrap().len(), 2);
-    assert_eq!(prs[0]["branch"], "owned");
-    assert_eq!(prs[1]["branch"], "second");
+    let pull_requests = json(&env.ok(&["pull-request", "list", "--state", "all", "--json"]));
+    assert_eq!(pull_requests.as_array().unwrap().len(), 2);
+    assert_eq!(pull_requests[0]["branch"], "owned");
+    assert_eq!(pull_requests[1]["branch"], "second");
 
-    let repo2 = TempDir::new().unwrap();
-    git(repo2.path(), &["init", "-q", "-b", "main"]);
-    git(repo2.path(), &["config", "user.email", "test@example.com"]);
-    git(repo2.path(), &["config", "user.name", "test"]);
+    let repository2 = TempDir::new().unwrap();
+    git(repository2.path(), &["init", "-q", "-b", "main"]);
     git(
-        repo2.path(),
+        repository2.path(),
+        &["config", "user.email", "test@example.com"],
+    );
+    git(repository2.path(), &["config", "user.name", "test"]);
+    git(
+        repository2.path(),
         &["commit", "-q", "--allow-empty", "-m", "init"],
     );
     env.ok_in(
-        repo2.path(),
+        repository2.path(),
         &[
-            "pr", "create", "--title", "Repo two", "--branch", "repo-two",
+            "pull-request",
+            "create",
+            "--title",
+            "Repository two",
+            "--branch",
+            "repository-two",
         ],
     );
-    let missing_in_repo_one = env.run(&["pr", "add", "3", "--issue", "1"]);
-    assert!(!missing_in_repo_one.status.success());
-    assert!(String::from_utf8_lossy(&missing_in_repo_one.stderr).contains("PR #3 not found"));
+    let missing_in_repository_one = env.run(&["pull-request", "add", "3", "--issue", "1"]);
+    assert!(!missing_in_repository_one.status.success());
+    assert!(String::from_utf8_lossy(&missing_in_repository_one.stderr)
+        .contains("pull request #3 not found"));
 }
 
 // --- Wiki -------------------------------------------------------------------
@@ -1990,7 +2092,7 @@ fn wiki_pages_link_and_backlink() {
     assert!(design_text.contains("backlinks: home"));
 }
 
-// --- Cross-worktree and cross-repo scope ------------------------------------
+// --- Cross-worktree and cross-repository scope ------------------------------------
 
 #[test]
 fn issues_are_shared_across_worktrees() {
@@ -2029,33 +2131,33 @@ fn issues_are_shared_across_worktrees() {
 }
 
 #[test]
-fn all_repos_aggregates_across_repositories() {
+fn all_repositories_aggregates_across_repositories() {
     let env = Env::new();
-    env.ok(&["issue", "open", "--title", "In first repo"]);
+    env.ok(&["issue", "open", "--title", "In first repository"]);
     env.ok(&["issue", "close", "1"]);
 
     // A second repository sharing the same global store.
-    let repo2 = TempDir::new().unwrap();
-    git(repo2.path(), &["init", "-q", "-b", "main"]);
-    git(repo2.path(), &["config", "user.email", "t@e.com"]);
-    git(repo2.path(), &["config", "user.name", "t"]);
+    let repository2 = TempDir::new().unwrap();
+    git(repository2.path(), &["init", "-q", "-b", "main"]);
+    git(repository2.path(), &["config", "user.email", "t@e.com"]);
+    git(repository2.path(), &["config", "user.name", "t"]);
     git(
-        repo2.path(),
+        repository2.path(),
         &["commit", "-q", "--allow-empty", "-m", "init"],
     );
     env.ok_in(
-        repo2.path(),
-        &["issue", "open", "--title", "In second repo"],
+        repository2.path(),
+        &["issue", "open", "--title", "In second repository"],
     );
 
-    // Each repo numbers from 1 independently.
-    let second = json(&env.ok_in(repo2.path(), &["issue", "list", "--json"]));
+    // Each repository numbers from 1 independently.
+    let second = json(&env.ok_in(repository2.path(), &["issue", "list", "--json"]));
     assert_eq!(second.as_array().unwrap()[0]["number"], 1);
 
-    // --all-repos sees both.
+    // --all-repositories sees both.
     let all = json(&env.ok_in(
-        repo2.path(),
-        &["issue", "list", "--all-repos", "--all", "--json"],
+        repository2.path(),
+        &["issue", "list", "--all-repositories", "--all", "--json"],
     ));
     let titles: Vec<&str> = all
         .as_array()
@@ -2064,36 +2166,39 @@ fn all_repos_aggregates_across_repositories() {
         .map(|i| i["title"].as_str().unwrap())
         .collect();
     assert!(
-        titles.contains(&"In first repo"),
-        "cross-repo view missing first: {titles:?}"
+        titles.contains(&"In first repository"),
+        "cross-repository view missing first: {titles:?}"
     );
     assert!(
-        titles.contains(&"In second repo"),
-        "cross-repo view missing second: {titles:?}"
+        titles.contains(&"In second repository"),
+        "cross-repository view missing second: {titles:?}"
     );
 
     // States are global configuration, so both state selectors work across
-    // repositories; only the repository-scoped filters need a single repo.
+    // repositories; only the repository-scoped filters need a single repository.
     let closed = json(&env.ok_in(
-        repo2.path(),
+        repository2.path(),
         &[
             "issue",
             "list",
-            "--all-repos",
+            "--all-repositories",
             "--state-type",
             "closed",
             "--json",
         ],
     ));
     assert_eq!(closed.as_array().unwrap().len(), 1);
-    assert_eq!(closed.as_array().unwrap()[0]["title"], "In first repo");
+    assert_eq!(
+        closed.as_array().unwrap()[0]["title"],
+        "In first repository"
+    );
 
     let named = json(&env.ok_in(
-        repo2.path(),
+        repository2.path(),
         &[
             "issue",
             "list",
-            "--all-repos",
+            "--all-repositories",
             "--state",
             "closed",
             "--json",
@@ -2102,10 +2207,10 @@ fn all_repos_aggregates_across_repositories() {
     assert_eq!(named.as_array().unwrap().len(), 1);
 
     for args in [
-        vec!["issue", "list", "--all-repos", "--label", "missing"],
-        vec!["issue", "list", "--all-repos", "--unblocked"],
+        vec!["issue", "list", "--all-repositories", "--label", "missing"],
+        vec!["issue", "list", "--all-repositories", "--unblocked"],
     ] {
-        let out = env.run_in(repo2.path(), &args);
+        let out = env.run_in(repository2.path(), &args);
         assert!(!out.status.success(), "{args:?} unexpectedly succeeded");
     }
 }
@@ -2124,20 +2229,20 @@ fn project_overview_aggregates_tallies_across_repositories() {
     ]);
     env.ok(&["issue", "start", "1"]);
 
-    let repo2 = TempDir::new().unwrap();
-    git(repo2.path(), &["init", "-q", "-b", "main"]);
-    git(repo2.path(), &["config", "user.email", "t@e.com"]);
-    git(repo2.path(), &["config", "user.name", "t"]);
+    let repository2 = TempDir::new().unwrap();
+    git(repository2.path(), &["init", "-q", "-b", "main"]);
+    git(repository2.path(), &["config", "user.email", "t@e.com"]);
+    git(repository2.path(), &["config", "user.name", "t"]);
     git(
-        repo2.path(),
+        repository2.path(),
         &["commit", "-q", "--allow-empty", "-m", "init"],
     );
     env.ok_in(
-        repo2.path(),
+        repository2.path(),
         &["project", "create", "--name", "Second outcome"],
     );
     env.ok_in(
-        repo2.path(),
+        repository2.path(),
         &[
             "issue",
             "open",
@@ -2148,7 +2253,10 @@ fn project_overview_aggregates_tallies_across_repositories() {
         ],
     );
 
-    let all = json(&env.ok_in(repo2.path(), &["project", "list", "--all-repos", "--json"]));
+    let all = json(&env.ok_in(
+        repository2.path(),
+        &["project", "list", "--all-repositories", "--json"],
+    ));
     let projects = all.as_array().unwrap();
     assert_eq!(projects.len(), 2);
     let first = projects
@@ -2164,13 +2272,22 @@ fn project_overview_aggregates_tallies_across_repositories() {
 }
 
 #[test]
-fn pr_state_filter_and_edit_validation_are_preserved() {
+fn pull_request_state_filter_and_edit_validation_are_preserved() {
     let env = Env::new();
-    env.ok(&["pr", "create", "--title", "One", "--branch", "one"]);
-    env.ok(&["pr", "set-state", "1", "waiting"]);
-    assert!(env.ok(&["pr", "list", "--state", "closed"]).contains("One"));
-    assert!(!env.ok(&["pr", "list"]).contains("One"));
-    let out = env.run(&["pr", "set", "1"]);
+    env.ok(&[
+        "pull-request",
+        "create",
+        "--title",
+        "One",
+        "--branch",
+        "one",
+    ]);
+    env.ok(&["pull-request", "set-state", "1", "waiting"]);
+    assert!(env
+        .ok(&["pull-request", "list", "--state", "closed"])
+        .contains("One"));
+    assert!(!env.ok(&["pull-request", "list"]).contains("One"));
+    let out = env.run(&["pull-request", "set", "1"]);
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("nothing to update"));
 }
@@ -2310,7 +2427,14 @@ fn graphql_query_traverses_entities_with_variables_filters_and_pagination() {
     env.ok(&["issue", "add", "1", "--blocks", "2"]);
     env.ok(&["issue", "add", "1", "--related", "2"]);
     env.ok(&[
-        "pr", "create", "--title", "Change", "--branch", "change", "--issue", "1",
+        "pull-request",
+        "create",
+        "--title",
+        "Change",
+        "--branch",
+        "change",
+        "--issue",
+        "1",
     ]);
     env.ok(&["wiki", "create", "--title", "Home", "--body", "[[guide]]"]);
     env.ok(&["wiki", "create", "--title", "Guide", "--slug", "guide"]);
@@ -2588,7 +2712,10 @@ fn help_enumerates_value_sets_fixed_in_code() {
             vec!["config", "project", "label-group", "create", "--help"],
             vec!["single", "multi"],
         ),
-        (vec!["pr", "list", "--help"], vec!["open", "closed", "all"]),
+        (
+            vec!["pull-request", "list", "--help"],
+            vec!["open", "closed", "all"],
+        ),
     ] {
         let stdout = env.help(&args);
         assert!(

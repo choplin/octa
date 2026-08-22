@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO issue_comments (repository_id, issue_number, body) VALUES (?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "6bce45f04b0dd7636e8a6385a8cc09e481ccbcc4f605a48cb1ffb9405b63ddb7"
+}

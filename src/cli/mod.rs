@@ -1,7 +1,7 @@
 //! CLI schema and top-level dispatch.
 use crate::domain::label::LabelSelection;
 use crate::domain::project::ProjectStateType;
-use crate::store::{IssueListSelector, RepoScope, StateFilter, StateType, Store};
+use crate::store::{IssueListSelector, RepositoryScope, StateFilter, StateType, Store};
 use anyhow::Result;
 use clap::builder::PossibleValuesParser;
 use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand};
@@ -11,10 +11,10 @@ mod help_values;
 mod issue;
 mod label;
 mod output;
-mod pr;
 mod project;
 mod project_state;
-mod repo;
+mod pull_request;
+mod repository;
 mod state;
 mod wiki;
 
@@ -50,7 +50,7 @@ fn label_selections() -> PossibleValuesParser {
     PossibleValuesParser::new(LabelSelection::VALUES.map(LabelSelection::as_str))
 }
 
-fn pr_state_filters() -> PossibleValuesParser {
+fn pull_request_state_filters() -> PossibleValuesParser {
     PossibleValuesParser::new(StateFilter::VALUES.map(StateFilter::as_str))
 }
 
@@ -58,7 +58,7 @@ fn pr_state_filters() -> PossibleValuesParser {
 #[command(
     name = "octa",
     version,
-    about = "GitHub-style Issue / PR / Wiki collaboration, fully local"
+    about = "GitHub-style Issue / pull request / Wiki collaboration, fully local"
 )]
 pub struct Cli {
     #[command(flatten)]
@@ -69,22 +69,27 @@ pub struct Cli {
 
 #[derive(Args)]
 struct ScopeArgs {
-    /// Select an already-known repository by name; `octa repo list` names them.
-    #[arg(long, global = true)]
-    repo: Option<String>,
+    /// Select an already-known repository by name; `octa repository list` names them.
+    #[arg(long, alias = "repo", global = true)]
+    repository: Option<String>,
     /// Aggregate read-only commands across all repositories.
-    #[arg(long, global = true, conflicts_with = "repo")]
-    all_repos: bool,
+    #[arg(
+        long,
+        alias = "all-repos",
+        global = true,
+        conflicts_with = "repository"
+    )]
+    all_repositories: bool,
 }
 
 impl ScopeArgs {
-    fn to_scope(&self) -> RepoScope {
-        if self.all_repos {
-            RepoScope::All
-        } else if let Some(name) = &self.repo {
-            RepoScope::Named(name.clone())
+    fn to_scope(&self) -> RepositoryScope {
+        if self.all_repositories {
+            RepositoryScope::All
+        } else if let Some(name) = &self.repository {
+            RepositoryScope::Named(name.clone())
         } else {
-            RepoScope::Current
+            RepositoryScope::Current
         }
     }
 }
@@ -109,9 +114,10 @@ enum TopCommand {
         command: IssueCommand,
     },
     /// Manage pull requests.
-    Pr {
+    #[command(alias = "pr")]
+    PullRequest {
         #[command(subcommand)]
-        command: PrCommand,
+        command: PullRequestCommand,
     },
     /// Manage wiki pages.
     Wiki {
@@ -139,14 +145,15 @@ enum TopCommand {
     /// repository records it, keyed by that repository's Git common directory.
     /// Every worktree of one repository therefore resolves to the same entry,
     /// and a repository appears here whether or not it holds any Issues.
-    Repo {
+    #[command(alias = "repo")]
+    Repository {
         #[command(subcommand)]
-        command: RepoCommand,
+        command: RepositoryCommand,
     },
 }
 
 #[derive(Subcommand)]
-pub(crate) enum RepoCommand {
+pub(crate) enum RepositoryCommand {
     /// List the repositories octa has recorded.
     List {
         #[arg(long)]
@@ -329,8 +336,8 @@ pub(crate) enum IssueCommand {
         blocks: Option<i64>,
         #[arg(long)]
         related: Option<i64>,
-        #[arg(long)]
-        pr: Option<i64>,
+        #[arg(long, alias = "pr")]
+        pull_request: Option<i64>,
         #[arg(long)]
         lease: Option<String>,
     },
@@ -346,8 +353,8 @@ pub(crate) enum IssueCommand {
         blocks: Option<i64>,
         #[arg(long)]
         related: Option<i64>,
-        #[arg(long)]
-        pr: Option<i64>,
+        #[arg(long, alias = "pr")]
+        pull_request: Option<i64>,
         #[arg(long)]
         lease: Option<String>,
     },
@@ -662,7 +669,7 @@ pub(crate) enum ProjectStateCommand {
 }
 
 #[derive(Subcommand)]
-pub(crate) enum PrCommand {
+pub(crate) enum PullRequestCommand {
     /// Create a pull request.
     Create {
         #[arg(long)]
@@ -671,7 +678,7 @@ pub(crate) enum PrCommand {
         branch: String,
         #[arg(long, default_value = "")]
         body: String,
-        /// Link the new PR to an issue atomically.
+        /// Link the new pull request to an issue atomically.
         #[arg(long)]
         issue: Option<i64>,
         #[arg(long, requires = "issue")]
@@ -682,7 +689,7 @@ pub(crate) enum PrCommand {
     /// List pull requests.
     List {
         /// Which pull requests to include.
-        #[arg(long, default_value = "open", value_parser = pr_state_filters())]
+        #[arg(long, default_value = "open", value_parser = pull_request_state_filters())]
         state: String,
         #[arg(long)]
         json: bool,
@@ -790,7 +797,7 @@ pub(crate) enum LabelGroupCommand {
         json: bool,
     },
 }
-pub(crate) fn parse_pr_state(value: &str) -> Result<StateFilter> {
+pub(crate) fn parse_pull_request_state(value: &str) -> Result<StateFilter> {
     StateFilter::parse(value)
 }
 
@@ -798,29 +805,35 @@ pub async fn run(cli: Cli) -> Result<()> {
     // Configuration is global. A repository selector would suggest the command
     // targets one repository's settings, so reject it instead of ignoring it.
     if matches!(cli.command, TopCommand::Config { .. }) {
-        if cli.scope.all_repos {
-            anyhow::bail!("configuration is global; --all-repos does not apply to `octa config`");
+        if cli.scope.all_repositories {
+            anyhow::bail!(
+                "configuration is global; --all-repositories does not apply to `octa config`"
+            );
         }
-        if cli.scope.repo.is_some() {
-            anyhow::bail!("configuration is global; --repo does not apply to `octa config`");
+        if cli.scope.repository.is_some() {
+            anyhow::bail!("configuration is global; --repository does not apply to `octa config`");
         }
     }
-    // `octa repo` reports on the store itself, so a repository selector has
+    // `octa repository` reports on the store itself, so a repository selector has
     // nothing to select. Rejecting it says so; ignoring it would let a caller
     // believe the listing had been narrowed.
-    if matches!(cli.command, TopCommand::Repo { .. }) {
-        if cli.scope.all_repos {
-            anyhow::bail!("`octa repo` already covers every repository; drop --all-repos");
+    if matches!(cli.command, TopCommand::Repository { .. }) {
+        if cli.scope.all_repositories {
+            anyhow::bail!(
+                "`octa repository` already covers every repository; drop --all-repositories"
+            );
         }
-        if cli.scope.repo.is_some() {
-            anyhow::bail!("`octa repo` reports on the whole store; --repo does not apply");
+        if cli.scope.repository.is_some() {
+            anyhow::bail!(
+                "`octa repository` reports on the whole store; --repository does not apply"
+            );
         }
     }
     // The listing is store-wide, so it resolves no current repository. That
     // keeps it usable outside a Git repository and stops a plain listing from
     // registering the repository the caller happens to be standing in.
     let scope = match cli.command {
-        TopCommand::Repo { .. } => RepoScope::All,
+        TopCommand::Repository { .. } => RepositoryScope::All,
         _ => cli.scope.to_scope(),
     };
     let store = Store::open(scope).await?;
@@ -841,9 +854,9 @@ pub async fn run(cli: Cli) -> Result<()> {
                 Ok(())
             }
         }
-        TopCommand::Repo { command } => repo::run(&store, command).await,
+        TopCommand::Repository { command } => repository::run(&store, command).await,
         TopCommand::Issue { command } => issue::run(&store, command).await,
-        TopCommand::Pr { command } => pr::run(&store, command).await,
+        TopCommand::PullRequest { command } => pull_request::run(&store, command).await,
         TopCommand::Wiki { command } => wiki::run(&store, command).await,
         TopCommand::Config { command } => match command {
             ConfigCommand::Issue { command } => match command {

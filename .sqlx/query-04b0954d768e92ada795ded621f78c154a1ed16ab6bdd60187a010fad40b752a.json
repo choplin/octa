@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE project_milestones SET\n               name = COALESCE(?, name),\n               description = COALESCE(?, description),\n               status = COALESCE(?, status),\n               position = COALESCE(?, position),\n               start_date = CASE WHEN ? THEN NULL ELSE COALESCE(?, start_date) END,\n               target_date = CASE WHEN ? THEN NULL ELSE COALESCE(?, target_date) END,\n               updated_at = datetime('now')\n           WHERE repository_id = ? AND project_id = ? AND id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 11
+    },
+    "nullable": []
+  },
+  "hash": "04b0954d768e92ada795ded621f78c154a1ed16ab6bdd60187a010fad40b752a"
+}

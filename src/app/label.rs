@@ -77,15 +77,18 @@ async fn project_group_names(pool: &SqlitePool) -> Result<String> {
 
 pub async fn attach(
     pool: &SqlitePool,
-    repo: i64,
+    repository: i64,
     number: i64,
     label: &str,
     lease: Option<&str>,
 ) -> Result<()> {
-    if crate::sql::issue::get(pool, repo, number).await?.is_none() {
+    if crate::sql::issue::get(pool, repository, number)
+        .await?
+        .is_none()
+    {
         bail!("issue #{number} not found");
     }
-    let mut tx = crate::sql::issue::begin_lease_mutation(pool, repo, number, lease).await?;
+    let mut tx = crate::sql::issue::begin_lease_mutation(pool, repository, number, lease).await?;
     let Some(group) = crate::sql::label::label_group_tx(&mut tx, label).await? else {
         bail!(
             "unknown label {label:?}; available labels are: {}",
@@ -94,26 +97,29 @@ pub async fn attach(
     };
     if let Some(group) = group {
         if crate::sql::label::group_selection_tx(&mut tx, &group).await? == "single" {
-            crate::sql::label::replace_single_group(&mut tx, repo, number, &group).await?;
+            crate::sql::label::replace_single_group(&mut tx, repository, number, &group).await?;
         }
     }
-    crate::sql::label::attach(&mut tx, repo, number, label).await?;
+    crate::sql::label::attach(&mut tx, repository, number, label).await?;
     tx.commit().await?;
     Ok(())
 }
 
 pub async fn detach(
     pool: &SqlitePool,
-    repo: i64,
+    repository: i64,
     number: i64,
     label: &str,
     lease: Option<&str>,
 ) -> Result<()> {
-    if crate::sql::issue::get(pool, repo, number).await?.is_none() {
+    if crate::sql::issue::get(pool, repository, number)
+        .await?
+        .is_none()
+    {
         bail!("issue #{number} not found");
     }
-    let mut tx = crate::sql::issue::begin_lease_mutation(pool, repo, number, lease).await?;
-    crate::sql::label::detach(&mut tx, repo, number, label).await?;
+    let mut tx = crate::sql::issue::begin_lease_mutation(pool, repository, number, lease).await?;
+    crate::sql::label::detach(&mut tx, repository, number, label).await?;
     tx.commit().await?;
     Ok(())
 }
@@ -149,11 +155,11 @@ pub async fn list_project_groups(pool: &SqlitePool) -> Result<Vec<LabelGroup>> {
 
 pub async fn attach_project(
     pool: &SqlitePool,
-    repo: i64,
+    repository: i64,
     project_ref: &str,
     label: &str,
 ) -> Result<()> {
-    let project = crate::app::project::resolve(pool, repo, project_ref).await?;
+    let project = crate::app::project::resolve(pool, repository, project_ref).await?;
     let mut tx = pool.begin().await?;
     let Some(group) = crate::sql::label::project_label_group_tx(&mut tx, label).await? else {
         bail!(
@@ -163,21 +169,23 @@ pub async fn attach_project(
     };
     if let Some(group) = group {
         if crate::sql::label::project_group_selection_tx(&mut tx, &group).await? == "single" {
-            crate::sql::label::replace_project_single_group(&mut tx, repo, project.id, &group)
-                .await?;
+            crate::sql::label::replace_project_single_group(
+                &mut tx, repository, project.id, &group,
+            )
+            .await?;
         }
     }
-    crate::sql::label::attach_project(&mut tx, repo, project.id, label).await?;
+    crate::sql::label::attach_project(&mut tx, repository, project.id, label).await?;
     tx.commit().await?;
     Ok(())
 }
 
 pub async fn detach_project(
     pool: &SqlitePool,
-    repo: i64,
+    repository: i64,
     project_ref: &str,
     label: &str,
 ) -> Result<()> {
-    let project = crate::app::project::resolve(pool, repo, project_ref).await?;
-    crate::sql::label::detach_project(pool, repo, project.id, label).await
+    let project = crate::app::project::resolve(pool, repository, project_ref).await?;
+    crate::sql::label::detach_project(pool, repository, project.id, label).await
 }

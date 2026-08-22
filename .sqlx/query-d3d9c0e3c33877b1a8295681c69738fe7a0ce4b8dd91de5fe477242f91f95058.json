@@ -1,0 +1,62 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT\n                r.name AS \"repository!: String\",\n                p.number AS \"number!: i64\",\n                p.title AS \"title!: String\",\n                p.body AS \"body!: String\",\n                p.branch AS \"branch!: String\",\n                p.state AS \"state!: String\",\n                p.created_at AS \"created_at!: String\",\n                p.updated_at AS \"updated_at!: String\"\n            FROM\n                pull_requests p\n            JOIN\n                repositories r ON r.id = p.repository_id\n            ORDER BY\n                r.name, p.number\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "repository!: String",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "number!: i64",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "title!: String",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "body!: String",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "branch!: String",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "state!: String",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at!: String",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_at!: String",
+        "ordinal": 7,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "d3d9c0e3c33877b1a8295681c69738fe7a0ce4b8dd91de5fe477242f91f95058"
+}

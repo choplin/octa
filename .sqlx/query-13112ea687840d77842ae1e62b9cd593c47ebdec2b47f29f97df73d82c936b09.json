@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT json_array(id, repository_id, issue_number, body, created_at) AS \"row!: String\" FROM issue_comments ORDER BY id",
+  "describe": {
+    "columns": [
+      {
+        "name": "row!: String",
+        "ordinal": 0,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "13112ea687840d77842ae1e62b9cd593c47ebdec2b47f29f97df73d82c936b09"
+}

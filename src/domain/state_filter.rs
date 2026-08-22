@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 
-/// The `pr list` state selector.
+/// The `pull_request list` state selector.
 ///
 /// Pull requests carry their own `state` column, unrelated to the configured
 /// issue states. Issue listings select on the state type axis instead; see

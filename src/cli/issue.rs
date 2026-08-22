@@ -9,8 +9,8 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
         IssueCommand::Tui => {
             // Details are repository-scoped (issue numbers are only unique
             // within a repository), so the TUI deliberately rejects
-            // `--all-repos` before entering raw terminal mode.
-            store.repo_id()?;
+            // `--all-repositories` before entering raw terminal mode.
+            store.repository_id()?;
             // The TUI is a general-purpose issue browser, so it applies no
             // state selector: closed-type and custom states are shown too.
             let details = store.list_all_issue_details().await?;
@@ -128,12 +128,15 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                 if !detail.related.is_empty() {
                     lines.push(output.field("related: ", join_numbers(&detail.related)));
                 }
-                for pr in &detail.pull_requests {
+                for pull_request in &detail.pull_requests {
                     lines.push(output.field(
                         "pull request: ",
                         format!(
                             "#{} {} (branch: {}, state: {})",
-                            pr.number, pr.title, pr.branch, pr.state
+                            pull_request.number,
+                            pull_request.title,
+                            pull_request.branch,
+                            pull_request.state
                         ),
                     ));
                 }
@@ -258,14 +261,14 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             blocker,
             blocks,
             related,
-            pr,
+            pull_request,
             lease,
         } => {
             if label.is_none()
                 && blocker.is_none()
                 && blocks.is_none()
                 && related.is_none()
-                && pr.is_none()
+                && pull_request.is_none()
             {
                 anyhow::bail!("specify at least one relationship to add");
             }
@@ -287,8 +290,10 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                     .add_issue_relation(number, other, lease.as_deref())
                     .await?;
             }
-            if let Some(pr) = pr {
-                store.link_pr(number, pr, lease.as_deref()).await?;
+            if let Some(pull_request) = pull_request {
+                store
+                    .link_pull_request(number, pull_request, lease.as_deref())
+                    .await?;
             }
             output.print(output.line(Tone::Success, format!("updated issue #{number}")));
         }
@@ -298,14 +303,14 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             blocker,
             blocks,
             related,
-            pr,
+            pull_request,
             lease,
         } => {
             if label.is_none()
                 && blocker.is_none()
                 && blocks.is_none()
                 && related.is_none()
-                && pr.is_none()
+                && pull_request.is_none()
             {
                 anyhow::bail!("specify at least one relationship to remove");
             }
@@ -329,8 +334,10 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                     .remove_issue_relation(number, other, lease.as_deref())
                     .await?;
             }
-            if let Some(pr) = pr {
-                store.unlink_pr(number, pr, lease.as_deref()).await?;
+            if let Some(pull_request) = pull_request {
+                store
+                    .unlink_pull_request(number, pull_request, lease.as_deref())
+                    .await?;
             }
             output.print(output.line(Tone::Success, format!("updated issue #{number}")));
         }

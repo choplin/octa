@@ -10,12 +10,15 @@ pub(super) struct Planner {
     /// The active repository. Labels are global configuration, so a label's
     /// issues and projects are scoped by the active repository rather than by
     /// the label row itself.
-    repo: i64,
+    repository: i64,
 }
 
 impl Planner {
-    pub(super) fn new(repo: i64) -> Self {
-        Self { alias: 0, repo }
+    pub(super) fn new(repository: i64) -> Self {
+        Self {
+            alias: 0,
+            repository,
+        }
     }
     fn next(&mut self, prefix: &str) -> String {
         self.alias += 1;
@@ -43,7 +46,7 @@ impl Planner {
                 "leased" => {
                     let lease = self.next("lease");
                     format!(
-                        "json(CASE WHEN EXISTS(SELECT 1 FROM issue_leases {lease} WHERE {lease}.repo_id={issue}.repo_id AND {lease}.issue_number={issue}.number) THEN 'true' ELSE 'false' END)"
+                        "json(CASE WHEN EXISTS(SELECT 1 FROM issue_leases {lease} WHERE {lease}.repository_id={issue}.repository_id AND {lease}.issue_number={issue}.number) THEN 'true' ELSE 'false' END)"
                     )
                 }
                 "project" => {
@@ -52,20 +55,20 @@ impl Planner {
                     let ps = self.next("ps");
                     let state = project_state_join(&merged.children, &p, &ps, false);
                     let nested = self.project(&merged.children, &p, state.alias())?;
-                    format!("(SELECT {nested} FROM issue_projects {ip} JOIN projects {p} ON {p}.repo_id={ip}.repo_id AND {p}.id={ip}.project_id {} WHERE {ip}.repo_id={issue}.repo_id AND {ip}.issue_number={issue}.number)", state.sql())
+                    format!("(SELECT {nested} FROM issue_projects {ip} JOIN projects {p} ON {p}.repository_id={ip}.repository_id AND {p}.id={ip}.project_id {} WHERE {ip}.repository_id={issue}.repository_id AND {ip}.issue_number={issue}.number)", state.sql())
                 }
                 "milestone" => {
                     let m = self.next("m");
                     let im = self.next("im");
                     let nested = self.milestone(&merged.children, &m)?;
-                    format!("(SELECT {nested} FROM issue_milestones {im} JOIN project_milestones {m} ON {m}.repo_id={im}.repo_id AND {m}.project_id={im}.project_id AND {m}.id={im}.milestone_id WHERE {im}.repo_id={issue}.repo_id AND {im}.issue_number={issue}.number)")
+                    format!("(SELECT {nested} FROM issue_milestones {im} JOIN project_milestones {m} ON {m}.repository_id={im}.repository_id AND {m}.project_id={im}.project_id AND {m}.id={im}.milestone_id WHERE {im}.repository_id={issue}.repository_id AND {im}.issue_number={issue}.number)")
                 }
                 "labels" => {
                     let l = self.next("l");
                     let x = self.next("il");
                     let item = self.label(&merged.children, &l, LabelTarget::Issue)?;
                     let page = Page::from_field(field)?;
-                    list(format!("SELECT {item} item FROM issue_labels {x} JOIN labels {l} ON {l}.name={x}.label_name WHERE {x}.repo_id={issue}.repo_id AND {x}.issue_number={issue}.number ORDER BY {l}.name {}", page.sql()))
+                    list(format!("SELECT {item} item FROM issue_labels {x} JOIN labels {l} ON {l}.name={x}.label_name WHERE {x}.repository_id={issue}.repository_id AND {x}.issue_number={issue}.number ORDER BY {l}.name {}", page.sql()))
                 }
                 "blocks" | "blockedBy" => {
                     let i = self.next("i");
@@ -79,7 +82,7 @@ impl Planner {
                         ("blocker_number", "blocked_number")
                     };
                     let page = Page::from_field(field)?;
-                    list(format!("SELECT {nested} item FROM issue_deps {d} JOIN issues {i} ON {i}.repo_id={d}.repo_id AND {i}.number={d}.{join_col} {} WHERE {d}.repo_id={issue}.repo_id AND {d}.{parent_col}={issue}.number ORDER BY {i}.number {}", state.sql(), page.sql()))
+                    list(format!("SELECT {nested} item FROM issue_dependencies {d} JOIN issues {i} ON {i}.repository_id={d}.repository_id AND {i}.number={d}.{join_col} {} WHERE {d}.repository_id={issue}.repository_id AND {d}.{parent_col}={issue}.number ORDER BY {i}.number {}", state.sql(), page.sql()))
                 }
                 "related" => {
                     let i = self.next("i");
@@ -88,7 +91,7 @@ impl Planner {
                     let state = issue_state_join(&merged.children, &i, &s, false);
                     let nested = self.issue(&merged.children, &i, state.alias())?;
                     let page = Page::from_field(field)?;
-                    list(format!("SELECT {nested} item FROM issue_relations {r} JOIN issues {i} ON {i}.repo_id={r}.repo_id AND {i}.number=CASE WHEN {r}.low_number={issue}.number THEN {r}.high_number ELSE {r}.low_number END {} WHERE {r}.repo_id={issue}.repo_id AND ({r}.low_number={issue}.number OR {r}.high_number={issue}.number) ORDER BY {i}.number {}", state.sql(), page.sql()))
+                    list(format!("SELECT {nested} item FROM issue_relations {r} JOIN issues {i} ON {i}.repository_id={r}.repository_id AND {i}.number=CASE WHEN {r}.low_number={issue}.number THEN {r}.high_number ELSE {r}.low_number END {} WHERE {r}.repository_id={issue}.repository_id AND ({r}.low_number={issue}.number OR {r}.high_number={issue}.number) ORDER BY {i}.number {}", state.sql(), page.sql()))
                 }
                 "parent" => {
                     let i = self.next("i");
@@ -96,7 +99,7 @@ impl Planner {
                     let r = self.next("par");
                     let state = issue_state_join(&merged.children, &i, &s, false);
                     let nested = self.issue(&merged.children, &i, state.alias())?;
-                    format!("(SELECT {nested} FROM issue_parents {r} JOIN issues {i} ON {i}.repo_id={r}.repo_id AND {i}.number={r}.parent_number {} WHERE {r}.repo_id={issue}.repo_id AND {r}.child_number={issue}.number)", state.sql())
+                    format!("(SELECT {nested} FROM issue_parents {r} JOIN issues {i} ON {i}.repository_id={r}.repository_id AND {i}.number={r}.parent_number {} WHERE {r}.repository_id={issue}.repository_id AND {r}.child_number={issue}.number)", state.sql())
                 }
                 "subIssues" => {
                     let i = self.next("i");
@@ -105,14 +108,14 @@ impl Planner {
                     let state = issue_state_join(&merged.children, &i, &s, false);
                     let nested = self.issue(&merged.children, &i, state.alias())?;
                     let page = Page::from_field(field)?;
-                    list(format!("SELECT {nested} item FROM issue_parents {r} JOIN issues {i} ON {i}.repo_id={r}.repo_id AND {i}.number={r}.child_number {} WHERE {r}.repo_id={issue}.repo_id AND {r}.parent_number={issue}.number ORDER BY {i}.number {}", state.sql(), page.sql()))
+                    list(format!("SELECT {nested} item FROM issue_parents {r} JOIN issues {i} ON {i}.repository_id={r}.repository_id AND {i}.number={r}.child_number {} WHERE {r}.repository_id={issue}.repository_id AND {r}.parent_number={issue}.number ORDER BY {i}.number {}", state.sql(), page.sql()))
                 }
                 "pullRequests" => {
-                    let p = self.next("pr");
+                    let p = self.next("pull_request");
                     let x = self.next("ipl");
                     let nested = self.pull_request(&merged.children, &p)?;
                     let page = Page::from_field(field)?;
-                    list(format!("SELECT {nested} item FROM issue_pr_links {x} JOIN prs {p} ON {p}.repo_id={x}.repo_id AND {p}.number={x}.pr_number WHERE {x}.repo_id={issue}.repo_id AND {x}.issue_number={issue}.number ORDER BY {p}.number {}", page.sql()))
+                    list(format!("SELECT {nested} item FROM issue_pull_request_links {x} JOIN pull_requests {p} ON {p}.repository_id={x}.repository_id AND {p}.number={x}.pull_request_number WHERE {x}.repository_id={issue}.repository_id AND {x}.issue_number={issue}.number ORDER BY {p}.number {}", page.sql()))
                 }
                 name => return Err(format!("unsupported Issue selection {name}").into()),
             };
@@ -152,20 +155,20 @@ impl Planner {
                     let nested = self.issue(&merged.children, &i, state.alias())?;
                     let filter = issue_filter_sql(&i, state.alias(), &filter_args);
                     let page = Page::from_field(field)?;
-                    list(format!("SELECT {nested} item FROM issue_projects {x} JOIN issues {i} ON {i}.repo_id={x}.repo_id AND {i}.number={x}.issue_number {} WHERE {x}.repo_id={project}.repo_id AND {x}.project_id={project}.id {filter} ORDER BY {i}.number {}", state.sql(), page.sql()))
+                    list(format!("SELECT {nested} item FROM issue_projects {x} JOIN issues {i} ON {i}.repository_id={x}.repository_id AND {i}.number={x}.issue_number {} WHERE {x}.repository_id={project}.repository_id AND {x}.project_id={project}.id {filter} ORDER BY {i}.number {}", state.sql(), page.sql()))
                 }
                 "milestones" => {
                     let m = self.next("m");
                     let nested = self.milestone(&merged.children, &m)?;
                     let page = Page::from_field(field)?;
-                    list(format!("SELECT {nested} item FROM project_milestones {m} WHERE {m}.repo_id={project}.repo_id AND {m}.project_id={project}.id ORDER BY {m}.position,{m}.id {}", page.sql()))
+                    list(format!("SELECT {nested} item FROM project_milestones {m} WHERE {m}.repository_id={project}.repository_id AND {m}.project_id={project}.id ORDER BY {m}.position,{m}.id {}", page.sql()))
                 }
                 "labels" => {
                     let l = self.next("l");
                     let x = self.next("pl");
                     let nested = self.label(&merged.children, &l, LabelTarget::Project)?;
                     let page = Page::from_field(field)?;
-                    list(format!("SELECT {nested} item FROM project_label_links {x} JOIN project_labels {l} ON {l}.name={x}.label_name WHERE {x}.repo_id={project}.repo_id AND {x}.project_id={project}.id ORDER BY {l}.name {}", page.sql()))
+                    list(format!("SELECT {nested} item FROM project_label_links {x} JOIN project_labels {l} ON {l}.name={x}.label_name WHERE {x}.repository_id={project}.repository_id AND {x}.project_id={project}.id ORDER BY {l}.name {}", page.sql()))
                 }
                 name => return Err(format!("unsupported Project selection {name}").into()),
             };
@@ -193,7 +196,7 @@ impl Planner {
                     let ps = self.next("ps");
                     let state = project_state_join(&merged.children, &p, &ps, false);
                     let nested = self.project(&merged.children, &p, state.alias())?;
-                    format!("(SELECT {nested} FROM projects {p} {} WHERE {p}.repo_id={milestone}.repo_id AND {p}.id={milestone}.project_id)", state.sql())
+                    format!("(SELECT {nested} FROM projects {p} {} WHERE {p}.repository_id={milestone}.repository_id AND {p}.id={milestone}.project_id)", state.sql())
                 }
                 "issues" => {
                     let i = self.next("i");
@@ -202,7 +205,7 @@ impl Planner {
                     let state = issue_state_join(&merged.children, &i, &s, false);
                     let nested = self.issue(&merged.children, &i, state.alias())?;
                     let page = Page::from_field(field)?;
-                    list(format!("SELECT {nested} item FROM issue_milestones {x} JOIN issues {i} ON {i}.repo_id={x}.repo_id AND {i}.number={x}.issue_number {} WHERE {x}.repo_id={milestone}.repo_id AND {x}.project_id={milestone}.project_id AND {x}.milestone_id={milestone}.id ORDER BY {i}.number {}", state.sql(), page.sql()))
+                    list(format!("SELECT {nested} item FROM issue_milestones {x} JOIN issues {i} ON {i}.repository_id={x}.repository_id AND {i}.number={x}.issue_number {} WHERE {x}.repository_id={milestone}.repository_id AND {x}.project_id={milestone}.project_id AND {x}.milestone_id={milestone}.id ORDER BY {i}.number {}", state.sql(), page.sql()))
                 }
                 name => return Err(format!("unsupported Milestone selection {name}").into()),
             };
@@ -214,7 +217,7 @@ impl Planner {
     pub(super) fn pull_request(
         &mut self,
         fields: &[SelectionField<'_>],
-        pr: &str,
+        pull_request: &str,
     ) -> async_graphql::Result<String> {
         let mut pairs = Vec::new();
         for merged in merged_fields(fields) {
@@ -222,7 +225,7 @@ impl Planner {
             let key = response_key(field);
             let value = match field.name() {
                 "number" | "title" | "body" | "branch" | "state" | "createdAt" | "updatedAt" => {
-                    format!("{pr}.{}", snake(field.name()))
+                    format!("{pull_request}.{}", snake(field.name()))
                 }
                 "issues" => {
                     let i = self.next("i");
@@ -231,7 +234,7 @@ impl Planner {
                     let state = issue_state_join(&merged.children, &i, &s, false);
                     let nested = self.issue(&merged.children, &i, state.alias())?;
                     let page = Page::from_field(field)?;
-                    list(format!("SELECT {nested} item FROM issue_pr_links {x} JOIN issues {i} ON {i}.repo_id={x}.repo_id AND {i}.number={x}.issue_number {} WHERE {x}.repo_id={pr}.repo_id AND {x}.pr_number={pr}.number ORDER BY {i}.number {}", state.sql(), page.sql()))
+                    list(format!("SELECT {nested} item FROM issue_pull_request_links {x} JOIN issues {i} ON {i}.repository_id={x}.repository_id AND {i}.number={x}.issue_number {} WHERE {x}.repository_id={pull_request}.repository_id AND {x}.pull_request_number={pull_request}.number ORDER BY {i}.number {}", state.sql(), page.sql()))
                 }
                 name => return Err(format!("unsupported PullRequest selection {name}").into()),
             };
@@ -263,7 +266,7 @@ impl Planner {
                     } else {
                         ("from_slug", "to_slug")
                     };
-                    list(format!("SELECT {nested} item FROM wiki_links {x} JOIN wiki_pages {w} ON {w}.repo_id={x}.repo_id AND {w}.slug={x}.{join} WHERE {x}.repo_id={wiki}.repo_id AND {x}.{predicate}={wiki}.slug ORDER BY {w}.slug {}", page.sql()))
+                    list(format!("SELECT {nested} item FROM wiki_links {x} JOIN wiki_pages {w} ON {w}.repository_id={x}.repository_id AND {w}.slug={x}.{join} WHERE {x}.repository_id={wiki}.repository_id AND {x}.{predicate}={wiki}.slug ORDER BY {w}.slug {}", page.sql()))
                 }
                 name => return Err(format!("unsupported WikiPage selection {name}").into()),
             };
@@ -277,29 +280,29 @@ impl Planner {
     /// Scalar-only, so it takes no alias counter and never nests: the
     /// repository is the outermost scope octa has, and there is nothing above
     /// it to descend from.
-    pub(super) fn repo(
+    pub(super) fn repository(
         &mut self,
         fields: &[SelectionField<'_>],
-        repo: &str,
+        repository: &str,
     ) -> async_graphql::Result<String> {
         let mut pairs = Vec::new();
         for merged in merged_fields(fields) {
             let field = &merged.field;
             let key = response_key(field);
             let value = match field.name() {
-                "name" | "createdAt" => format!("{repo}.{}", snake(field.name())),
-                "path" => format!("{repo}.path"),
+                "name" | "createdAt" => format!("{repository}.{}", snake(field.name())),
+                "path" => format!("{repository}.path"),
                 "openIssues" | "inProgressIssues" => {
                     let state_type = match field.name() {
                         "openIssues" => "open",
                         _ => "in progress",
                     };
                     format!(
-                        "(SELECT COUNT(*) FROM issues i JOIN issue_states s ON s.name=i.state WHERE i.repo_id={repo}.id AND s.type={})",
+                        "(SELECT COUNT(*) FROM issues i JOIN issue_states s ON s.name=i.state WHERE i.repository_id={repository}.id AND s.type={})",
                         quote(state_type)
                     )
                 }
-                name => return Err(format!("unsupported Repo selection {name}").into()),
+                name => return Err(format!("unsupported Repository selection {name}").into()),
             };
             pairs.push(json_pair(&key, &value));
         }
@@ -331,8 +334,8 @@ impl Planner {
                     let state = issue_state_join(&merged.children, &i, &s, false);
                     let nested = self.issue(&merged.children, &i, state.alias())?;
                     let page = Page::from_field(field)?;
-                    let repo = self.repo;
-                    list(format!("SELECT {nested} item FROM issue_labels {x} JOIN issues {i} ON {i}.repo_id={x}.repo_id AND {i}.number={x}.issue_number {} WHERE {x}.repo_id={repo} AND {x}.label_name={label}.name ORDER BY {i}.number {}", state.sql(), page.sql()))
+                    let repository = self.repository;
+                    list(format!("SELECT {nested} item FROM issue_labels {x} JOIN issues {i} ON {i}.repository_id={x}.repository_id AND {i}.number={x}.issue_number {} WHERE {x}.repository_id={repository} AND {x}.label_name={label}.name ORDER BY {i}.number {}", state.sql(), page.sql()))
                 }
                 "projects" if target == LabelTarget::Project => {
                     let p = self.next("p");
@@ -341,8 +344,8 @@ impl Planner {
                     let state = project_state_join(&merged.children, &p, &ps, false);
                     let nested = self.project(&merged.children, &p, state.alias())?;
                     let page = Page::from_field(field)?;
-                    let repo = self.repo;
-                    list(format!("SELECT {nested} item FROM project_label_links {x} JOIN projects {p} ON {p}.repo_id={x}.repo_id AND {p}.id={x}.project_id {} WHERE {x}.repo_id={repo} AND {x}.label_name={label}.name ORDER BY {p}.id {}", state.sql(), page.sql()))
+                    let repository = self.repository;
+                    list(format!("SELECT {nested} item FROM project_label_links {x} JOIN projects {p} ON {p}.repository_id={x}.repository_id AND {p}.id={x}.project_id {} WHERE {x}.repository_id={repository} AND {x}.label_name={label}.name ORDER BY {p}.id {}", state.sql(), page.sql()))
                 }
                 "issues" | "projects" => "json('[]')".to_string(),
                 name => return Err(format!("unsupported Label selection {name}").into()),
@@ -639,10 +642,10 @@ pub(super) fn issue_filter_sql(issue: &str, state: Option<&str>, filter: &IssueF
         ));
     }
     if let Some(value) = &filter.label {
-        sql.push(format!("EXISTS(SELECT 1 FROM issue_labels fx WHERE fx.repo_id={issue}.repo_id AND fx.issue_number={issue}.number AND fx.label_name={})", quote(value)));
+        sql.push(format!("EXISTS(SELECT 1 FROM issue_labels fx WHERE fx.repository_id={issue}.repository_id AND fx.issue_number={issue}.number AND fx.label_name={})", quote(value)));
     }
     if let Some(value) = filter.project_id {
-        sql.push(format!("EXISTS(SELECT 1 FROM issue_projects fp WHERE fp.repo_id={issue}.repo_id AND fp.issue_number={issue}.number AND fp.project_id={value})"));
+        sql.push(format!("EXISTS(SELECT 1 FROM issue_projects fp WHERE fp.repository_id={issue}.repository_id AND fp.issue_number={issue}.number AND fp.project_id={value})"));
     }
     if sql.is_empty() {
         String::new()
@@ -683,7 +686,7 @@ pub(super) fn project_filter_sql(
         ));
     }
     if let Some(value) = &filter.label {
-        sql.push(format!("EXISTS(SELECT 1 FROM project_label_links fx WHERE fx.repo_id={project}.repo_id AND fx.project_id={project}.id AND fx.label_name={})", quote(value)));
+        sql.push(format!("EXISTS(SELECT 1 FROM project_label_links fx WHERE fx.repository_id={project}.repository_id AND fx.project_id={project}.id AND fx.label_name={})", quote(value)));
     }
     if sql.is_empty() {
         String::new()

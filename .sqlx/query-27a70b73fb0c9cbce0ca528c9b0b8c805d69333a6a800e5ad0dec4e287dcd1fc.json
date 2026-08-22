@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT json_array(repository_id, blocker_number, blocked_number, created_at) AS \"row!: String\" FROM issue_dependencies ORDER BY repository_id, blocker_number, blocked_number",
+  "describe": {
+    "columns": [
+      {
+        "name": "row!: String",
+        "ordinal": 0,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "27a70b73fb0c9cbce0ca528c9b0b8c805d69333a6a800e5ad0dec4e287dcd1fc"
+}

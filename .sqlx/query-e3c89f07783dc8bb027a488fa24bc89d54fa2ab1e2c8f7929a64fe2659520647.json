@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT json_array(repository_id, from_slug, to_slug) AS \"row!: String\" FROM wiki_links ORDER BY repository_id, from_slug, to_slug",
+  "describe": {
+    "columns": [
+      {
+        "name": "row!: String",
+        "ordinal": 0,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "e3c89f07783dc8bb027a488fa24bc89d54fa2ab1e2c8f7929a64fe2659520647"
+}

@@ -12,7 +12,7 @@ impl Store {
     ) -> Result<i64> {
         crate::app::project::create(
             &self.pool,
-            self.repo_id()?,
+            self.repository_id()?,
             name,
             summary,
             description,
@@ -22,12 +22,12 @@ impl Store {
     }
 
     pub async fn list_projects(&self, active_only: bool) -> Result<Vec<ProjectOverview>> {
-        let repo = (!self.is_all()).then(|| self.repo_id()).transpose()?;
-        crate::app::project::list(&self.pool, repo, active_only).await
+        let repository = (!self.is_all()).then(|| self.repository_id()).transpose()?;
+        crate::app::project::list(&self.pool, repository, active_only).await
     }
 
     pub async fn project_detail(&self, reference: &str) -> Result<ProjectDetail> {
-        crate::app::project::detail(&self.pool, self.repo_id()?, reference).await
+        crate::app::project::detail(&self.pool, self.repository_id()?, reference).await
     }
 
     pub async fn edit_project(
@@ -39,7 +39,7 @@ impl Store {
     ) -> Result<()> {
         crate::app::project::edit(
             &self.pool,
-            self.repo_id()?,
+            self.repository_id()?,
             reference,
             name,
             summary,
@@ -49,15 +49,15 @@ impl Store {
     }
 
     pub async fn set_project_state(&self, reference: &str, state: &str) -> Result<()> {
-        crate::app::project::set_state(&self.pool, self.repo_id()?, reference, state).await
+        crate::app::project::set_state(&self.pool, self.repository_id()?, reference, state).await
     }
 
     pub async fn close_project(&self, reference: &str, as_state: Option<&str>) -> Result<String> {
-        crate::app::project::close(&self.pool, self.repo_id()?, reference, as_state).await
+        crate::app::project::close(&self.pool, self.repository_id()?, reference, as_state).await
     }
 
     pub async fn reopen_project(&self, reference: &str, as_state: Option<&str>) -> Result<String> {
-        crate::app::project::reopen(&self.pool, self.repo_id()?, reference, as_state).await
+        crate::app::project::reopen(&self.pool, self.repository_id()?, reference, as_state).await
     }
 
     pub async fn list_project_states(&self) -> Result<Vec<ProjectState>> {

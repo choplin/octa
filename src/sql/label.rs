@@ -103,23 +103,23 @@ pub async fn group_selection_tx(tx: &mut Transaction<'_, Sqlite>, group: &str) -
 
 pub async fn replace_single_group(
     tx: &mut Transaction<'_, Sqlite>,
-    repo: i64,
+    repository: i64,
     number: i64,
     group: &str,
 ) -> Result<()> {
-    sqlx::query!("DELETE FROM issue_labels WHERE repo_id = ? AND issue_number = ? AND label_name IN (SELECT name FROM labels WHERE group_name = ?)", repo, number, group).execute(&mut **tx).await?;
+    sqlx::query!("DELETE FROM issue_labels WHERE repository_id = ? AND issue_number = ? AND label_name IN (SELECT name FROM labels WHERE group_name = ?)", repository, number, group).execute(&mut **tx).await?;
     Ok(())
 }
 
 pub async fn attach(
     tx: &mut Transaction<'_, Sqlite>,
-    repo: i64,
+    repository: i64,
     number: i64,
     label: &str,
 ) -> Result<()> {
     sqlx::query!(
-        "INSERT OR IGNORE INTO issue_labels (repo_id, issue_number, label_name) VALUES (?, ?, ?)",
-        repo,
+        "INSERT OR IGNORE INTO issue_labels (repository_id, issue_number, label_name) VALUES (?, ?, ?)",
+        repository,
         number,
         label
     )
@@ -130,13 +130,13 @@ pub async fn attach(
 
 pub async fn detach(
     tx: &mut Transaction<'_, Sqlite>,
-    repo: i64,
+    repository: i64,
     number: i64,
     label: &str,
 ) -> Result<()> {
     sqlx::query!(
-        "DELETE FROM issue_labels WHERE repo_id = ? AND issue_number = ? AND label_name = ?",
-        repo,
+        "DELETE FROM issue_labels WHERE repository_id = ? AND issue_number = ? AND label_name = ?",
+        repository,
         number,
         label
     )
@@ -229,13 +229,13 @@ pub async fn project_group_selection_tx(
 
 pub async fn replace_project_single_group(
     tx: &mut Transaction<'_, Sqlite>,
-    repo: i64,
+    repository: i64,
     project: i64,
     group: &str,
 ) -> Result<()> {
     sqlx::query!(
-        "DELETE FROM project_label_links WHERE repo_id = ? AND project_id = ? AND label_name IN (SELECT name FROM project_labels WHERE group_name = ?)",
-        repo,
+        "DELETE FROM project_label_links WHERE repository_id = ? AND project_id = ? AND label_name IN (SELECT name FROM project_labels WHERE group_name = ?)",
+        repository,
         project,
         group
     )
@@ -246,13 +246,13 @@ pub async fn replace_project_single_group(
 
 pub async fn attach_project(
     tx: &mut Transaction<'_, Sqlite>,
-    repo: i64,
+    repository: i64,
     project: i64,
     label: &str,
 ) -> Result<()> {
     sqlx::query!(
-        "INSERT OR IGNORE INTO project_label_links (repo_id, project_id, label_name) VALUES (?, ?, ?)",
-        repo,
+        "INSERT OR IGNORE INTO project_label_links (repository_id, project_id, label_name) VALUES (?, ?, ?)",
+        repository,
         project,
         label
     )
@@ -261,10 +261,15 @@ pub async fn attach_project(
     Ok(())
 }
 
-pub async fn detach_project(pool: &SqlitePool, repo: i64, project: i64, label: &str) -> Result<()> {
+pub async fn detach_project(
+    pool: &SqlitePool,
+    repository: i64,
+    project: i64,
+    label: &str,
+) -> Result<()> {
     sqlx::query!(
-        "DELETE FROM project_label_links WHERE repo_id = ? AND project_id = ? AND label_name = ?",
-        repo,
+        "DELETE FROM project_label_links WHERE repository_id = ? AND project_id = ? AND label_name = ?",
+        repository,
         project,
         label
     )
@@ -273,10 +278,14 @@ pub async fn detach_project(pool: &SqlitePool, repo: i64, project: i64, label: &
     Ok(())
 }
 
-pub async fn labels_for_project(pool: &SqlitePool, repo: i64, project: i64) -> Result<Vec<String>> {
+pub async fn labels_for_project(
+    pool: &SqlitePool,
+    repository: i64,
+    project: i64,
+) -> Result<Vec<String>> {
     Ok(sqlx::query_scalar!(
-        "SELECT label_name FROM project_label_links WHERE repo_id = ? AND project_id = ? ORDER BY label_name",
-        repo,
+        "SELECT label_name FROM project_label_links WHERE repository_id = ? AND project_id = ? ORDER BY label_name",
+        repository,
         project
     )
     .fetch_all(pool)

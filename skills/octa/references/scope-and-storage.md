@@ -6,20 +6,20 @@ Read this reference only when an operation goes beyond the current repository or
 
 Normal commands operate on the Git repository containing the current working directory.
 
-- Use `octa --repo <known-name> ...` to select another repository already known to octa.
+- Use `octa --repository <known-name> ...` to select another repository already known to octa.
 - Worktrees that share the same Git common directory share one octa repository identity and dataset.
 - Keep mutations and repository-specific filters scoped to one repository.
 
-Use `--all-repos` only for an explicit cross-repository overview. It is supported by these aggregate read-only commands:
+Use `--all-repositories` only for an explicit cross-repository overview. It is supported by these aggregate read-only commands:
 
 ```text
 issue list
 project list
-pr list
+pull-request list
 wiki list
 ```
 
-With `--all-repos`, `issue list` supports the generic `--open`, `--closed`, and `--all` filters. Named `--state` values and the `--label`, `--project`, `--milestone`, `--related-to`, and `--unblocked` filters require one repository.
+With `--all-repositories`, `issue list` supports the generic `--open`, `--closed`, and `--all` filters. Named `--state` values and the `--label`, `--project`, `--milestone`, `--related-to`, and `--unblocked` filters require one repository. The former `--repo` and `--all-repos` spellings remain compatibility aliases.
 
 ## Local storage
 
