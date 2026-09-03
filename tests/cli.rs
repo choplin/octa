@@ -70,24 +70,24 @@ impl Env {
         self.run_raw_in(self.path(), args)
     }
 
-    fn query_stdin(&self, document: &str, args: &[&str]) -> Output {
+    fn run_stdin(&self, input: &[u8], args: &[&str]) -> Output {
         let mut child = Command::new(bin())
             .current_dir(self.path())
             .env("XDG_DATA_HOME", self.xdg.path())
-            .arg("query")
             .args(args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .expect("failed to spawn octa query");
-        child
-            .stdin
-            .take()
-            .unwrap()
-            .write_all(document.as_bytes())
-            .unwrap();
+            .expect("failed to spawn octa");
+        child.stdin.take().unwrap().write_all(input).unwrap();
         child.wait_with_output().unwrap()
+    }
+
+    fn query_stdin(&self, document: &str, args: &[&str]) -> Output {
+        let mut command_args = vec!["query"];
+        command_args.extend_from_slice(args);
+        self.run_stdin(document.as_bytes(), &command_args)
     }
 
     fn run_in(&self, dir: &Path, args: &[&str]) -> Output {
@@ -374,6 +374,140 @@ fn comment_appears_in_thread() {
     let first = shown.find("first reply").expect("first reply missing");
     let second = shown.find("second reply").expect("second reply missing");
     assert!(first < second, "comments out of order: {shown}");
+}
+
+#[test]
+fn issue_body_files_and_stdin_roundtrip_without_text_changes() {
+    let env = Env::new();
+    let created_body = "# Heading\n\n- leading hyphen\n- `code` with \"quotes\" and $dollars\n";
+    let edited_body = "Edited body\nwithout a final newline";
+    let stdin_body = "stdin body\n\n```sh\necho '$HOME'\n```\n";
+    let comment_body = "comment from stdin\n- unchanged\n";
+    let created_path = env.path().join("created.md");
+    let edited_path = env.path().join("edited.md");
+    std::fs::write(&created_path, created_body).unwrap();
+    std::fs::write(&edited_path, edited_body).unwrap();
+
+    env.ok(&[
+        "issue",
+        "open",
+        "--title",
+        "From file",
+        "--body-file",
+        created_path.to_str().unwrap(),
+    ]);
+    assert_eq!(
+        json(&env.ok(&["issue", "show", "1", "--json"]))["body"],
+        created_body
+    );
+
+    env.ok(&[
+        "issue",
+        "set",
+        "1",
+        "--body-file",
+        edited_path.to_str().unwrap(),
+    ]);
+    assert_eq!(
+        json(&env.ok(&["issue", "show", "1", "--json"]))["body"],
+        edited_body
+    );
+
+    let opened = env.run_stdin(
+        stdin_body.as_bytes(),
+        &["issue", "open", "--title", "From stdin", "--body-file", "-"],
+    );
+    assert!(
+        opened.status.success(),
+        "{}",
+        String::from_utf8_lossy(&opened.stderr)
+    );
+    assert_eq!(
+        json(&env.ok(&["issue", "show", "2", "--json"]))["body"],
+        stdin_body
+    );
+
+    let commented = env.run_stdin(
+        comment_body.as_bytes(),
+        &["issue", "comment", "2", "--body-file", "-"],
+    );
+    assert!(
+        commented.status.success(),
+        "{}",
+        String::from_utf8_lossy(&commented.stderr)
+    );
+    assert_eq!(
+        json(&env.ok(&["issue", "show", "2", "--json"]))["comments"][0]["body"],
+        comment_body
+    );
+}
+
+#[test]
+fn issue_body_file_rejects_conflicts_and_reports_input_failures() {
+    let env = Env::new();
+    env.ok(&["issue", "open", "--title", "Existing"]);
+
+    for args in [
+        vec![
+            "issue",
+            "open",
+            "--title",
+            "Conflict",
+            "--body",
+            "text",
+            "--body-file",
+            "-",
+        ],
+        vec!["issue", "set", "1", "--body", "text", "--body-file", "-"],
+        vec![
+            "issue",
+            "comment",
+            "1",
+            "--body",
+            "text",
+            "--body-file",
+            "-",
+        ],
+    ] {
+        let output = env.run(&args);
+        assert!(!output.status.success(), "{args:?} unexpectedly succeeded");
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("cannot be used with"),
+            "missing clap conflict for {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let missing = env.run(&[
+        "issue",
+        "open",
+        "--title",
+        "Missing",
+        "--body-file",
+        env.path().join("missing.md").to_str().unwrap(),
+    ]);
+    assert!(!missing.status.success());
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("cannot read Issue text"));
+
+    let invalid_path = env.path().join("invalid.md");
+    std::fs::write(&invalid_path, [0xff, 0xfe]).unwrap();
+    let invalid_file = env.run(&[
+        "issue",
+        "open",
+        "--title",
+        "Invalid file",
+        "--body-file",
+        invalid_path.to_str().unwrap(),
+    ]);
+    assert!(!invalid_file.status.success());
+    assert!(String::from_utf8_lossy(&invalid_file.stderr).contains("is not valid UTF-8"));
+
+    let invalid_stdin = env.run_stdin(
+        &[0xff, 0xfe],
+        &["issue", "comment", "1", "--body-file", "-"],
+    );
+    assert!(!invalid_stdin.status.success());
+    assert!(String::from_utf8_lossy(&invalid_stdin.stderr).contains("is not valid UTF-8"));
 }
 
 #[test]

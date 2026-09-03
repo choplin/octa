@@ -159,6 +159,7 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             }
         }
         IssueCommand::Comment { number, body } => {
+            let body = body.resolve()?;
             store.add_issue_comment(number, &body).await?;
             output.print(output.line(Tone::Success, format!("commented on issue #{number}")));
         }
@@ -196,6 +197,7 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             parent,
             lease,
         } => {
+            let body = body.resolve()?;
             if as_state.is_none()
                 && title.is_none()
                 && body.is_none()
@@ -372,6 +374,7 @@ async fn open_issue(store: &Store, output: &Output, args: IssueOpenArgs) -> Resu
         parent,
         json,
     } = args;
+    let body = body.resolve()?.unwrap_or_default();
     let number = store
         .create_issue(
             &title,

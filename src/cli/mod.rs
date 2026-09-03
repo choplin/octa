@@ -2,7 +2,7 @@
 use crate::domain::label::LabelSelection;
 use crate::domain::project::ProjectStateType;
 use crate::store::{IssueListSelector, RepositoryScope, StateFilter, StateType, Store};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::builder::PossibleValuesParser;
 use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand};
 use label::LabelTarget;
@@ -16,7 +16,10 @@ mod project_state;
 mod pull_request;
 mod repository;
 mod state;
+mod text_input;
 mod wiki;
+
+use text_input::TextInput;
 
 // Closed value sets are advertised in `--help` from the same constant the
 // parser rejects against, so a set can never gain a value the help omits.
@@ -258,8 +261,8 @@ pub(crate) enum IssueCommand {
     /// Add a comment to an issue.
     Comment {
         number: i64,
-        #[arg(long)]
-        body: String,
+        #[command(flatten)]
+        body: RequiredBodyInputArgs,
     },
     /// Move an issue to the `in progress` default state.
     ///
@@ -296,8 +299,8 @@ pub(crate) enum IssueCommand {
         as_state: Option<String>,
         #[arg(long)]
         title: Option<String>,
-        #[arg(long)]
-        body: Option<String>,
+        #[command(flatten)]
+        body: BodyInputArgs,
         /// Project id or name. List them with `octa project list`.
         #[arg(long)]
         project: Option<String>,
@@ -374,8 +377,8 @@ pub(crate) enum IssueCommand {
 pub(crate) struct IssueOpenArgs {
     #[arg(long)]
     title: String,
-    #[arg(long, default_value = "")]
-    body: String,
+    #[command(flatten)]
+    body: BodyInputArgs,
     /// An `open` state other than the type's default.
     #[arg(long = "as", value_name = "STATE")]
     as_state: Option<String>,
@@ -391,6 +394,44 @@ pub(crate) struct IssueOpenArgs {
     parent: Option<i64>,
     #[arg(long)]
     json: bool,
+}
+
+#[derive(Args)]
+#[group(multiple = false)]
+pub(crate) struct BodyInputArgs {
+    /// Use this text as the Issue body.
+    #[arg(long)]
+    body: Option<String>,
+    /// Read the Issue body from PATH; use `-` for stdin.
+    #[arg(long, value_name = "PATH")]
+    body_file: Option<PathBuf>,
+}
+
+impl BodyInputArgs {
+    fn resolve(self) -> Result<Option<String>> {
+        TextInput::from_options(self.body, self.body_file)?
+            .map(|input| input.read("Issue text"))
+            .transpose()
+    }
+}
+
+#[derive(Args)]
+#[group(required = true, multiple = false)]
+pub(crate) struct RequiredBodyInputArgs {
+    /// Use this text as the comment body.
+    #[arg(long)]
+    body: Option<String>,
+    /// Read the comment body from PATH; use `-` for stdin.
+    #[arg(long, value_name = "PATH")]
+    body_file: Option<PathBuf>,
+}
+
+impl RequiredBodyInputArgs {
+    fn resolve(self) -> Result<String> {
+        TextInput::from_options(self.body, self.body_file)?
+            .context("comment body is required")?
+            .read("Issue text")
+    }
 }
 
 /// The `issue list` state selectors.
