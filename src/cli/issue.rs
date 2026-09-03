@@ -1,5 +1,5 @@
 use super::output::{Output, Tone};
-use super::{IssueCommand, IssueOpenArgs};
+use super::{IssueCommand, IssueCommentAction, IssueOpenArgs};
 use crate::store::{LeaseOutcome, Store};
 use anyhow::Result;
 
@@ -150,19 +150,30 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                     lines.push(output.line(Tone::Body, ""));
                     lines.push(output.line(Tone::Accent, "--- comments ---"));
                     for comment in &detail.comments {
-                        lines.push(
-                            output.field(format!("[{}] ", comment.created_at), &comment.body),
-                        );
+                        lines.push(output.field(
+                            format!("[comment #{} · {}] ", comment.id, comment.created_at),
+                            &comment.body,
+                        ));
                     }
                 }
                 output.print_lines(lines);
             }
         }
-        IssueCommand::Comment { number, body } => {
-            let body = body.resolve()?;
-            store.add_issue_comment(number, &body).await?;
-            output.print(output.line(Tone::Success, format!("commented on issue #{number}")));
-        }
+        IssueCommand::Comment { number, args } => match args.into_action()? {
+            IssueCommentAction::Delete { comment, lease } => {
+                store
+                    .delete_issue_comment(number, comment, Some(&lease))
+                    .await?;
+                output.print(output.line(
+                    Tone::Success,
+                    format!("deleted comment #{comment} from issue #{number}"),
+                ));
+            }
+            IssueCommentAction::Add { body } => {
+                store.add_issue_comment(number, &body).await?;
+                output.print(output.line(Tone::Success, format!("commented on issue #{number}")));
+            }
+        },
         IssueCommand::Start { number, lease } => {
             let state = store.start_issue(number, lease.as_deref()).await?;
             output.print(output.line(Tone::Success, format!("issue #{number} -> {state}")));

@@ -86,6 +86,16 @@ impl Store {
         crate::app::issue::comment(&self.pool, self.repository_id()?, number, body).await
     }
 
+    pub async fn delete_issue_comment(
+        &self,
+        number: i64,
+        comment: i64,
+        lease: Option<&str>,
+    ) -> Result<()> {
+        crate::app::issue::delete_comment(&self.pool, self.repository_id()?, number, comment, lease)
+            .await
+    }
+
     pub async fn set_issue_project(
         &self,
         number: i64,

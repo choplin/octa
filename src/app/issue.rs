@@ -457,6 +457,22 @@ pub async fn comment(pool: &SqlitePool, repository: i64, number: i64, body: &str
     crate::sql::issue::touch(pool, repository, number).await
 }
 
+pub async fn delete_comment(
+    pool: &SqlitePool,
+    repository: i64,
+    number: i64,
+    comment: i64,
+    lease: Option<&str>,
+) -> Result<()> {
+    let mut tx = crate::sql::issue::begin_lease_mutation(pool, repository, number, lease).await?;
+    if !crate::sql::issue::delete_comment(&mut tx, repository, number, comment).await? {
+        bail!("comment #{comment} not found on issue #{number}");
+    }
+    crate::sql::issue::touch_tx(&mut tx, repository, number).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
 /// Move an issue to any configured state. Backs `issue set --as`.
 pub async fn set_state(
     pool: &SqlitePool,

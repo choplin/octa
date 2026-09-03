@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM issue_comments WHERE repository_id = ? AND issue_number = ? AND id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "6f09c8a6989f9b6d0af8f2e646419cf973c127d01fe10b555887cd3ab98c5397"
+}

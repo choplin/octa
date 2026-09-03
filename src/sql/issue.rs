@@ -533,6 +533,23 @@ pub async fn insert_comment(
     Ok(())
 }
 
+pub async fn delete_comment(
+    tx: &mut Transaction<'_, Sqlite>,
+    repository: i64,
+    number: i64,
+    comment: i64,
+) -> Result<bool> {
+    let result = sqlx::query!(
+        "DELETE FROM issue_comments WHERE repository_id = ? AND issue_number = ? AND id = ?",
+        repository,
+        number,
+        comment
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(result.rows_affected() == 1)
+}
+
 pub async fn state_exists(pool: &SqlitePool, state: &str) -> Result<bool> {
     Ok(
         sqlx::query_scalar!("SELECT COUNT(*) FROM issue_states WHERE name = ?", state)

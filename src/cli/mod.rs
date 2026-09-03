@@ -70,6 +70,19 @@ pub struct Cli {
     command: TopCommand,
 }
 
+impl Cli {
+    fn validate(&mut self) -> Result<()> {
+        let TopCommand::Issue {
+            command: IssueCommand::Comment { args, .. },
+        } = &mut self.command
+        else {
+            return Ok(());
+        };
+
+        args.validate()
+    }
+}
+
 #[derive(Args)]
 struct ScopeArgs {
     /// Select an already-known repository by name; `octa repository list` names them.
@@ -258,11 +271,14 @@ pub(crate) enum IssueCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Add a comment to an issue.
+    /// Add or delete an issue comment.
+    #[command(
+        after_help = "Examples:\n  octa issue comment 42 --body \"Looks good\"\n  octa issue comment 42 --body-file comment.md\n  octa issue comment 42 --body-file -\n  octa issue comment 42 --delete 7 --lease <LEASE>"
+    )]
     Comment {
         number: i64,
         #[command(flatten)]
-        body: RequiredBodyInputArgs,
+        args: IssueCommentArgs,
     },
     /// Move an issue to the `in progress` default state.
     ///
@@ -374,6 +390,72 @@ pub(crate) enum IssueCommand {
 }
 
 #[derive(Args)]
+pub(crate) struct IssueCommentArgs {
+    #[command(flatten)]
+    body: BodyInputArgs,
+    /// Delete a comment by its ID.
+    #[arg(
+        long,
+        value_name = "COMMENT_ID",
+        requires = "lease",
+        conflicts_with_all = ["body", "body_file"]
+    )]
+    delete: Option<i64>,
+    /// Issue lease required when deleting a comment.
+    #[arg(long, requires = "delete")]
+    lease: Option<String>,
+    #[arg(skip)]
+    action: Option<IssueCommentAction>,
+}
+
+impl IssueCommentArgs {
+    fn validate(&mut self) -> Result<()> {
+        let action = if self.delete.is_some() {
+            self.validate_delete()?
+        } else {
+            self.validate_add()?
+        };
+        self.action = Some(action);
+        Ok(())
+    }
+
+    fn validate_add(&mut self) -> Result<IssueCommentAction> {
+        if self.lease.is_some() {
+            anyhow::bail!("--lease can be used only with --delete");
+        }
+        let body = std::mem::take(&mut self.body)
+            .resolve()?
+            .context("comment body is required")?;
+        Ok(IssueCommentAction::Add { body })
+    }
+
+    fn validate_delete(&mut self) -> Result<IssueCommentAction> {
+        if self.body.is_present() {
+            anyhow::bail!("--body/--body-file cannot be used with --delete");
+        }
+        let comment = self
+            .delete
+            .take()
+            .context("comment ID is required with --delete")?;
+        let lease = self
+            .lease
+            .take()
+            .context("--lease is required with --delete")?;
+        Ok(IssueCommentAction::Delete { comment, lease })
+    }
+
+    pub(crate) fn into_action(self) -> Result<IssueCommentAction> {
+        self.action
+            .ok_or_else(|| anyhow::anyhow!("issue comment options were not validated"))
+    }
+}
+
+pub(crate) enum IssueCommentAction {
+    Add { body: String },
+    Delete { comment: i64, lease: String },
+}
+
+#[derive(Args)]
 pub(crate) struct IssueOpenArgs {
     #[arg(long)]
     title: String,
@@ -396,44 +478,28 @@ pub(crate) struct IssueOpenArgs {
     json: bool,
 }
 
-#[derive(Args)]
+#[derive(Args, Default)]
 #[group(multiple = false)]
 pub(crate) struct BodyInputArgs {
-    /// Use this text as the Issue body.
+    /// Use this text as the body.
     #[arg(long)]
     body: Option<String>,
-    /// Read the Issue body from PATH; use `-` for stdin.
+    /// Read the body from PATH; use `-` for stdin.
     #[arg(long, value_name = "PATH")]
     body_file: Option<PathBuf>,
 }
 
 impl BodyInputArgs {
+    fn is_present(&self) -> bool {
+        self.body.is_some() || self.body_file.is_some()
+    }
+
     fn resolve(self) -> Result<Option<String>> {
         TextInput::from_options(self.body, self.body_file)?
             .map(|input| input.read("Issue text"))
             .transpose()
     }
 }
-
-#[derive(Args)]
-#[group(required = true, multiple = false)]
-pub(crate) struct RequiredBodyInputArgs {
-    /// Use this text as the comment body.
-    #[arg(long)]
-    body: Option<String>,
-    /// Read the comment body from PATH; use `-` for stdin.
-    #[arg(long, value_name = "PATH")]
-    body_file: Option<PathBuf>,
-}
-
-impl RequiredBodyInputArgs {
-    fn resolve(self) -> Result<String> {
-        TextInput::from_options(self.body, self.body_file)?
-            .context("comment body is required")?
-            .read("Issue text")
-    }
-}
-
 /// The `issue list` state selectors.
 ///
 /// The three are mutually exclusive. A state name already determines its type,
@@ -842,7 +908,12 @@ pub(crate) fn parse_pull_request_state(value: &str) -> Result<StateFilter> {
     StateFilter::parse(value)
 }
 
-pub async fn run(cli: Cli) -> Result<()> {
+pub async fn run(mut cli: Cli) -> Result<()> {
+    // Validate cross-option semantics before opening the persistent store. Clap
+    // handles the simple requirements and conflicts; this boundary covers the
+    // operation-level combinations that would otherwise fail after migrations
+    // and repository registration have already run.
+    cli.validate()?;
     // Configuration is global. A repository selector would suggest the command
     // targets one repository's settings, so reject it instead of ignoring it.
     if matches!(cli.command, TopCommand::Config { .. }) {

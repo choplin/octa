@@ -243,6 +243,29 @@ fn issue_help_advertises_tui_without_hiding_existing_commands() {
 }
 
 #[test]
+fn issue_comment_help_explains_add_and_delete_actions() {
+    let env = Env::new();
+    let help = env.help(&["issue", "comment", "--help"]);
+
+    for example in [
+        "octa issue comment 42 --body \"Looks good\"",
+        "octa issue comment 42 --body-file comment.md",
+        "octa issue comment 42 --body-file -",
+        "octa issue comment 42 --delete 7 --lease <LEASE>",
+    ] {
+        assert!(
+            help.contains(example),
+            "comment help missing {example:?}:\n{help}"
+        );
+    }
+    assert!(help.contains("Use this text as the body"), "{help}");
+    assert!(
+        help.contains("Issue lease required when deleting a comment"),
+        "{help}"
+    );
+}
+
+#[test]
 fn help_routes_label_lookups_from_the_top_level() {
     // Help strings pass neither the compiler nor the command parser, so a stale
     // wording survives every other check. Assert the route explicitly.
@@ -508,6 +531,138 @@ fn issue_body_file_rejects_conflicts_and_reports_input_failures() {
     );
     assert!(!invalid_stdin.status.success());
     assert!(String::from_utf8_lossy(&invalid_stdin.stderr).contains("is not valid UTF-8"));
+}
+
+#[test]
+fn delete_comment_removes_only_the_selected_comment_and_touches_the_issue() {
+    let env = Env::new();
+    env.ok(&["issue", "open", "--title", "Discuss"]);
+    env.ok(&["issue", "comment", "1", "--body", "keep first"]);
+    env.ok(&["issue", "comment", "1", "--body", "remove this"]);
+    env.ok(&["issue", "comment", "1", "--body", "keep last"]);
+
+    let before = json(&env.ok(&["issue", "show", "1", "--json"]));
+    let comment = before["comments"][1]["id"].as_i64().unwrap().to_string();
+    let human = env.ok(&["issue", "show", "1"]);
+    assert!(human.contains(&format!("comment #{comment}")));
+
+    std::thread::sleep(std::time::Duration::from_secs(1));
+    let lease = env.lease("1");
+    env.ok_with_lease(&["issue", "comment", "1", "--delete", &comment], &lease);
+
+    let after = json(&env.ok(&["issue", "show", "1", "--json"]));
+    let bodies = after["comments"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|comment| comment["body"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(bodies, vec!["keep first", "keep last"]);
+    assert!(
+        after["updated_at"].as_str().unwrap() > before["updated_at"].as_str().unwrap(),
+        "deleting a comment did not touch the issue"
+    );
+
+    let human = env.ok(&["issue", "show", "1"]);
+    assert!(!human.contains("remove this"));
+}
+
+#[test]
+fn delete_comment_rejects_a_missing_or_differently_owned_comment() {
+    let env = Env::new();
+    env.ok(&["issue", "open", "--title", "First"]);
+    env.ok(&["issue", "open", "--title", "Second"]);
+    env.ok(&["issue", "comment", "2", "--body", "belongs to second"]);
+    let second = json(&env.ok(&["issue", "show", "2", "--json"]));
+    let comment = second["comments"][0]["id"].as_i64().unwrap().to_string();
+    let lease = env.lease("1");
+
+    for candidate in [comment.as_str(), "999999"] {
+        let output = env.run_with_lease(&["issue", "comment", "1", "--delete", candidate], &lease);
+        assert!(!output.status.success());
+        let message = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            message.contains(&format!("comment #{candidate} not found on issue #1")),
+            "unexpected error: {message}"
+        );
+    }
+
+    let unchanged = json(&env.ok(&["issue", "show", "2", "--json"]));
+    assert_eq!(unchanged["comments"][0]["body"], "belongs to second");
+}
+
+#[test]
+fn delete_comment_requires_the_issue_lease() {
+    let env = Env::new();
+    env.ok(&["issue", "open", "--title", "Discuss"]);
+    env.ok(&["issue", "comment", "1", "--body", "protected"]);
+    let shown = json(&env.ok(&["issue", "show", "1", "--json"]));
+    let comment = shown["comments"][0]["id"].as_i64().unwrap().to_string();
+    let lease = env.lease("1");
+
+    let without_lease = env.run_raw(&["issue", "comment", "1", "--delete", &comment]);
+    assert!(!without_lease.status.success());
+    assert!(String::from_utf8_lossy(&without_lease.stderr).contains("--lease"));
+
+    let wrong_lease = env.run_raw(&[
+        "issue",
+        "comment",
+        "1",
+        "--delete",
+        &comment,
+        "--lease",
+        "wrong-lease",
+    ]);
+    assert!(!wrong_lease.status.success());
+    assert!(String::from_utf8_lossy(&wrong_lease.stderr).contains("valid lease required"));
+
+    env.ok_with_lease(&["issue", "comment", "1", "--delete", &comment], &lease);
+}
+
+#[test]
+fn comment_operation_options_are_validated_before_execution() {
+    for body_args in [["--body", "new"], ["--body-file", "-"]] {
+        let fresh = Env::new();
+        let invalid_add = fresh.run_raw(&[
+            "issue",
+            "comment",
+            "1",
+            body_args[0],
+            body_args[1],
+            "--lease",
+            "lease",
+        ]);
+        assert!(!invalid_add.status.success());
+        assert!(String::from_utf8_lossy(&invalid_add.stderr).contains("--delete"));
+        assert!(
+            !fresh.xdg.path().join("octa").join("octa.db").exists(),
+            "invalid comment options created the persistent store"
+        );
+    }
+
+    let env = Env::new();
+    env.ok(&["issue", "open", "--title", "Discuss"]);
+    env.ok(&["issue", "comment", "1", "--body", "must remain"]);
+    let shown = json(&env.ok(&["issue", "show", "1", "--json"]));
+    let comment = shown["comments"][0]["id"].as_i64().unwrap().to_string();
+
+    let invalid_commands = [
+        vec!["issue", "comment", "1"],
+        vec!["issue", "comment", "1", "--delete", &comment],
+        vec![
+            "issue", "comment", "1", "--body", "new", "--delete", &comment, "--lease", "lease",
+        ],
+    ];
+    for args in invalid_commands {
+        let output = env.run_raw(&args);
+        assert!(
+            !output.status.success(),
+            "invalid command unexpectedly succeeded: {args:?}"
+        );
+    }
+
+    let unchanged = json(&env.ok(&["issue", "show", "1", "--json"]));
+    assert_eq!(unchanged["comments"][0]["body"], "must remain");
 }
 
 #[test]
