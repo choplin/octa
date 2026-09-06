@@ -3,35 +3,95 @@ use sqlx::SqlitePool;
 
 use crate::domain::repository::Repository;
 
-pub async fn upsert(pool: &SqlitePool, path: &str, name: &str) -> Result<i64> {
-    sqlx::query!(
-        "INSERT INTO repositories (path, name) VALUES (?, ?) ON CONFLICT(path) DO NOTHING",
+#[derive(Debug, Clone)]
+pub struct RepositoryIdentity {
+    pub id: i64,
+    pub path: String,
+    pub name: String,
+}
+
+pub async fn insert(pool: &SqlitePool, path: &str, name: &str) -> Result<i64> {
+    let result = sqlx::query!(
+        "INSERT INTO repositories (path, name) VALUES (?, ?)",
         path,
         name
     )
     .execute(pool)
     .await?;
-    let id = sqlx::query_scalar!(
-        r#"SELECT id AS "id!: i64" FROM repositories WHERE path = ?"#,
-        path
-    )
-    .fetch_one(pool)
-    .await?;
-    Ok(id)
+    Ok(result.last_insert_rowid())
 }
 
 pub async fn by_name(pool: &SqlitePool, name: &str) -> Result<i64> {
-    let rows = sqlx::query_scalar!(
-        r#"SELECT id AS "id!: i64" FROM repositories WHERE name = ?"#,
+    by_name_identity(pool, name)
+        .await?
+        .map(|repository| repository.id)
+        .ok_or_else(|| anyhow::anyhow!("no repository named {name:?} in the store"))
+}
+
+pub async fn by_name_identity(pool: &SqlitePool, name: &str) -> Result<Option<RepositoryIdentity>> {
+    Ok(sqlx::query_as!(
+        RepositoryIdentity,
+        r#"SELECT id AS "id!: i64", path AS "path!: String", name AS "name!: String"
+           FROM repositories WHERE name = ?"#,
         name
     )
-    .fetch_all(pool)
+    .fetch_optional(pool)
+    .await?)
+}
+
+pub async fn by_path(pool: &SqlitePool, path: &str) -> Result<Option<RepositoryIdentity>> {
+    Ok(sqlx::query_as!(
+        RepositoryIdentity,
+        r#"SELECT id AS "id!: i64", path AS "path!: String", name AS "name!: String"
+           FROM repositories WHERE path = ?"#,
+        path
+    )
+    .fetch_optional(pool)
+    .await?)
+}
+
+pub async fn set_name(
+    pool: &SqlitePool,
+    id: i64,
+    old_name: &str,
+    old_path: &str,
+    name: &str,
+) -> Result<()> {
+    let result = sqlx::query!(
+        "UPDATE repositories SET name = ?, updated_at = datetime('now') WHERE id = ? AND name = ? AND path = ?",
+        name,
+        id,
+        old_name,
+        old_path
+    )
+    .execute(pool)
     .await?;
-    match rows.len() {
-        0 => bail!("no repository named {name:?} in the store"),
-        1 => Ok(rows[0]),
-        n => bail!("{n} repositories named {name:?}; identity is ambiguous"),
+    if result.rows_affected() != 1 {
+        bail!("repository name changed concurrently");
     }
+    Ok(())
+}
+
+pub async fn relocate(
+    pool: &SqlitePool,
+    id: i64,
+    old_name: &str,
+    old_path: &str,
+    path: &str,
+) -> Result<()> {
+    let result = sqlx::query!(
+        "UPDATE repositories SET path = ?, updated_at = datetime('now') WHERE id = ? AND name = ? AND path = ?",
+        path,
+        id,
+        old_name,
+        old_path
+    )
+    .execute(pool)
+    .await?;
+    if result.rows_affected() != 1 {
+        bail!("repository changed concurrently while relocating it");
+    }
+    Ok(())
 }
 
 /// Every repository octa has recorded, with its Issue counts by state type.
@@ -47,6 +107,7 @@ pub async fn list(pool: &SqlitePool) -> Result<Vec<Repository>> {
             r.name         AS "name!: String",
             r.path         AS "path!: String",
             r.created_at   AS "created_at!: String",
+            r.updated_at   AS "updated_at!: String",
             (
                 SELECT COUNT(*)
                 FROM issues i
@@ -86,6 +147,21 @@ mod tests {
             .unwrap();
         crate::sql::issue::seed_default_states(&pool).await.unwrap();
         pool
+    }
+
+    async fn set_repository_updated_at(pool: &SqlitePool, value: &str) {
+        sqlx::query("UPDATE repositories SET updated_at = ? WHERE id = 1")
+            .bind(value)
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+
+    async fn repository_updated_at(pool: &SqlitePool) -> String {
+        sqlx::query_scalar("SELECT updated_at FROM repositories WHERE id = 1")
+            .fetch_one(pool)
+            .await
+            .unwrap()
     }
 
     /// The whole reason this listing exists: a repository with no Issues is
@@ -166,26 +242,85 @@ mod tests {
         );
     }
 
-    /// `name` carries no unique constraint, so the listing must show both rows
-    /// rather than collapsing the ambiguity `by_name` later reports.
+    /// Repository names are user-facing locators, so exact duplicates must
+    /// conflict instead of making selection ambiguous.
     #[tokio::test]
-    async fn lists_both_repositories_that_share_a_name() {
+    async fn rejects_duplicate_names() {
         let pool = pool().await;
-        sqlx::query("INSERT INTO repositories (id, path, name) VALUES (1, '/one/a', 'a')")
+        sqlx::query("INSERT INTO repositories (id, path, name) VALUES (1, '/one/a', 'alpha')")
             .execute(&pool)
             .await
             .unwrap();
-        sqlx::query("INSERT INTO repositories (id, path, name) VALUES (2, '/two/a', 'a')")
+        sqlx::query("INSERT INTO repositories (id, path, name) VALUES (2, '/two/a', 'ALPHA')")
             .execute(&pool)
             .await
             .unwrap();
+        let duplicate = sqlx::query(
+            "INSERT INTO repositories (id, path, name) VALUES (3, '/three/a', 'alpha')",
+        )
+        .execute(&pool)
+        .await;
+        assert!(duplicate.is_err());
+    }
 
-        let repositories = super::list(&pool).await.unwrap();
+    /// Name and path form one metadata state: a command using a stale snapshot
+    /// must not overwrite the other command's successful change.
+    #[tokio::test]
+    async fn name_and_path_updates_reject_each_others_stale_snapshots() {
+        let relocated_first = pool().await;
+        sqlx::query("INSERT INTO repositories (id, path, name) VALUES (1, '/old', 'alpha')")
+            .execute(&relocated_first)
+            .await
+            .unwrap();
+        set_repository_updated_at(&relocated_first, "2000-01-01 00:00:00").await;
+        super::relocate(&relocated_first, 1, "alpha", "/old", "/new")
+            .await
+            .unwrap();
+        assert_ne!(
+            repository_updated_at(&relocated_first).await,
+            "2000-01-01 00:00:00"
+        );
+        set_repository_updated_at(&relocated_first, "2001-01-01 00:00:00").await;
+        assert!(
+            super::set_name(&relocated_first, 1, "alpha", "/old", "beta")
+                .await
+                .is_err()
+        );
+        let after_relocate = super::by_name_identity(&relocated_first, "alpha")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(after_relocate.path, "/new");
+        assert_eq!(
+            repository_updated_at(&relocated_first).await,
+            "2001-01-01 00:00:00"
+        );
 
-        let paths: Vec<_> = repositories
-            .iter()
-            .map(|repository| repository.path.as_str())
-            .collect();
-        assert_eq!(paths, ["/one/a", "/two/a"]);
+        let renamed_first = pool().await;
+        sqlx::query("INSERT INTO repositories (id, path, name) VALUES (1, '/old', 'alpha')")
+            .execute(&renamed_first)
+            .await
+            .unwrap();
+        set_repository_updated_at(&renamed_first, "2000-01-01 00:00:00").await;
+        super::set_name(&renamed_first, 1, "alpha", "/old", "beta")
+            .await
+            .unwrap();
+        assert_ne!(
+            repository_updated_at(&renamed_first).await,
+            "2000-01-01 00:00:00"
+        );
+        set_repository_updated_at(&renamed_first, "2001-01-01 00:00:00").await;
+        assert!(super::relocate(&renamed_first, 1, "alpha", "/old", "/new")
+            .await
+            .is_err());
+        let after_set = super::by_name_identity(&renamed_first, "beta")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(after_set.path, "/old");
+        assert_eq!(
+            repository_updated_at(&renamed_first).await,
+            "2001-01-01 00:00:00"
+        );
     }
 }

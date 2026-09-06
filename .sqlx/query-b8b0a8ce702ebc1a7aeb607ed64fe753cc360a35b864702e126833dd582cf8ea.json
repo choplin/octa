@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id AS \"id!: i64\", path AS \"path!: String\", name AS \"name!: String\"\n           FROM repositories WHERE path = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!: i64",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "path!: String",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "name!: String",
+        "ordinal": 2,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "b8b0a8ce702ebc1a7aeb607ed64fe753cc360a35b864702e126833dd582cf8ea"
+}

@@ -399,11 +399,14 @@ impl RepositoryObject {
     async fn name<'a>(&'a self, ctx: &Context<'_>) -> async_graphql::Result<&'a str> {
         self.0.string(ctx)
     }
-    /// The repository's Git common directory, which is how octa identifies it.
+    /// The repository's current canonical location.
     async fn path<'a>(&'a self, ctx: &Context<'_>) -> async_graphql::Result<&'a str> {
         self.0.string(ctx)
     }
     async fn created_at<'a>(&'a self, ctx: &Context<'_>) -> async_graphql::Result<&'a str> {
+        self.0.string(ctx)
+    }
+    async fn updated_at<'a>(&'a self, ctx: &Context<'_>) -> async_graphql::Result<&'a str> {
         self.0.string(ctx)
     }
     /// Issues whose state carries the open type.
@@ -425,11 +428,14 @@ impl RepoObject {
     async fn name<'a>(&'a self, ctx: &Context<'_>) -> async_graphql::Result<&'a str> {
         self.0.string(ctx)
     }
-    /// The repository's Git common directory, which is how octa identifies it.
+    /// The repository's current canonical location.
     async fn path<'a>(&'a self, ctx: &Context<'_>) -> async_graphql::Result<&'a str> {
         self.0.string(ctx)
     }
     async fn created_at<'a>(&'a self, ctx: &Context<'_>) -> async_graphql::Result<&'a str> {
+        self.0.string(ctx)
+    }
+    async fn updated_at<'a>(&'a self, ctx: &Context<'_>) -> async_graphql::Result<&'a str> {
         self.0.string(ctx)
     }
     /// Issues whose state carries the open type.

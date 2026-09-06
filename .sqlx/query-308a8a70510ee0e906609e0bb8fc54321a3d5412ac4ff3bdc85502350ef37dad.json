@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE repositories SET name = ?, updated_at = datetime('now') WHERE id = ? AND name = ? AND path = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "308a8a70510ee0e906609e0bb8fc54321a3d5412ac4ff3bdc85502350ef37dad"
+}

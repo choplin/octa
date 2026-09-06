@@ -290,7 +290,9 @@ impl Planner {
             let field = &merged.field;
             let key = response_key(field);
             let value = match field.name() {
-                "name" | "createdAt" => format!("{repository}.{}", snake(field.name())),
+                "name" | "createdAt" | "updatedAt" => {
+                    format!("{repository}.{}", snake(field.name()))
+                }
                 "path" => format!("{repository}.path"),
                 "openIssues" | "inProgressIssues" => {
                     let state_type = match field.name() {

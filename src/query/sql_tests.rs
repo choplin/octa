@@ -460,8 +460,8 @@ mod repositories {
 
     #[tokio::test]
     async fn deprecated_repos_field_matches_the_formal_repositories_field() {
-        let formal = executed_sql("{ repositories { name path createdAt } }").await;
-        let legacy = executed_sql("{ repos { name path createdAt } }").await;
+        let formal = executed_sql("{ repositories { name path createdAt updatedAt } }").await;
+        let legacy = executed_sql("{ repos { name path createdAt updatedAt } }").await;
 
         assert_eq!(formal, legacy);
 
@@ -489,7 +489,7 @@ mod repositories {
     /// repository, so the compiled SQL carries no `repository_id` predicate.
     #[tokio::test]
     async fn repositories_root_compiles_without_a_repository_predicate() {
-        let sql = executed_sql("{ repositories { name path createdAt } }").await;
+        let sql = executed_sql("{ repositories { name path createdAt updatedAt } }").await;
 
         assert_contains_in_order(
             &sql,
@@ -497,6 +497,7 @@ mod repositories {
                 "'$.name',json(json_quote(r.name))",
                 "'$.path',json(json_quote(r.path))",
                 "'$.createdAt',json(json_quote(r.created_at))",
+                "'$.updatedAt',json(json_quote(r.updated_at))",
                 "FROM repositories r ORDER BY r.name,r.id LIMIT 50 OFFSET 0",
             ],
         );

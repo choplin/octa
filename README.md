@@ -525,8 +525,18 @@ octa config issue label list --json
 
 Normally the target is the Git repository you are currently in.
 
-Because the Git common directory is used as the identifier, multiple worktrees of the same repository
-share the same octa data.
+octa stores the unique repository name in both its database and repository-local Git config. The Git
+common directory supplies the repository's current path, so linked worktrees share the same octa data
+and a moved repository can be verified before its recorded path is updated.
+
+Registration is normally implicit. Use the repository commands when a generated name conflicts, or
+when a registered repository's name changes or it is moved.
+
+```sh
+octa repository register --name other-copy /path/to/repository
+octa repository set old-name --name new-name
+octa repository relocate new-name /new/path/to/repository
+```
 
 To name another registered repository explicitly, use `--repository`.
 

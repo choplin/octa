@@ -157,10 +157,8 @@ enum TopCommand {
     },
     /// Inspect the repositories octa has recorded.
     ///
-    /// Registration is implicit: the first octa command run inside a Git
-    /// repository records it, keyed by that repository's Git common directory.
-    /// Every worktree of one repository therefore resolves to the same entry,
-    /// and a repository appears here whether or not it holds any Issues.
+    /// Registration is normally implicit. The unique name in repository-local
+    /// Git config keeps every worktree and moved location tied to the same entry.
     #[command(alias = "repo")]
     Repository {
         #[command(subcommand)]
@@ -172,6 +170,33 @@ enum TopCommand {
 pub(crate) enum RepositoryCommand {
     /// List the repositories octa has recorded.
     List {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Explicitly register a Git repository under a unique name.
+    Register {
+        #[arg(long)]
+        name: String,
+        /// Git working tree or repository path; defaults to the current directory.
+        path: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Set repository metadata.
+    Set {
+        #[arg(value_name = "NAME")]
+        target: String,
+        /// Change the repository's stable user-facing name.
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Update octa after an already-registered Git repository has moved.
+    Relocate {
+        name: String,
+        /// New Git working tree or repository path; defaults to the current directory.
+        path: Option<PathBuf>,
         #[arg(long)]
         json: bool,
     },

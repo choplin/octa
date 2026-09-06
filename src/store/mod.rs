@@ -6,9 +6,10 @@
 //! Configuration — issue states, labels, and label groups — is global instead:
 //! one set governs every repository.
 //!
-//! Repository identity is the repository root derived from the canonicalized git
-//! common directory (works without a remote; every worktree of a repository shares
-//! it). Concurrency rides on SQLite WAL plus a busy timeout; per-repository issue/pull request
+//! Repository identity is its unique name, shared with repository-local Git
+//! config. The canonicalized git common directory provides its current path and
+//! keeps every linked worktree on the same identity without requiring a remote. Concurrency
+//! rides on SQLite WAL plus a busy timeout; per-repository issue/pull request
 //! numbers are assigned atomically by a single `INSERT ... RETURNING`, and
 //! issue leases are acquired with a compare-and-set.
 
@@ -27,7 +28,7 @@ pub use crate::domain::{
 
 use anyhow::{bail, Context, Result};
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqlitePoolOptions};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
@@ -47,19 +48,33 @@ enum Resolved {
     All,
 }
 
-/// Resolve the path and human name of the repository at the cwd.
-///
-/// The path is the repository root derived from the canonicalized
-/// `git rev-parse --git-common-dir`, shared by every worktree of the same
-/// repository, and is what identifies it; the name is that root's directory
-/// basename.
-fn resolve_repository_identity() -> Result<(String, String)> {
+const REPOSITORY_NAME_CONFIG: &str = "octa.repositoryName";
+
+struct GitRepository {
+    path: String,
+    default_name: String,
+    command_directory: PathBuf,
+    configured_name: Option<String>,
+}
+
+/// Resolve the current Git repository without registering it.
+fn resolve_repository_identity() -> Result<GitRepository> {
+    resolve_repository_identity_at(&std::env::current_dir()?)
+}
+
+/// Resolve a Git repository from a working tree or repository path.
+fn resolve_repository_identity_at(directory: &Path) -> Result<GitRepository> {
     let common = Command::new("git")
+        .arg("-C")
+        .arg(directory)
         .args(["rev-parse", "--git-common-dir"])
         .output()
         .context("failed to run `git rev-parse --git-common-dir`")?;
     if !common.status.success() {
-        bail!("not inside a git repository (git rev-parse --git-common-dir failed)");
+        bail!(
+            "{} is not a Git repository (git rev-parse --git-common-dir failed)",
+            directory.display()
+        );
     }
     let raw = String::from_utf8(common.stdout)
         .context("git printed non-UTF-8 output")?
@@ -67,14 +82,87 @@ fn resolve_repository_identity() -> Result<(String, String)> {
         .to_string();
     let mut git_dir = PathBuf::from(&raw);
     if git_dir.is_relative() {
-        git_dir = std::env::current_dir()?.join(git_dir);
+        git_dir = directory.join(git_dir);
     }
     let git_dir = std::fs::canonicalize(&git_dir)
         .with_context(|| format!("cannot resolve git dir {}", git_dir.display()))?;
     let root = repository_root(&git_dir);
     let path = root.to_string_lossy().to_string();
-    let name = repository_name(&root);
-    Ok((path, name))
+    let default_name = repository_name(&root);
+    let configured_name = read_repository_name(directory)?;
+    Ok(GitRepository {
+        path,
+        default_name,
+        command_directory: directory.to_path_buf(),
+        configured_name,
+    })
+}
+
+fn read_repository_name(directory: &Path) -> Result<Option<String>> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(directory)
+        .args([
+            "config",
+            "--local",
+            "--null",
+            "--get",
+            REPOSITORY_NAME_CONFIG,
+        ])
+        .output()
+        .context("failed to read the repository name from Git config")?;
+    if output.status.success() {
+        let value = output
+            .stdout
+            .strip_suffix(&[0])
+            .context("Git config did not terminate the repository name")?;
+        let name = String::from_utf8(value.to_vec())
+            .context("Git config contains a non-UTF-8 repository name")?;
+        if name.trim().is_empty() {
+            bail!("Git config contains an empty {REPOSITORY_NAME_CONFIG}");
+        }
+        return Ok(Some(name));
+    }
+    if output.status.code() == Some(1) {
+        return Ok(None);
+    }
+    bail!("failed to read {REPOSITORY_NAME_CONFIG} from Git config")
+}
+
+fn write_repository_name(directory: &Path, name: &str) -> Result<()> {
+    let status = Command::new("git")
+        .arg("-C")
+        .arg(directory)
+        .args(["config", "--local", REPOSITORY_NAME_CONFIG, name])
+        .status()
+        .context("failed to write the repository name to Git config")?;
+    if !status.success() {
+        bail!("failed to write {REPOSITORY_NAME_CONFIG} to Git config");
+    }
+    Ok(())
+}
+
+fn restore_repository_name(
+    directory: &Path,
+    attempted_name: &str,
+    previous_name: Option<&str>,
+) -> Result<()> {
+    if read_repository_name(directory)?.as_deref() != Some(attempted_name) {
+        return Ok(());
+    }
+    if let Some(previous_name) = previous_name {
+        return write_repository_name(directory, previous_name);
+    }
+    let status = Command::new("git")
+        .arg("-C")
+        .arg(directory)
+        .args(["config", "--local", "--unset-all", REPOSITORY_NAME_CONFIG])
+        .status()
+        .context("failed to remove a repository name after an update failed")?;
+    if !status.success() {
+        bail!("failed to remove {REPOSITORY_NAME_CONFIG} after an update failed");
+    }
+    Ok(())
 }
 
 /// Derive the repository root from the canonicalized git common dir.
@@ -178,8 +266,8 @@ impl Store {
         };
         let scope = match scope {
             RepositoryScope::Current => {
-                let (path, name) = resolve_repository_identity()?;
-                Resolved::One(store.upsert_repository(&path, &name).await?)
+                let repository = resolve_repository_identity()?;
+                Resolved::One(store.resolve_or_register(repository).await?)
             }
             RepositoryScope::Named(name) => Resolved::One(store.repository_by_name(&name).await?),
             RepositoryScope::All => Resolved::All,
@@ -205,8 +293,105 @@ impl Store {
     }
 
     /// Insert the repository if new and return its id.
-    async fn upsert_repository(&self, path: &str, name: &str) -> Result<i64> {
-        crate::sql::repository::upsert(&self.pool, path, name).await
+    async fn resolve_or_register(&self, repository: GitRepository) -> Result<i64> {
+        if let Some(existing) =
+            crate::app::repository::identity_by_path(&self.pool, &repository.path).await?
+        {
+            match repository.configured_name.as_deref() {
+                Some(name) if name == existing.name => return Ok(existing.id),
+                Some(_) => bail!(
+                    "repository name mismatch for path {:?}; Git config does not match the octa repository",
+                    repository.path
+                ),
+                None => bail!(
+                    "Git repository at {:?} has no {REPOSITORY_NAME_CONFIG}",
+                    repository.path
+                ),
+            }
+        }
+
+        if let Some(name) = repository.configured_name.as_deref() {
+            if let Some(existing) =
+                crate::sql::repository::by_name_identity(&self.pool, name).await?
+            {
+                bail!(
+                    "repository {:?} is registered at {:?}; run `octa repository relocate <NAME>` from its new location",
+                    existing.name,
+                    existing.path
+                );
+            }
+        }
+
+        self.register_resolved(repository, None).await.map_err(|error| {
+            anyhow::anyhow!(
+                "implicit repository registration failed: {error}; use `octa repository register --name <NAME> [PATH]` to choose a unique name"
+            )
+        })
+    }
+
+    async fn register_resolved(
+        &self,
+        repository: GitRepository,
+        name: Option<&str>,
+    ) -> Result<i64> {
+        if let Some(configured_name) = repository.configured_name.as_deref() {
+            if let Some(existing) =
+                crate::sql::repository::by_name_identity(&self.pool, configured_name).await?
+            {
+                if existing.path != repository.path {
+                    bail!(
+                        "repository {:?} is registered at {:?}; run `octa repository relocate <NAME>` from its new location",
+                        existing.name,
+                        existing.path
+                    );
+                }
+            }
+        }
+        let name = name
+            .map(str::to_owned)
+            .or_else(|| repository.configured_name.clone())
+            .unwrap_or_else(|| repository.default_name.clone());
+        crate::app::repository::validate_registration(&self.pool, &repository.path, &name).await?;
+        let previous_name = repository.configured_name.as_deref();
+        let wrote_name = previous_name != Some(name.as_str());
+        if wrote_name {
+            write_repository_name(&repository.command_directory, &name)?;
+        }
+        match crate::app::repository::register(&self.pool, &repository.path, &name).await {
+            Ok(id) => Ok(id),
+            Err(error) => {
+                if wrote_name {
+                    if let Some(existing) =
+                        crate::app::repository::identity_by_path(&self.pool, &repository.path)
+                            .await?
+                    {
+                        // Another process may have won a concurrent registration
+                        // after validation. Restore its durable name instead of
+                        // deleting the marker that both processes share.
+                        restore_repository_name(
+                            &repository.command_directory,
+                            &name,
+                            Some(&existing.name),
+                        )
+                        .with_context(|| {
+                            format!(
+                                "repository registration failed before restoring the winning name: {error}"
+                            )
+                        })?;
+                    } else {
+                        restore_repository_name(
+                            &repository.command_directory,
+                            &name,
+                            previous_name,
+                        )
+                        .with_context(|| {
+                            format!("repository registration failed before cleanup: {error}")
+                        })?;
+                    }
+                }
+                Err(error)
+            }
+        }
     }
 
     async fn repository_by_name(&self, name: &str) -> Result<i64> {
@@ -289,7 +474,7 @@ mod migration_tests {
             (
                 "repositories",
                 rows!(
-                    r#"SELECT json_array(id, path, name, created_at) AS "row!: String" FROM repositories ORDER BY id"#
+                    r#"SELECT json_array(id, path, name, created_at, updated_at) AS "row!: String" FROM repositories ORDER BY id"#
                 ),
             ),
             (
@@ -442,7 +627,7 @@ mod migration_tests {
             .unwrap();
         sqlx::migrate!("./migrations").run(&pool).await.unwrap();
         crate::sql::issue::seed_default_states(&pool).await.unwrap();
-        let repository = crate::sql::repository::upsert(&pool, "/test/.git", "test")
+        let repository = crate::sql::repository::insert(&pool, "/test/.git", "test")
             .await
             .unwrap();
         let store = Store {
@@ -514,9 +699,12 @@ mod migration_tests {
             vec![first, second, review, done, canceled, legacy_closed]
         );
         crate::tui::exercise_view_for_test(details);
-        crate::sql::repository::upsert(&store.pool, "/test/.git", "test")
-            .await
-            .unwrap();
+        assert_eq!(
+            crate::sql::repository::by_name(&store.pool, "test")
+                .await
+                .unwrap(),
+            repository
+        );
         let after = logical_snapshot(&store.pool).await;
 
         assert_eq!(after, before);
@@ -778,7 +966,7 @@ mod migration_tests {
             .unwrap();
         sqlx::migrate!("./migrations").run(&pool).await.unwrap();
         crate::sql::issue::seed_default_states(&pool).await.unwrap();
-        let repository = crate::sql::repository::upsert(&pool, "/seed/.git", "seed")
+        let repository = crate::sql::repository::insert(&pool, "/seed/.git", "seed")
             .await
             .unwrap();
 
@@ -849,9 +1037,12 @@ mod migration_tests {
         .await
         .unwrap();
 
-        crate::sql::repository::upsert(&pool, "/seed/.git", "seed")
-            .await
-            .unwrap();
+        assert_eq!(
+            crate::sql::repository::by_name(&pool, "seed")
+                .await
+                .unwrap(),
+            repository
+        );
         crate::sql::issue::seed_default_states(&pool).await.unwrap();
 
         let states_after: Vec<String> = sqlx::query_scalar!(
@@ -884,10 +1075,10 @@ mod migration_tests {
             .unwrap();
         sqlx::migrate!("./migrations").run(&pool).await.unwrap();
         crate::sql::issue::seed_default_states(&pool).await.unwrap();
-        let first_repository = crate::sql::repository::upsert(&pool, "/first/.git", "first")
+        let first_repository = crate::sql::repository::insert(&pool, "/first/.git", "first")
             .await
             .unwrap();
-        let second_repository = crate::sql::repository::upsert(&pool, "/second/.git", "second")
+        let second_repository = crate::sql::repository::insert(&pool, "/second/.git", "second")
             .await
             .unwrap();
         crate::app::issue::create(&pool, first_repository, "First", "", None, None, None, None)

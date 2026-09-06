@@ -3,15 +3,15 @@
 -- explicitly. Configuration -- issue states, labels, and label groups -- is
 -- global: one set governs every repository.
 
--- `path` is the repository's Git common directory, and it is what identifies a
--- repository: every worktree of one repository resolves to the same path, so
--- the unique constraint sits here rather than on `name`. The name is only a
--- label derived from that path and two repositories may share one.
+-- `name` is the unique user-facing locator shared with the repository's local
+-- Git config. `path` is the current canonical location and may change after a
+-- move.
 CREATE TABLE repositories (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     path       TEXT NOT NULL UNIQUE,
-    name       TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    name       TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 -- A state is classified on one axis: its type. The three values are the

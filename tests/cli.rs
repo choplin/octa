@@ -25,6 +25,23 @@ fn git(dir: &Path, args: &[&str]) {
     assert!(status.success(), "git {args:?} failed in {}", dir.display());
 }
 
+fn init_repository(path: &Path) {
+    std::fs::create_dir_all(path).unwrap();
+    git(path, &["init", "-q", "-b", "main"]);
+    git(path, &["config", "user.email", "test@example.com"]);
+    git(path, &["config", "user.name", "test"]);
+    git(path, &["commit", "-q", "--allow-empty", "-m", "init"]);
+}
+
+fn run_octa(xdg: &Path, dir: &Path, args: &[&str]) -> Output {
+    Command::new(bin())
+        .current_dir(dir)
+        .env("XDG_DATA_HOME", xdg)
+        .args(args)
+        .output()
+        .expect("failed to spawn octa")
+}
+
 /// A throwaway repository plus its own isolated global store.
 struct Env {
     repository: TempDir,
@@ -35,16 +52,7 @@ struct Env {
 impl Env {
     fn new() -> Self {
         let repository = TempDir::new().unwrap();
-        git(repository.path(), &["init", "-q", "-b", "main"]);
-        git(
-            repository.path(),
-            &["config", "user.email", "test@example.com"],
-        );
-        git(repository.path(), &["config", "user.name", "test"]);
-        git(
-            repository.path(),
-            &["commit", "-q", "--allow-empty", "-m", "init"],
-        );
+        init_repository(repository.path());
         Env {
             repository,
             xdg: TempDir::new().unwrap(),
@@ -335,6 +343,363 @@ fn formal_repository_and_pull_request_names_keep_short_aliases() {
         json(&env.ok(&["issue", "show", "1", "--json"]))["pull_requests"],
         serde_json::json!([]),
     );
+}
+
+#[test]
+fn implicit_registration_records_the_name_and_rejects_name_collisions() {
+    let root = TempDir::new().unwrap();
+    let xdg = TempDir::new().unwrap();
+    let first = root.path().join("first").join("shared");
+    let second = root.path().join("second").join("shared");
+    init_repository(&first);
+    init_repository(&second);
+
+    let created = run_octa(xdg.path(), &first, &["issue", "open", "--title", "First"]);
+    assert!(created.status.success());
+    let configured_name = Command::new("git")
+        .current_dir(&first)
+        .args(["config", "--local", "--get", "octa.repositoryName"])
+        .output()
+        .unwrap();
+    assert!(configured_name.status.success());
+    assert_eq!(
+        String::from_utf8(configured_name.stdout).unwrap().trim(),
+        "shared"
+    );
+
+    let already_registered = run_octa(
+        xdg.path(),
+        &first,
+        &["repository", "register", "--name", "shared"],
+    );
+    assert!(!already_registered.status.success());
+    let guidance = String::from_utf8_lossy(&already_registered.stderr);
+    assert!(guidance.contains("repository set"));
+    assert!(guidance.contains("repository relocate"));
+
+    let collision = run_octa(xdg.path(), &second, &["issue", "open", "--title", "Second"]);
+    assert!(!collision.status.success());
+    assert!(String::from_utf8_lossy(&collision.stderr)
+        .contains("octa repository register --name <NAME> [PATH]"));
+    let marker = Command::new("git")
+        .current_dir(&second)
+        .args(["config", "--local", "--get", "octa.repositoryName"])
+        .output()
+        .unwrap();
+    assert!(
+        !marker.status.success(),
+        "failed registration left a repository name behind"
+    );
+
+    let registered = run_octa(
+        xdg.path(),
+        &second,
+        &["repository", "register", "--name", "other-shared", "--json"],
+    );
+    assert!(
+        registered.status.success(),
+        "{}",
+        String::from_utf8_lossy(&registered.stderr)
+    );
+    assert_eq!(
+        json(&String::from_utf8(registered.stdout).unwrap())["name"],
+        "other-shared"
+    );
+}
+
+#[test]
+fn concurrent_registration_keeps_the_winning_repository_name() {
+    let repository = TempDir::new().unwrap();
+    let xdg = TempDir::new().unwrap();
+    init_repository(repository.path());
+    let initialized = run_octa(xdg.path(), repository.path(), &["repository", "list"]);
+    assert!(initialized.status.success());
+
+    let mut children = (0..8)
+        .map(|_| {
+            Command::new(bin())
+                .current_dir(repository.path())
+                .env("XDG_DATA_HOME", xdg.path())
+                .args(["repository", "register", "--name", "shared"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    let successes = children
+        .iter_mut()
+        .map(|child| child.wait().unwrap().success())
+        .filter(|success| *success)
+        .count();
+    assert_eq!(successes, 1);
+
+    let marker = Command::new("git")
+        .current_dir(repository.path())
+        .args(["config", "--local", "--get", "octa.repositoryName"])
+        .output()
+        .unwrap();
+    assert!(marker.status.success(), "concurrent loser removed the name");
+    assert_eq!(String::from_utf8(marker.stdout).unwrap().trim(), "shared");
+
+    let usable = run_octa(
+        xdg.path(),
+        repository.path(),
+        &["issue", "open", "--title", "After registration"],
+    );
+    assert!(
+        usable.status.success(),
+        "{}",
+        String::from_utf8_lossy(&usable.stderr)
+    );
+}
+
+#[test]
+fn repository_names_are_unique_and_can_be_set() {
+    let root = TempDir::new().unwrap();
+    let xdg = TempDir::new().unwrap();
+    let first = root.path().join("first");
+    let second = root.path().join("second");
+    init_repository(&first);
+    init_repository(&second);
+
+    for (directory, name) in [(&first, "alpha"), (&second, "beta")] {
+        let registered = run_octa(
+            xdg.path(),
+            root.path(),
+            &[
+                "repository",
+                "register",
+                "--name",
+                name,
+                directory.to_str().unwrap(),
+            ],
+        );
+        assert!(registered.status.success());
+    }
+
+    let renamed = run_octa(
+        xdg.path(),
+        &first,
+        &["repository", "set", "alpha", "--name", "Primary", "--json"],
+    );
+    assert!(renamed.status.success());
+    assert_eq!(
+        json(&String::from_utf8(renamed.stdout).unwrap())["name"],
+        "Primary"
+    );
+    let configured_name = Command::new("git")
+        .current_dir(&first)
+        .args(["config", "--local", "--get", "octa.repositoryName"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        String::from_utf8(configured_name.stdout).unwrap().trim(),
+        "Primary"
+    );
+
+    let collision = run_octa(
+        xdg.path(),
+        &first,
+        &["repository", "set", "beta", "--name", "Primary"],
+    );
+    assert!(!collision.status.success());
+    assert!(String::from_utf8_lossy(&collision.stderr).contains("already used"));
+    let listed = run_octa(xdg.path(), &first, &["repository", "list", "--json"]);
+    let listed = json(&String::from_utf8(listed.stdout).unwrap());
+    let names = listed
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|repository| repository["name"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(names, ["Primary", "beta"]);
+}
+
+#[test]
+fn concurrent_name_updates_leave_database_and_git_config_consistent() {
+    let repository = TempDir::new().unwrap();
+    let xdg = TempDir::new().unwrap();
+    init_repository(repository.path());
+    let registered = run_octa(
+        xdg.path(),
+        repository.path(),
+        &["repository", "register", "--name", "shared"],
+    );
+    assert!(registered.status.success());
+
+    let mut children = (0..8)
+        .map(|index| {
+            Command::new(bin())
+                .current_dir(repository.path())
+                .env("XDG_DATA_HOME", xdg.path())
+                .args(["repository", "set", "shared", "--name"])
+                .arg(format!("candidate-{index}"))
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    let successes = children
+        .iter_mut()
+        .map(|child| child.wait().unwrap().success())
+        .filter(|success| *success)
+        .count();
+    assert_eq!(successes, 1);
+
+    let listed = run_octa(
+        xdg.path(),
+        repository.path(),
+        &["repository", "list", "--json"],
+    );
+    let stored_name = json(&String::from_utf8(listed.stdout).unwrap())[0]["name"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let configured = Command::new("git")
+        .current_dir(repository.path())
+        .args(["config", "--local", "--get", "octa.repositoryName"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        String::from_utf8(configured.stdout).unwrap().trim(),
+        stored_name
+    );
+
+    let usable = run_octa(
+        xdg.path(),
+        repository.path(),
+        &["issue", "open", "--title", "After concurrent set"],
+    );
+    assert!(usable.status.success());
+}
+
+#[test]
+fn relocation_uses_cwd_verifies_name_and_preserves_existing_work() {
+    let root = TempDir::new().unwrap();
+    let xdg = TempDir::new().unwrap();
+    let original = root.path().join("original");
+    let moved = root.path().join("moved");
+    let moved_again = root.path().join("moved-again");
+    let other = root.path().join("other");
+    let unmarked = root.path().join("unmarked");
+    init_repository(&original);
+    init_repository(&other);
+    init_repository(&unmarked);
+
+    let registered = run_octa(
+        xdg.path(),
+        &original,
+        &["repository", "register", "--name", "stable"],
+    );
+    assert!(registered.status.success());
+    let created = run_octa(
+        xdg.path(),
+        &original,
+        &["issue", "open", "--title", "Survives"],
+    );
+    assert!(created.status.success());
+    std::fs::rename(&original, &moved).unwrap();
+
+    let reregistered = run_octa(
+        xdg.path(),
+        &moved,
+        &["repository", "register", "--name", "stable"],
+    );
+    assert!(!reregistered.status.success());
+    assert!(String::from_utf8_lossy(&reregistered.stderr).contains("repository relocate"));
+
+    let relocated = run_octa(
+        xdg.path(),
+        &moved,
+        &["repository", "relocate", "stable", "--json"],
+    );
+    assert!(
+        relocated.status.success(),
+        "{}",
+        String::from_utf8_lossy(&relocated.stderr)
+    );
+    let relocated = json(&String::from_utf8(relocated.stdout).unwrap());
+    assert_eq!(relocated["name"], "stable");
+    assert_eq!(relocated["path"], moved.to_string_lossy().as_ref());
+    assert_eq!(
+        json(
+            &String::from_utf8(
+                run_octa(xdg.path(), &moved, &["issue", "show", "1", "--json"]).stdout
+            )
+            .unwrap()
+        )["title"],
+        "Survives"
+    );
+
+    std::fs::rename(&moved, &moved_again).unwrap();
+    let explicit = run_octa(
+        xdg.path(),
+        root.path(),
+        &[
+            "repository",
+            "relocate",
+            "stable",
+            moved_again.to_str().unwrap(),
+            "--json",
+        ],
+    );
+    assert!(explicit.status.success());
+    assert_eq!(
+        json(&String::from_utf8(explicit.stdout).unwrap())["path"],
+        moved_again.to_string_lossy().as_ref()
+    );
+
+    let other_registration = run_octa(
+        xdg.path(),
+        &other,
+        &["repository", "register", "--name", "other"],
+    );
+    assert!(other_registration.status.success());
+    let mismatch = run_octa(
+        xdg.path(),
+        &moved_again,
+        &["repository", "relocate", "stable", other.to_str().unwrap()],
+    );
+    assert!(!mismatch.status.success());
+    assert!(String::from_utf8_lossy(&mismatch.stderr).contains("name mismatch"));
+
+    let missing = run_octa(
+        xdg.path(),
+        &moved_again,
+        &[
+            "repository",
+            "relocate",
+            "stable",
+            unmarked.to_str().unwrap(),
+        ],
+    );
+    assert!(!missing.status.success());
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("has no octa.repositoryName"));
+
+    git(
+        &other,
+        &["config", "--local", "octa.repositoryName", "stable"],
+    );
+    let path_collision = run_octa(
+        xdg.path(),
+        &moved_again,
+        &["repository", "relocate", "stable", other.to_str().unwrap()],
+    );
+    assert!(!path_collision.status.success());
+    assert!(String::from_utf8_lossy(&path_collision.stderr).contains("path"));
+    assert!(String::from_utf8_lossy(&path_collision.stderr).contains("already registered"));
+
+    let repositories = run_octa(xdg.path(), &moved_again, &["repository", "list", "--json"]);
+    let repositories = json(&String::from_utf8(repositories.stdout).unwrap());
+    let stable = repositories
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|repository| repository["name"] == "stable")
+        .unwrap();
+    assert_eq!(stable["path"], moved_again.to_string_lossy().as_ref());
 }
 
 #[test]
