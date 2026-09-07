@@ -1,7 +1,7 @@
 //! Issue workflows: validation, policy, and composition of the SQL repository.
 
 use crate::domain::issue::{
-    Issue, IssueDetail, IssueListSelector, IssueState, LeaseOutcome, StateType,
+    Issue, IssueDetail, IssueListItem, IssueListSelector, IssueState, LeaseOutcome, StateType,
 };
 use crate::domain::Comment;
 use anyhow::{anyhow, bail, Context, Result};
@@ -141,7 +141,7 @@ pub async fn list(
     pool: &SqlitePool,
     repository: Option<i64>,
     query: ListQuery<'_>,
-) -> Result<Vec<Issue>> {
+) -> Result<Vec<IssueListItem>> {
     let ListQuery {
         selector,
         label,
@@ -252,7 +252,13 @@ pub async fn list(
     });
     // Preserve the general list API's stable repository/issue-number order.
     entries.sort_by_key(|entry| (entry.issue.repository.clone(), entry.issue.number));
-    Ok(entries.into_iter().map(|entry| entry.issue).collect())
+    Ok(entries
+        .into_iter()
+        .map(|entry| IssueListItem {
+            issue: entry.issue,
+            labels: entry.labels,
+        })
+        .collect())
 }
 
 async fn unblocked_numbers(pool: &SqlitePool, repository: i64) -> Result<HashSet<i64>> {

@@ -1,0 +1,98 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        SELECT\n            r.name AS \"repository!: String\",\n            i.number AS \"number!: i64\", i.title AS \"title!: String\",\n            i.body AS \"body!: String\", i.state AS \"state!: String\",\n            p.id AS \"project_id?: i64\", p.name AS \"project_name?: String\",\n            m.id AS \"milestone_id?: i64\", m.name AS \"milestone_name?: String\",\n            EXISTS (\n                SELECT 1 FROM issue_leases l\n                WHERE l.repository_id = i.repository_id AND l.issue_number = i.number\n            ) AS \"leased!: i64\",\n            i.created_at AS \"created_at!: String\", i.updated_at AS \"updated_at!: String\",\n            s.type AS \"state_type!: String\",\n            json('[]') AS \"labels!: String\"\n        FROM\n            issues i\n        JOIN\n            repositories r ON r.id = i.repository_id\n        JOIN\n            issue_states s ON s.name = i.state\n        LEFT JOIN issue_projects ip\n            ON ip.repository_id = i.repository_id AND ip.issue_number = i.number\n        LEFT JOIN projects p\n            ON p.repository_id = ip.repository_id AND p.id = ip.project_id\n        LEFT JOIN issue_milestones im\n            ON im.repository_id = i.repository_id AND im.issue_number = i.number\n        LEFT JOIN project_milestones m\n            ON m.repository_id = im.repository_id AND m.project_id = im.project_id\n               AND m.id = im.milestone_id\n        WHERE\n            i.repository_id = ?\n        AND\n            i.number = ?\n    ",
+  "describe": {
+    "columns": [
+      {
+        "name": "repository!: String",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "number!: i64",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "title!: String",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "body!: String",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "state!: String",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "project_id?: i64",
+        "ordinal": 5,
+        "type_info": "Integer"
+      },
+      {
+        "name": "project_name?: String",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "milestone_id?: i64",
+        "ordinal": 7,
+        "type_info": "Integer"
+      },
+      {
+        "name": "milestone_name?: String",
+        "ordinal": 8,
+        "type_info": "Text"
+      },
+      {
+        "name": "leased!: i64",
+        "ordinal": 9,
+        "type_info": "Null"
+      },
+      {
+        "name": "created_at!: String",
+        "ordinal": 10,
+        "type_info": "Text"
+      },
+      {
+        "name": "updated_at!: String",
+        "ordinal": 11,
+        "type_info": "Text"
+      },
+      {
+        "name": "state_type!: String",
+        "ordinal": 12,
+        "type_info": "Text"
+      },
+      {
+        "name": "labels!: String",
+        "ordinal": 13,
+        "type_info": "Null"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      null,
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "7f9310935df8b005fa1111227950d10b3df0a672a9c842f61d2d8629deb11b38"
+}

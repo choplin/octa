@@ -43,7 +43,8 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             } else if issues.is_empty() {
                 output.print(output.line(Tone::Warning, "no issues"));
             } else {
-                let rows = issues.iter().map(|issue| {
+                let rows = issues.iter().map(|item| {
+                    let issue = &item.issue;
                     [
                         format!("#{}", issue.number),
                         issue.state.clone(),
@@ -58,11 +59,20 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                             .as_ref()
                             .map(|milestone| milestone.name.clone())
                             .unwrap_or_default(),
+                        item.labels.join(", "),
                         if issue.leased { "yes" } else { "" }.to_owned(),
                     ]
                 });
                 output.print(output.table(
-                    ["Issue", "State", "Title", "Project", "Milestone", "Leased"],
+                    [
+                        "Issue",
+                        "State",
+                        "Title",
+                        "Project",
+                        "Milestone",
+                        "Labels",
+                        "Leased",
+                    ],
                     rows,
                 ));
             }

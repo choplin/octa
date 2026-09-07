@@ -53,6 +53,7 @@ struct IssueListRow {
     created_at: String,
     updated_at: String,
     state_type: String,
+    labels: String,
 }
 
 pub async fn insert(
@@ -91,7 +92,8 @@ pub async fn get(pool: &SqlitePool, repository: i64, number: i64) -> Result<Opti
                 WHERE l.repository_id = i.repository_id AND l.issue_number = i.number
             ) AS "leased!: i64",
             i.created_at AS "created_at!: String", i.updated_at AS "updated_at!: String",
-            s.type AS "state_type!: String"
+            s.type AS "state_type!: String",
+            json('[]') AS "labels!: String"
         FROM
             issues i
         JOIN
@@ -140,7 +142,9 @@ pub async fn list_entries(
                     WHERE l.repository_id = i.repository_id AND l.issue_number = i.number
                 ) AS "leased!: i64",
                 i.created_at AS "created_at!: String", i.updated_at AS "updated_at!: String",
-                s.type AS "state_type!: String"
+                s.type AS "state_type!: String",
+                json_group_array(il.label_name ORDER BY il.label_name)
+                    FILTER (WHERE il.label_name IS NOT NULL) AS "labels!: String"
             FROM
                 issues i
             JOIN
@@ -156,8 +160,12 @@ pub async fn list_entries(
             LEFT JOIN project_milestones m
                 ON m.repository_id = im.repository_id AND m.project_id = im.project_id
                    AND m.id = im.milestone_id
+            LEFT JOIN issue_labels il
+                ON il.repository_id = i.repository_id AND il.issue_number = i.number
             WHERE
                 i.repository_id = ?
+            GROUP BY
+                i.repository_id, i.number
             ORDER BY
                 i.number
         "#,
@@ -181,7 +189,9 @@ pub async fn list_entries(
                     WHERE l.repository_id = i.repository_id AND l.issue_number = i.number
                 ) AS "leased!: i64",
                 i.created_at AS "created_at!: String", i.updated_at AS "updated_at!: String",
-                s.type AS "state_type!: String"
+                s.type AS "state_type!: String",
+                json_group_array(il.label_name ORDER BY il.label_name)
+                    FILTER (WHERE il.label_name IS NOT NULL) AS "labels!: String"
             FROM
                 issues i
             JOIN
@@ -197,6 +207,10 @@ pub async fn list_entries(
             LEFT JOIN project_milestones m
                 ON m.repository_id = im.repository_id AND m.project_id = im.project_id
                    AND m.id = im.milestone_id
+            LEFT JOIN issue_labels il
+                ON il.repository_id = i.repository_id AND il.issue_number = i.number
+            GROUP BY
+                i.repository_id, i.number
             ORDER BY
                 r.name, i.number
         "#,
@@ -210,6 +224,7 @@ pub async fn list_entries(
 
 fn into_entry(row: IssueListRow) -> Result<IssueListEntry> {
     let state_type = state_type_of(&row.state_type)?;
+    let labels = serde_json::from_str(&row.labels)?;
     Ok(IssueListEntry {
         issue: Issue {
             repository: row.repository,
@@ -229,6 +244,7 @@ fn into_entry(row: IssueListRow) -> Result<IssueListEntry> {
             created_at: row.created_at,
             updated_at: row.updated_at,
         },
+        labels,
         state_type,
     })
 }

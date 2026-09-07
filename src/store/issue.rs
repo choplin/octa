@@ -3,7 +3,7 @@
 
 use super::Store;
 use crate::domain::issue::{
-    Issue, IssueDetail, IssueListSelector, IssueState, LeaseOutcome, StateType,
+    IssueDetail, IssueListItem, IssueListSelector, IssueState, LeaseOutcome, StateType,
 };
 use crate::domain::Comment;
 use anyhow::Result;
@@ -39,7 +39,7 @@ impl Store {
         milestone: Option<&str>,
         related_to: Option<i64>,
         unblocked: bool,
-    ) -> Result<Vec<Issue>> {
+    ) -> Result<Vec<IssueListItem>> {
         let repository = (!self.is_all()).then(|| self.repository_id()).transpose()?;
         crate::app::issue::list(
             &self.pool,
@@ -78,7 +78,8 @@ impl Store {
         .await?;
         let mut details = Vec::with_capacity(issues.len());
         for issue in issues {
-            details.push(crate::app::issue::detail(&self.pool, repository, issue.number).await?);
+            details
+                .push(crate::app::issue::detail(&self.pool, repository, issue.issue.number).await?);
         }
         Ok(details)
     }

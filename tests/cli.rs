@@ -733,6 +733,49 @@ fn create_list_show_roundtrip() {
 }
 
 #[test]
+fn issue_list_includes_labels_in_json_and_human_output() {
+    let env = Env::new();
+    env.ok(&["issue", "open", "--title", "Labeled"]);
+    env.ok(&["issue", "open", "--title", "Unlabeled"]);
+
+    for label in ["bug", "impl"] {
+        env.ok(&["config", "issue", "label", "create", label]);
+        env.ok(&["issue", "add", "1", "--label", label]);
+    }
+
+    let items = json(&env.ok(&["issue", "list", "--json"]));
+    assert_eq!(items[0]["labels"], serde_json::json!(["bug", "impl"]));
+    assert_eq!(items[1]["labels"], serde_json::json!([]));
+    let human = env.ok(&["issue", "list"]);
+    assert!(human.contains("Labels"));
+    assert!(human.contains("bug, impl"));
+
+    let mut keys: Vec<&str> = items[0]
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        vec![
+            "body",
+            "created_at",
+            "labels",
+            "leased",
+            "milestone",
+            "number",
+            "project",
+            "repo",
+            "state",
+            "title",
+            "updated_at",
+        ]
+    );
+}
+
+#[test]
 fn piped_human_output_is_plain_and_json_stays_machine_readable() {
     let env = Env::new();
 
@@ -2550,29 +2593,42 @@ fn issues_are_shared_across_worktrees() {
 fn all_repositories_aggregates_across_repositories() {
     let env = Env::new();
     env.ok(&["issue", "open", "--title", "In first repository"]);
+    env.ok(&["config", "issue", "label", "create", "second-repository"]);
     env.ok(&["issue", "close", "1"]);
 
     // A second repository sharing the same global store.
-    let repository2 = TempDir::new().unwrap();
-    git(repository2.path(), &["init", "-q", "-b", "main"]);
-    git(repository2.path(), &["config", "user.email", "t@e.com"]);
-    git(repository2.path(), &["config", "user.name", "t"]);
+    let repository2_parent = TempDir::new().unwrap();
+    let repository2 = repository2_parent
+        .path()
+        .join(env.path().file_name().unwrap());
+    std::fs::create_dir(&repository2).unwrap();
+    git(&repository2, &["init", "-q", "-b", "main"]);
+    git(&repository2, &["config", "user.email", "t@e.com"]);
+    git(&repository2, &["config", "user.name", "t"]);
     git(
-        repository2.path(),
+        &repository2,
         &["commit", "-q", "--allow-empty", "-m", "init"],
     );
     env.ok_in(
-        repository2.path(),
+        &repository2,
         &["issue", "open", "--title", "In second repository"],
+    );
+    env.ok_in(
+        &repository2,
+        &["issue", "add", "1", "--label", "second-repository"],
     );
 
     // Each repository numbers from 1 independently.
-    let second = json(&env.ok_in(repository2.path(), &["issue", "list", "--json"]));
+    let second = json(&env.ok_in(&repository2, &["issue", "list", "--json"]));
     assert_eq!(second.as_array().unwrap()[0]["number"], 1);
+    assert_eq!(
+        second.as_array().unwrap()[0]["labels"],
+        serde_json::json!(["second-repository"])
+    );
 
     // --all-repositories sees both.
     let all = json(&env.ok_in(
-        repository2.path(),
+        &repository2,
         &["issue", "list", "--all-repositories", "--all", "--json"],
     ));
     let titles: Vec<&str> = all
@@ -2589,11 +2645,25 @@ fn all_repositories_aggregates_across_repositories() {
         titles.contains(&"In second repository"),
         "cross-repository view missing second: {titles:?}"
     );
+    let first = all
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|issue| issue["title"] == "In first repository")
+        .unwrap();
+    let second = all
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|issue| issue["title"] == "In second repository")
+        .unwrap();
+    assert_eq!(first["labels"], serde_json::json!([]));
+    assert_eq!(second["labels"], serde_json::json!(["second-repository"]));
 
     // States are global configuration, so both state selectors work across
     // repositories; only the repository-scoped filters need a single repository.
     let closed = json(&env.ok_in(
-        repository2.path(),
+        &repository2,
         &[
             "issue",
             "list",
@@ -2610,7 +2680,7 @@ fn all_repositories_aggregates_across_repositories() {
     );
 
     let named = json(&env.ok_in(
-        repository2.path(),
+        &repository2,
         &[
             "issue",
             "list",
@@ -2626,7 +2696,7 @@ fn all_repositories_aggregates_across_repositories() {
         vec!["issue", "list", "--all-repositories", "--label", "missing"],
         vec!["issue", "list", "--all-repositories", "--unblocked"],
     ] {
-        let out = env.run_in(repository2.path(), &args);
+        let out = env.run_in(&repository2, &args);
         assert!(!out.status.success(), "{args:?} unexpectedly succeeded");
     }
 }

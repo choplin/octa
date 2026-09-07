@@ -20,11 +20,23 @@ pub struct Issue {
     pub updated_at: String,
 }
 
-/// An internal domain projection used while applying state filters. SQL maps
-/// directly into this type; SQL row records never escape the persistence layer.
+/// An internal domain projection for list results. SQL row records never
+/// escape the persistence layer.
 pub(crate) struct IssueListEntry {
     pub issue: Issue,
+    pub labels: Vec<String>,
     pub state_type: StateType,
+}
+
+/// The JSON projection returned by `issue list`.
+///
+/// List-only collections belong here rather than on `Issue`, which is also the
+/// base of the heavier detail representation.
+#[derive(Debug, Serialize)]
+pub struct IssueListItem {
+    #[serde(flatten)]
+    pub issue: Issue,
+    pub labels: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
