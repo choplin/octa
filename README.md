@@ -79,7 +79,7 @@ can reuse it.
 ```sh
 LEASE=$(octa issue lock 1)
 octa issue start 1 --lease "$LEASE"
-octa issue comment 1 --body "Started working on this."
+octa issue comment add 1 --body "Started working on this."
 ```
 
 When the work is done, close the Issue with the same lease, then release the lease.

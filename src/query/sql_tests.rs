@@ -243,56 +243,6 @@ mod issue_relations {
 mod other_relations {
     use super::*;
     #[tokio::test]
-    async fn pull_request_links_compile_both_traversal_directions() {
-        let from_issue =
-            executed_sql("{ issue(number: 1) { pullRequests(limit: 2) { number } } }").await;
-        assert_contains_in_order(
-            &from_issue,
-            &[
-                "FROM issue_pull_request_links ipl2 JOIN pull_requests pull_request1",
-                "pull_request1.repository_id=ipl2.repository_id AND pull_request1.number=ipl2.pull_request_number",
-                "WHERE ipl2.repository_id=i.repository_id AND ipl2.issue_number=i.number",
-                "ORDER BY pull_request1.number LIMIT 2 OFFSET 0",
-            ],
-        );
-
-        let from_pull_request =
-            executed_sql("{ pullRequest(number: 9) { issues(limit: 4) { number } } }").await;
-        assert_contains_in_order(
-            &from_pull_request,
-            &[
-                "FROM issue_pull_request_links ipl3 JOIN issues i1",
-                "i1.repository_id=ipl3.repository_id AND i1.number=ipl3.issue_number",
-                "WHERE ipl3.repository_id=p.repository_id AND ipl3.pull_request_number=p.number",
-                "ORDER BY i1.number LIMIT 4 OFFSET 0",
-                "FROM pull_requests p",
-            ],
-        );
-    }
-
-    #[tokio::test]
-    async fn wiki_links_compile_forward_and_reverse_directions() {
-        let sql = executed_sql(
-            "{ wikiPage(slug: \"home\") { linksTo(limit: 2) { slug } backlinks(limit: 3) { slug } } }",
-        )
-        .await;
-
-        assert_contains_in_order(
-            &sql,
-            &[
-                "FROM wiki_links wl2 JOIN wiki_pages w1",
-                "w1.slug=wl2.to_slug",
-                "WHERE wl2.repository_id=w.repository_id AND wl2.from_slug=w.slug",
-                "ORDER BY w1.slug LIMIT 2 OFFSET 0",
-                "FROM wiki_links wl4 JOIN wiki_pages w3",
-                "w3.slug=wl4.from_slug",
-                "WHERE wl4.repository_id=w.repository_id AND wl4.to_slug=w.slug",
-                "ORDER BY w3.slug LIMIT 3 OFFSET 0",
-            ],
-        );
-    }
-
-    #[tokio::test]
     async fn label_roots_compile_target_specific_reverse_relations() {
         let cases = [
             (
@@ -430,22 +380,6 @@ mod filters_and_roots {
                 "{ milestones(projectId: 4, offset: 2, limit: 7) { id } }",
                 "FROM project_milestones m WHERE m.repository_id=1 AND m.project_id=4 ORDER BY m.position,m.id LIMIT 7 OFFSET 2",
             ),
-            (
-                "{ pullRequest(number: 8) { number } }",
-                "FROM pull_requests p WHERE p.repository_id=1 AND p.number=8",
-            ),
-            (
-                "{ pullRequests(filter: { state: \"open\" }, offset: 1, limit: 6) { number } }",
-                "FROM pull_requests p WHERE p.repository_id=1 AND p.state='open' ORDER BY p.number LIMIT 6 OFFSET 1",
-            ),
-            (
-                "{ wikiPage(slug: \"reader's-guide\") { slug } }",
-                "FROM wiki_pages w WHERE w.repository_id=1 AND w.slug='reader''s-guide'",
-            ),
-            (
-                "{ wikiPages(offset: 3, limit: 9) { slug } }",
-                "FROM wiki_pages w WHERE w.repository_id=1 ORDER BY w.slug LIMIT 9 OFFSET 3",
-            ),
         ];
 
         for (document, expected) in cases {
@@ -457,6 +391,48 @@ mod filters_and_roots {
 
 mod repositories {
     use super::*;
+
+    #[tokio::test]
+    async fn public_schema_and_runtime_reject_pull_request_and_wiki_fields() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        let db = QueryDb {
+            pool,
+            repository: 1,
+            accesses: Arc::new(AtomicUsize::new(0)),
+            statements: Arc::new(Mutex::new(Vec::new())),
+        };
+        let schema = Schema::build(QueryRoot, EmptyMutation, EmptySubscription)
+            .data(db)
+            .finish();
+        let sdl = schema.sdl();
+
+        assert!(
+            !sdl.contains("PullRequest"),
+            "withdrawn type in schema:\n{sdl}"
+        );
+        assert!(
+            !sdl.contains("WikiPage"),
+            "withdrawn type in schema:\n{sdl}"
+        );
+
+        for document in [
+            "{ pullRequest(number: 1) { number } }",
+            "{ pullRequests { number } }",
+            "{ wikiPage(slug: \"home\") { slug } }",
+            "{ wikiPages { slug } }",
+            "{ issue(number: 1) { pullRequests { number } } }",
+        ] {
+            let response = schema.execute(document).await;
+            assert!(
+                !response.errors.is_empty(),
+                "withdrawn GraphQL fields were accepted: {document}"
+            );
+        }
+    }
 
     #[tokio::test]
     async fn deprecated_repos_field_matches_the_formal_repositories_field() {

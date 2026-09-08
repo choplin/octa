@@ -17,14 +17,14 @@ mod issue;
 mod label;
 mod milestone;
 mod project;
+// Retained for staged support after 0.1.0; no public command calls these yet.
+#[allow(dead_code)]
 mod pull_request;
 mod repository;
+#[allow(dead_code)]
 mod wiki;
 
-pub use crate::domain::{
-    issue::{IssueListSelector, LeaseOutcome, StateType},
-    StateFilter,
-};
+pub use crate::domain::issue::{IssueListSelector, LeaseOutcome, StateType};
 
 use anyhow::{bail, Context, Result};
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqlitePoolOptions};
@@ -938,6 +938,10 @@ mod migration_tests {
             "issue_parents",
             "issue_relations",
             "issue_pull_request_links",
+            "pull_requests",
+            "pull_request_comments",
+            "wiki_pages",
+            "wiki_links",
             "project_label_groups",
             "project_labels",
             "project_label_links",
@@ -1067,7 +1071,7 @@ mod migration_tests {
     }
 
     #[tokio::test]
-    async fn relation_and_pull_request_link_schema_enforce_repository_scope_and_atomicity() {
+    async fn dormant_pull_request_and_wiki_storage_remains_intact() {
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
             .connect("sqlite::memory:")
@@ -1213,5 +1217,63 @@ mod migration_tests {
         .await
         .unwrap();
         assert_eq!(count, 0, "failed linked create left an orphan pull request");
+
+        sqlx::query(
+            "INSERT INTO wiki_pages (repository_id, slug, title, body) VALUES (?, 'home', 'Home', '[[guide]]'), (?, 'guide', 'Guide', '')",
+        )
+        .bind(first_repository)
+        .bind(first_repository)
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO wiki_links (repository_id, from_slug, to_slug) VALUES (?, 'home', 'guide')",
+        )
+        .bind(first_repository)
+        .execute(&pool)
+        .await
+        .unwrap();
+        crate::app::pull_request::comment(&pool, first_repository, 1, "retained comment")
+            .await
+            .unwrap();
+
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        let pull_request_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM pull_requests WHERE repository_id = ?")
+                .bind(first_repository)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        let pull_request_link_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM issue_pull_request_links WHERE repository_id = ?",
+        )
+        .bind(first_repository)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let pull_request_comment_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM pull_request_comments WHERE repository_id = ?",
+        )
+        .bind(first_repository)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let wiki_page_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM wiki_pages WHERE repository_id = ?")
+                .bind(first_repository)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        let wiki_link_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM wiki_links WHERE repository_id = ?")
+                .bind(first_repository)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(pull_request_count, 2);
+        assert_eq!(pull_request_link_count, 2);
+        assert_eq!(pull_request_comment_count, 1);
+        assert_eq!(wiki_page_count, 2);
+        assert_eq!(wiki_link_count, 1);
     }
 }

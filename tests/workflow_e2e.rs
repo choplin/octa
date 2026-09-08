@@ -250,7 +250,7 @@ impl AgentLifecycle {
         lease
     }
 
-    fn commit_implementation_and_open_pull_request(&self) {
+    fn commit_implementation(&self) {
         git(
             self.env.path(),
             &["switch", "-q", "-c", "agent-lifecycle-change"],
@@ -266,23 +266,16 @@ impl AgentLifecycle {
             &["commit", "-q", "-m", "implement lifecycle change"],
         );
         git(self.env.path(), &["switch", "-q", "main"]);
-        self.env.ok(&[
-            "pull-request",
-            "create",
-            "--title",
-            "Agent lifecycle change",
-            "--branch",
-            "agent-lifecycle-change",
-        ]);
     }
 
     fn handoff_to_agent_b(&self, agent_a_lease: &str) -> String {
         self.env.ok(&[
             "issue",
             "comment",
+            "add",
             "1",
             "--body",
-            "Handoff: implementation is committed; link pull request #1 and review it.",
+            "Handoff: implementation is committed; review and integrate branch agent-lifecycle-change.",
         ]);
         self.env
             .ok(&["issue", "unlock", "1", "--lease", agent_a_lease]);
@@ -323,11 +316,11 @@ fn leased_issue_rejects_a_competing_agent_and_unleased_mutation() {
 #[test]
 fn handoff_gives_the_next_agent_fresh_ownership_and_complete_context() {
     // This scenario treats a handoff as a recoverability contract. Agent B must
-    // see the Issue, Project, dependency, pull request, and handoff note, obtain a fresh
+    // see the Issue, Project, dependency, and handoff note, obtain a fresh
     // lease, and prove that agent A's released lease can no longer mutate work.
     let scenario = AgentLifecycle::new();
     let agent_a_lease = scenario.start_as_agent_a();
-    scenario.commit_implementation_and_open_pull_request();
+    scenario.commit_implementation();
 
     let context = scenario.env.query(
         r#"{
@@ -337,7 +330,6 @@ fn handoff_gives_the_next_agent_fresh_ownership_and_complete_context() {
                 project { name issues { number state } }
                 blocks { number title state }
             }
-            pullRequests { number title branch state }
         }"#,
     );
     assert!(
@@ -352,10 +344,6 @@ fn handoff_gives_the_next_agent_fresh_ownership_and_complete_context() {
         "Agent lifecycle"
     );
     assert_eq!(context["data"]["issue"]["blocks"][0]["number"], 2);
-    assert_eq!(
-        context["data"]["pullRequests"][0]["branch"],
-        "agent-lifecycle-change"
-    );
     assert!(
         context["errors"].is_null(),
         "context query: unexpected GraphQL errors: {}",
@@ -382,48 +370,28 @@ fn handoff_gives_the_next_agent_fresh_ownership_and_complete_context() {
         "valid lease required",
     );
 
-    scenario.env.ok_with_lease(
-        &["pull-request", "add", "1", "--issue", "1"],
-        &agent_b_lease,
-    );
     let resumed = scenario.env.json(&["issue", "show", "1", "--json"]);
     assert_eq!(
         resumed["comments"][0]["body"],
-        "Handoff: implementation is committed; link pull request #1 and review it.",
+        "Handoff: implementation is committed; review and integrate branch agent-lifecycle-change.",
         "handoff: agent B could not recover agent A's pickup context"
-    );
-    assert_eq!(
-        resumed["pull_requests"][0]["number"], 1,
-        "handoff: agent B did not link the implementation pull request"
     );
 }
 
 #[test]
-fn integrated_pull_request_completes_the_issue_and_reveals_unblocked_work() {
+fn integrated_branch_completes_the_issue_and_reveals_unblocked_work() {
     // This scenario ties workflow completion to an observable Git outcome. The
-    // linked pull request passes review, its branch is fast-forwarded into main, and only
+    // implementation passes review, its branch is fast-forwarded into main, and only
     // then does Done reveal the dependent issue through the normal read paths.
     let scenario = AgentLifecycle::new();
     let agent_a_lease = scenario.start_as_agent_a();
-    scenario.commit_implementation_and_open_pull_request();
+    scenario.commit_implementation();
     let agent_b_lease = scenario.handoff_to_agent_b(&agent_a_lease);
-    scenario.env.ok_with_lease(
-        &["pull-request", "add", "1", "--issue", "1"],
-        &agent_b_lease,
-    );
-
-    scenario
-        .env
-        .ok(&["pull-request", "set-state", "1", "review"]);
     scenario
         .env
         .ok_with_lease(&["issue", "set", "1", "--as", "In Review"], &agent_b_lease);
     let review = scenario.env.json(&["issue", "show", "1", "--json"]);
     assert_eq!(review["state"], "In Review", "review: issue state drifted");
-    assert_eq!(
-        review["pull_requests"][0]["state"], "review",
-        "review: linked pull request state was not visible from the issue"
-    );
 
     git(
         scenario.env.path(),
@@ -433,9 +401,6 @@ fn integrated_pull_request_completes_the_issue_and_reveals_unblocked_work() {
         scenario.env.path().join("lifecycle.txt").is_file(),
         "integration: target branch does not contain the implementation artifact"
     );
-    scenario
-        .env
-        .ok(&["pull-request", "set-state", "1", "closed"]);
     scenario
         .env
         .ok_with_lease(&["issue", "set", "1", "--as", "Done"], &agent_b_lease);
@@ -457,7 +422,6 @@ fn integrated_pull_request_completes_the_issue_and_reveals_unblocked_work() {
             issue(number: 1) {
                 state
                 blocks { number title state stateType }
-                pullRequests { number state }
             }
         }"#,
     );
@@ -471,10 +435,6 @@ fn integrated_pull_request_completes_the_issue_and_reveals_unblocked_work() {
     assert_eq!(
         next_from_query["data"]["issue"]["blocks"][0]["number"], 2,
         "next-work query: completed issue should expose the work it unblocked"
-    );
-    assert_eq!(
-        next_from_query["data"]["issue"]["pullRequests"][0]["state"], "closed",
-        "next-work query: integrated pull request state should remain observable"
     );
 }
 
@@ -612,6 +572,7 @@ fn repository_local_collaboration_runs_end_to_end_without_losing_context() {
     env.ok(&[
         "issue",
         "comment",
+        "add",
         "1",
         "--body",
         "Foundation shipped as planned.",
@@ -656,6 +617,7 @@ Constraints: view-only; no mutation keys.";
     env.ok(&[
         "issue",
         "comment",
+        "add",
         "2",
         "--body",
         "Handoff: rendering is wired; next run the PTY smoke test.",
@@ -691,54 +653,11 @@ Constraints: view-only; no mutation keys.";
     assert_eq!(worktree_view["leased"], true);
     assert_eq!(worktree_view["comments"], handed_off["comments"]);
 
-    // pull request creation and link are one transaction, and an Issue may carry
-    // multiple implementation PRs without replacing an earlier link.
-    env.ok_with_lease(
-        &[
-            "pull-request",
-            "create",
-            "--title",
-            "Read-only issue browser",
-            "--branch",
-            "feat/issue-browser",
-            "--body",
-            "Implements the groomed deliverable.",
-            "--issue",
-            "2",
-        ],
-        &target_lease,
-    );
-    env.ok_with_lease(
-        &[
-            "pull-request",
-            "create",
-            "--title",
-            "Follow-up issue browser fixes",
-            "--branch",
-            "feat/issue-browser-follow-up",
-            "--issue",
-            "2",
-        ],
-        &target_lease,
-    );
-    let pull_requests = env.json(&["pull-request", "list", "--state", "all", "--json"]);
-    assert_eq!(pull_requests.as_array().unwrap().len(), 2);
-    assert_eq!(pull_requests[0]["branch"], "feat/issue-browser");
-    assert_eq!(pull_requests[1]["branch"], "feat/issue-browser-follow-up");
-
     // Text and JSON expose the same complete resume projection.
     let detail_json = env.json(&["issue", "show", "2", "--json"]);
     assert_eq!(detail_json["milestone"]["name"], "CLI beta");
     assert_eq!(detail_json["blocked_by"], serde_json::json!([1]));
     assert_eq!(detail_json["related"], serde_json::json!([3]));
-    assert_eq!(
-        detail_json["pull_requests"][0]["branch"],
-        "feat/issue-browser"
-    );
-    assert_eq!(
-        detail_json["pull_requests"][1]["branch"],
-        "feat/issue-browser-follow-up"
-    );
     assert_eq!(detail_json["comments"].as_array().unwrap().len(), 1);
     assert_eq!(detail_json["leased"], true);
     let detail_text = env.ok(&["issue", "show", "2"]);
@@ -748,10 +667,6 @@ Constraints: view-only; no mutation keys.";
         "labels: client",
         "blocked by: #1",
         "related: #3",
-        "pull request: #1 Read-only issue browser",
-        "branch: feat/issue-browser",
-        "pull request: #2 Follow-up issue browser fixes",
-        "branch: feat/issue-browser-follow-up",
         "Handoff: rendering is wired",
     ] {
         assert!(
@@ -763,15 +678,23 @@ Constraints: view-only; no mutation keys.";
     env.ok(&[
         "issue",
         "comment",
+        "add",
         "2",
         "--body",
-        "Completion: followed the groomed plan without deviation; pull request is ready.",
+        "Completion: followed the groomed plan without deviation; the branch is ready.",
     ]);
     env.ok_with_lease(&["issue", "set", "2", "--as", "In Review"], &target_lease);
     let reviewing = env.json(&["issue", "show", "2", "--json"]);
     assert_eq!(reviewing["state"], "In Review");
     assert_eq!(reviewing["comments"].as_array().unwrap().len(), 2);
-    env.ok(&["issue", "comment", "2", "--body", "Merged and shipped."]);
+    env.ok(&[
+        "issue",
+        "comment",
+        "add",
+        "2",
+        "--body",
+        "Merged and shipped.",
+    ]);
     env.ok_with_lease(&["issue", "set", "2", "--as", "Done"], &target_lease);
 
     let project = env.json(&["project", "show", "Workflow parity", "--json"]);

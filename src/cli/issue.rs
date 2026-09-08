@@ -1,5 +1,5 @@
 use super::output::{Output, Tone};
-use super::{IssueCommand, IssueCommentAction, IssueOpenArgs};
+use super::{IssueCommand, IssueCommentCommand, IssueOpenArgs};
 use crate::store::{LeaseOutcome, Store};
 use anyhow::Result;
 
@@ -159,8 +159,31 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                 output.print_lines(lines);
             }
         }
-        IssueCommand::Comment { number, args } => match args.into_action()? {
-            IssueCommentAction::Delete { comment, lease } => {
+        IssueCommand::Comment { command } => match command {
+            IssueCommentCommand::Add { number, args } => {
+                store.add_issue_comment(number, &args.into_body()?).await?;
+                output.print(output.line(Tone::Success, format!("commented on issue #{number}")));
+            }
+            IssueCommentCommand::Show {
+                number,
+                comment,
+                json,
+            } => {
+                let comment = store.issue_comment(number, comment).await?;
+                if json {
+                    println!("{}", serde_json::to_string(&comment)?);
+                } else {
+                    output.print(output.field(
+                        format!("[comment #{} · {}] ", comment.id, comment.created_at),
+                        comment.body,
+                    ));
+                }
+            }
+            IssueCommentCommand::Delete {
+                number,
+                comment,
+                lease,
+            } => {
                 store
                     .delete_issue_comment(number, comment, Some(&lease))
                     .await?;
@@ -168,10 +191,6 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                     Tone::Success,
                     format!("deleted comment #{comment} from issue #{number}"),
                 ));
-            }
-            IssueCommentAction::Add { body } => {
-                store.add_issue_comment(number, &body).await?;
-                output.print(output.line(Tone::Success, format!("commented on issue #{number}")));
             }
         },
         IssueCommand::Start { number, lease } => {

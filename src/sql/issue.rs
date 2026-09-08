@@ -263,6 +263,15 @@ pub async fn comments(pool: &SqlitePool, repository: i64, number: i64) -> Result
     Ok(sqlx::query_as!(Comment, r#"SELECT id AS "id!: i64", body AS "body!: String", created_at AS "created_at!: String" FROM issue_comments WHERE repository_id = ? AND issue_number = ? ORDER BY id"#, repository, number).fetch_all(pool).await?)
 }
 
+pub async fn comment(
+    pool: &SqlitePool,
+    repository: i64,
+    number: i64,
+    comment: i64,
+) -> Result<Option<Comment>> {
+    Ok(sqlx::query_as!(Comment, r#"SELECT id AS "id!: i64", body AS "body!: String", created_at AS "created_at!: String" FROM issue_comments WHERE repository_id = ? AND issue_number = ? AND id = ?"#, repository, number, comment).fetch_optional(pool).await?)
+}
+
 pub async fn labels(pool: &SqlitePool, repository: i64, number: i64) -> Result<Vec<String>> {
     Ok(sqlx::query_scalar!(r#"SELECT label_name AS "l!: String" FROM issue_labels WHERE repository_id = ? AND issue_number = ? ORDER BY label_name"#, repository, number).fetch_all(pool).await?)
 }

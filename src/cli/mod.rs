@@ -1,7 +1,8 @@
 //! CLI schema and top-level dispatch.
 use crate::domain::label::LabelSelection;
 use crate::domain::project::ProjectStateType;
-use crate::store::{IssueListSelector, RepositoryScope, StateFilter, StateType, Store};
+use crate::domain::StateFilter;
+use crate::store::{IssueListSelector, RepositoryScope, StateType, Store};
 use anyhow::{Context, Result};
 use clap::builder::PossibleValuesParser;
 use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand};
@@ -13,10 +14,13 @@ mod label;
 mod output;
 mod project;
 mod project_state;
+// Retained for staged support after 0.1.0; no top-level command exposes these modules.
+#[allow(dead_code)]
 mod pull_request;
 mod repository;
 mod state;
 mod text_input;
+#[allow(dead_code)]
 mod wiki;
 
 use text_input::TextInput;
@@ -58,11 +62,7 @@ fn pull_request_state_filters() -> PossibleValuesParser {
 }
 
 #[derive(Parser)]
-#[command(
-    name = "octa",
-    version,
-    about = "GitHub-style Issue / pull request / Wiki collaboration, fully local"
-)]
+#[command(name = "octa", version, about = "Repository-local Issue collaboration")]
 pub struct Cli {
     #[command(flatten)]
     scope: ScopeArgs,
@@ -73,7 +73,10 @@ pub struct Cli {
 impl Cli {
     fn validate(&mut self) -> Result<()> {
         let TopCommand::Issue {
-            command: IssueCommand::Comment { args, .. },
+            command:
+                IssueCommand::Comment {
+                    command: IssueCommentCommand::Add { args, .. },
+                },
         } = &mut self.command
         else {
             return Ok(());
@@ -128,17 +131,6 @@ enum TopCommand {
     Issue {
         #[command(subcommand)]
         command: IssueCommand,
-    },
-    /// Manage pull requests.
-    #[command(alias = "pr")]
-    PullRequest {
-        #[command(subcommand)]
-        command: PullRequestCommand,
-    },
-    /// Manage wiki pages.
-    Wiki {
-        #[command(subcommand)]
-        command: WikiCommand,
     },
     /// Configure Issue and Project states, labels, and label groups.
     Config {
@@ -296,14 +288,10 @@ pub(crate) enum IssueCommand {
         #[arg(long)]
         json: bool,
     },
-    /// Add or delete an issue comment.
-    #[command(
-        after_help = "Examples:\n  octa issue comment 42 --body \"Looks good\"\n  octa issue comment 42 --body-file comment.md\n  octa issue comment 42 --body-file -\n  octa issue comment 42 --delete 7 --lease <LEASE>"
-    )]
+    /// Manage issue comments.
     Comment {
-        number: i64,
-        #[command(flatten)]
-        args: IssueCommentArgs,
+        #[command(subcommand)]
+        command: IssueCommentCommand,
     },
     /// Move an issue to the `in progress` default state.
     ///
@@ -414,70 +402,53 @@ pub(crate) enum IssueCommand {
     },
 }
 
-#[derive(Args)]
-pub(crate) struct IssueCommentArgs {
-    #[command(flatten)]
-    body: BodyInputArgs,
-    /// Delete a comment by its ID.
-    #[arg(
-        long,
-        value_name = "COMMENT_ID",
-        requires = "lease",
-        conflicts_with_all = ["body", "body_file"]
-    )]
-    delete: Option<i64>,
-    /// Issue lease required when deleting a comment.
-    #[arg(long, requires = "delete")]
-    lease: Option<String>,
-    #[arg(skip)]
-    action: Option<IssueCommentAction>,
+#[derive(Subcommand)]
+pub(crate) enum IssueCommentCommand {
+    /// Add a comment to an issue.
+    Add {
+        number: i64,
+        #[command(flatten)]
+        args: IssueCommentAddArgs,
+    },
+    /// Show one issue comment.
+    Show {
+        number: i64,
+        comment: i64,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Delete an issue comment.
+    Delete {
+        number: i64,
+        comment: i64,
+        /// Issue lease required when deleting a comment.
+        #[arg(long)]
+        lease: String,
+    },
 }
 
-impl IssueCommentArgs {
+#[derive(Args)]
+pub(crate) struct IssueCommentAddArgs {
+    #[command(flatten)]
+    body: BodyInputArgs,
+    #[arg(skip)]
+    resolved_body: Option<String>,
+}
+
+impl IssueCommentAddArgs {
     fn validate(&mut self) -> Result<()> {
-        let action = if self.delete.is_some() {
-            self.validate_delete()?
-        } else {
-            self.validate_add()?
-        };
-        self.action = Some(action);
+        self.resolved_body = Some(
+            std::mem::take(&mut self.body)
+                .resolve()?
+                .context("comment body is required")?,
+        );
         Ok(())
     }
 
-    fn validate_add(&mut self) -> Result<IssueCommentAction> {
-        if self.lease.is_some() {
-            anyhow::bail!("--lease can be used only with --delete");
-        }
-        let body = std::mem::take(&mut self.body)
-            .resolve()?
-            .context("comment body is required")?;
-        Ok(IssueCommentAction::Add { body })
+    pub(crate) fn into_body(self) -> Result<String> {
+        self.resolved_body
+            .ok_or_else(|| anyhow::anyhow!("issue comment body was not validated"))
     }
-
-    fn validate_delete(&mut self) -> Result<IssueCommentAction> {
-        if self.body.is_present() {
-            anyhow::bail!("--body/--body-file cannot be used with --delete");
-        }
-        let comment = self
-            .delete
-            .take()
-            .context("comment ID is required with --delete")?;
-        let lease = self
-            .lease
-            .take()
-            .context("--lease is required with --delete")?;
-        Ok(IssueCommentAction::Delete { comment, lease })
-    }
-
-    pub(crate) fn into_action(self) -> Result<IssueCommentAction> {
-        self.action
-            .ok_or_else(|| anyhow::anyhow!("issue comment options were not validated"))
-    }
-}
-
-pub(crate) enum IssueCommentAction {
-    Add { body: String },
-    Delete { comment: i64, lease: String },
 }
 
 #[derive(Args)]
@@ -515,10 +486,6 @@ pub(crate) struct BodyInputArgs {
 }
 
 impl BodyInputArgs {
-    fn is_present(&self) -> bool {
-        self.body.is_some() || self.body_file.is_some()
-    }
-
     fn resolve(self) -> Result<Option<String>> {
         TextInput::from_options(self.body, self.body_file)?
             .map(|input| input.read("Issue text"))
@@ -800,6 +767,7 @@ pub(crate) enum ProjectStateCommand {
     },
 }
 
+#[allow(dead_code)]
 #[derive(Subcommand)]
 pub(crate) enum PullRequestCommand {
     /// Create a pull request.
@@ -866,6 +834,7 @@ pub(crate) enum PullRequestCommand {
     },
 }
 
+#[allow(dead_code)]
 #[derive(Subcommand)]
 pub(crate) enum WikiCommand {
     /// Create a wiki page.
@@ -929,6 +898,7 @@ pub(crate) enum LabelGroupCommand {
         json: bool,
     },
 }
+
 pub(crate) fn parse_pull_request_state(value: &str) -> Result<StateFilter> {
     StateFilter::parse(value)
 }
@@ -993,8 +963,6 @@ pub async fn run(mut cli: Cli) -> Result<()> {
         }
         TopCommand::Repository { command } => repository::run(&store, command).await,
         TopCommand::Issue { command } => issue::run(&store, command).await,
-        TopCommand::PullRequest { command } => pull_request::run(&store, command).await,
-        TopCommand::Wiki { command } => wiki::run(&store, command).await,
         TopCommand::Config { command } => match command {
             ConfigCommand::Issue { command } => match command {
                 IssueConfigCommand::State { command } => state::run(&store, command).await,

@@ -198,10 +198,6 @@ fn protected_issue_number<'a>(args: &'a [&str]) -> Option<&'a str> {
         {
             Some(number)
         }
-        ["pull-request" | "pr", "create", rest @ ..]
-        | ["pull-request" | "pr", "add" | "remove", rest @ ..] => rest
-            .windows(2)
-            .find_map(|pair| (pair[0] == "--issue").then_some(pair[1])),
         _ => None,
     }
 }
@@ -251,25 +247,23 @@ fn issue_help_advertises_tui_without_hiding_existing_commands() {
 }
 
 #[test]
-fn issue_comment_help_explains_add_and_delete_actions() {
+fn issue_comment_help_exposes_entity_actions() {
     let env = Env::new();
     let help = env.help(&["issue", "comment", "--help"]);
 
-    for example in [
-        "octa issue comment 42 --body \"Looks good\"",
-        "octa issue comment 42 --body-file comment.md",
-        "octa issue comment 42 --body-file -",
-        "octa issue comment 42 --delete 7 --lease <LEASE>",
-    ] {
+    for action in ["add", "show", "delete"] {
         assert!(
-            help.contains(example),
-            "comment help missing {example:?}:\n{help}"
+            help.contains(action),
+            "comment help missing {action:?}:\n{help}"
         );
     }
-    assert!(help.contains("Use this text as the body"), "{help}");
+
+    let add_help = env.help(&["issue", "comment", "add", "--help"]);
+    assert!(add_help.contains("Use this text as the body"), "{add_help}");
+    let delete_help = env.help(&["issue", "comment", "delete", "--help"]);
     assert!(
-        help.contains("Issue lease required when deleting a comment"),
-        "{help}"
+        delete_help.contains("Issue lease required when deleting a comment"),
+        "{delete_help}"
     );
 }
 
@@ -293,13 +287,12 @@ fn help_routes_label_lookups_from_the_top_level() {
 }
 
 #[test]
-fn formal_repository_and_pull_request_names_keep_short_aliases() {
+fn formal_repository_name_keeps_its_short_alias() {
     let env = Env::new();
     env.ok(&["issue", "open", "--title", "Naming"]);
 
     let help = env.help(&["--help"]);
     assert!(help.contains("repository"));
-    assert!(help.contains("pull-request"));
 
     let formal_repositories = json(&env.ok(&["repository", "list", "--json"]));
     let alias_repositories = json(&env.ok(&["repo", "list", "--json"]));
@@ -319,12 +312,6 @@ fn formal_repository_and_pull_request_names_keep_short_aliases() {
         json(&env.ok(&["issue", "list", "--all-repos", "--json"])),
     );
 
-    env.ok(&["pr", "create", "--title", "Alias", "--branch", "alias"]);
-    let pull_request = json(&env.ok(&["pull-request", "show", "1", "--json"]));
-    assert_eq!(pull_request["title"], "Alias");
-    assert_eq!(pull_request["repo"], repository_name);
-    assert!(pull_request.get("repository").is_none());
-
     let graphql = env.query_stdin(
         "{ formal: repositories { name } legacy: repos { name } }",
         &[],
@@ -332,17 +319,30 @@ fn formal_repository_and_pull_request_names_keep_short_aliases() {
     assert!(graphql.status.success());
     let graphql = json(&String::from_utf8(graphql.stdout).unwrap());
     assert_eq!(graphql["data"]["formal"], graphql["data"]["legacy"]);
+}
 
-    env.ok(&["issue", "add", "1", "--pull-request", "1"]);
-    assert_eq!(
-        json(&env.ok(&["issue", "show", "1", "--json"]))["pull_requests"][0]["number"],
-        1,
+#[test]
+fn pull_request_and_wiki_commands_are_withdrawn() {
+    let env = Env::new();
+    let help = env.help(&["--help"]);
+    assert!(
+        !help.contains("pull-request"),
+        "withdrawn command in help:\n{help}"
     );
-    env.ok(&["issue", "remove", "1", "--pr", "1"]);
-    assert_eq!(
-        json(&env.ok(&["issue", "show", "1", "--json"]))["pull_requests"],
-        serde_json::json!([]),
-    );
+    assert!(!help.contains("wiki"), "withdrawn command in help:\n{help}");
+
+    for command in ["pull-request", "pr", "wiki"] {
+        let output = env.run(&[command]);
+        assert!(
+            !output.status.success(),
+            "withdrawn command {command:?} succeeded"
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("unrecognized subcommand"),
+            "withdrawn command {command:?} did not fail at clap parsing:\n{stderr}"
+        );
+    }
 }
 
 #[test]
@@ -755,13 +755,41 @@ fn piped_human_output_is_plain_and_json_stays_machine_readable() {
 fn comment_appears_in_thread() {
     let env = Env::new();
     env.ok(&["issue", "open", "--title", "Discuss"]);
-    env.ok(&["issue", "comment", "1", "--body", "first reply"]);
-    env.ok(&["issue", "comment", "1", "--body", "second reply"]);
+    env.ok(&["issue", "comment", "add", "1", "--body", "first reply"]);
+    env.ok(&["issue", "comment", "add", "1", "--body", "second reply"]);
 
     let shown = env.ok(&["issue", "show", "1"]);
     let first = shown.find("first reply").expect("first reply missing");
     let second = shown.find("second reply").expect("second reply missing");
     assert!(first < second, "comments out of order: {shown}");
+}
+
+#[test]
+fn show_comment_returns_only_the_selected_comment() {
+    let env = Env::new();
+    env.ok(&["issue", "open", "--title", "First"]);
+    env.ok(&["issue", "open", "--title", "Second"]);
+    env.ok(&["issue", "comment", "add", "1", "--body", "first reply"]);
+    env.ok(&["issue", "comment", "add", "1", "--body", "selected reply"]);
+    env.ok(&["issue", "comment", "add", "2", "--body", "other issue"]);
+
+    let first = json(&env.ok(&["issue", "show", "1", "--json"]));
+    let comment = first["comments"][1]["id"].as_i64().unwrap().to_string();
+
+    let human = env.ok(&["issue", "comment", "show", "1", &comment]);
+    assert!(human.contains(&format!("comment #{comment}")), "{human}");
+    assert!(human.contains("selected reply"), "{human}");
+    assert!(!human.contains("first reply"), "{human}");
+
+    let shown = json(&env.ok(&["issue", "comment", "show", "1", &comment, "--json"]));
+    assert_eq!(shown["id"], comment.parse::<i64>().unwrap());
+    assert_eq!(shown["body"], "selected reply");
+    assert!(shown["created_at"].is_string());
+
+    let wrong_issue = env.run(&["issue", "comment", "show", "2", &comment]);
+    assert!(!wrong_issue.status.success());
+    assert!(String::from_utf8_lossy(&wrong_issue.stderr)
+        .contains(&format!("comment #{comment} not found on issue #2")));
 }
 
 #[test]
@@ -817,7 +845,7 @@ fn issue_body_files_and_stdin_roundtrip_without_text_changes() {
 
     let commented = env.run_stdin(
         comment_body.as_bytes(),
-        &["issue", "comment", "2", "--body-file", "-"],
+        &["issue", "comment", "add", "2", "--body-file", "-"],
     );
     assert!(
         commented.status.success(),
@@ -850,6 +878,7 @@ fn issue_body_file_rejects_conflicts_and_reports_input_failures() {
         vec![
             "issue",
             "comment",
+            "add",
             "1",
             "--body",
             "text",
@@ -892,7 +921,7 @@ fn issue_body_file_rejects_conflicts_and_reports_input_failures() {
 
     let invalid_stdin = env.run_stdin(
         &[0xff, 0xfe],
-        &["issue", "comment", "1", "--body-file", "-"],
+        &["issue", "comment", "add", "1", "--body-file", "-"],
     );
     assert!(!invalid_stdin.status.success());
     assert!(String::from_utf8_lossy(&invalid_stdin.stderr).contains("is not valid UTF-8"));
@@ -902,9 +931,9 @@ fn issue_body_file_rejects_conflicts_and_reports_input_failures() {
 fn delete_comment_removes_only_the_selected_comment_and_touches_the_issue() {
     let env = Env::new();
     env.ok(&["issue", "open", "--title", "Discuss"]);
-    env.ok(&["issue", "comment", "1", "--body", "keep first"]);
-    env.ok(&["issue", "comment", "1", "--body", "remove this"]);
-    env.ok(&["issue", "comment", "1", "--body", "keep last"]);
+    env.ok(&["issue", "comment", "add", "1", "--body", "keep first"]);
+    env.ok(&["issue", "comment", "add", "1", "--body", "remove this"]);
+    env.ok(&["issue", "comment", "add", "1", "--body", "keep last"]);
 
     let before = json(&env.ok(&["issue", "show", "1", "--json"]));
     let comment = before["comments"][1]["id"].as_i64().unwrap().to_string();
@@ -913,7 +942,7 @@ fn delete_comment_removes_only_the_selected_comment_and_touches_the_issue() {
 
     std::thread::sleep(std::time::Duration::from_secs(1));
     let lease = env.lease("1");
-    env.ok_with_lease(&["issue", "comment", "1", "--delete", &comment], &lease);
+    env.ok_with_lease(&["issue", "comment", "delete", "1", &comment], &lease);
 
     let after = json(&env.ok(&["issue", "show", "1", "--json"]));
     let bodies = after["comments"]
@@ -937,13 +966,20 @@ fn delete_comment_rejects_a_missing_or_differently_owned_comment() {
     let env = Env::new();
     env.ok(&["issue", "open", "--title", "First"]);
     env.ok(&["issue", "open", "--title", "Second"]);
-    env.ok(&["issue", "comment", "2", "--body", "belongs to second"]);
+    env.ok(&[
+        "issue",
+        "comment",
+        "add",
+        "2",
+        "--body",
+        "belongs to second",
+    ]);
     let second = json(&env.ok(&["issue", "show", "2", "--json"]));
     let comment = second["comments"][0]["id"].as_i64().unwrap().to_string();
     let lease = env.lease("1");
 
     for candidate in [comment.as_str(), "999999"] {
-        let output = env.run_with_lease(&["issue", "comment", "1", "--delete", candidate], &lease);
+        let output = env.run_with_lease(&["issue", "comment", "delete", "1", candidate], &lease);
         assert!(!output.status.success());
         let message = String::from_utf8_lossy(&output.stderr);
         assert!(
@@ -960,20 +996,20 @@ fn delete_comment_rejects_a_missing_or_differently_owned_comment() {
 fn delete_comment_requires_the_issue_lease() {
     let env = Env::new();
     env.ok(&["issue", "open", "--title", "Discuss"]);
-    env.ok(&["issue", "comment", "1", "--body", "protected"]);
+    env.ok(&["issue", "comment", "add", "1", "--body", "protected"]);
     let shown = json(&env.ok(&["issue", "show", "1", "--json"]));
     let comment = shown["comments"][0]["id"].as_i64().unwrap().to_string();
     let lease = env.lease("1");
 
-    let without_lease = env.run_raw(&["issue", "comment", "1", "--delete", &comment]);
+    let without_lease = env.run_raw(&["issue", "comment", "delete", "1", &comment]);
     assert!(!without_lease.status.success());
     assert!(String::from_utf8_lossy(&without_lease.stderr).contains("--lease"));
 
     let wrong_lease = env.run_raw(&[
         "issue",
         "comment",
+        "delete",
         "1",
-        "--delete",
         &comment,
         "--lease",
         "wrong-lease",
@@ -981,24 +1017,15 @@ fn delete_comment_requires_the_issue_lease() {
     assert!(!wrong_lease.status.success());
     assert!(String::from_utf8_lossy(&wrong_lease.stderr).contains("valid lease required"));
 
-    env.ok_with_lease(&["issue", "comment", "1", "--delete", &comment], &lease);
+    env.ok_with_lease(&["issue", "comment", "delete", "1", &comment], &lease);
 }
 
 #[test]
-fn comment_operation_options_are_validated_before_execution() {
+fn legacy_comment_syntaxes_are_rejected_before_execution() {
     for body_args in [["--body", "new"], ["--body-file", "-"]] {
         let fresh = Env::new();
-        let invalid_add = fresh.run_raw(&[
-            "issue",
-            "comment",
-            "1",
-            body_args[0],
-            body_args[1],
-            "--lease",
-            "lease",
-        ]);
+        let invalid_add = fresh.run_raw(&["issue", "comment", "1", body_args[0], body_args[1]]);
         assert!(!invalid_add.status.success());
-        assert!(String::from_utf8_lossy(&invalid_add.stderr).contains("--delete"));
         assert!(
             !fresh.xdg.path().join("octa").join("octa.db").exists(),
             "invalid comment options created the persistent store"
@@ -1007,7 +1034,7 @@ fn comment_operation_options_are_validated_before_execution() {
 
     let env = Env::new();
     env.ok(&["issue", "open", "--title", "Discuss"]);
-    env.ok(&["issue", "comment", "1", "--body", "must remain"]);
+    env.ok(&["issue", "comment", "add", "1", "--body", "must remain"]);
     let shown = json(&env.ok(&["issue", "show", "1", "--json"]));
     let comment = shown["comments"][0]["id"].as_i64().unwrap().to_string();
 
@@ -1124,7 +1151,7 @@ fn json_outputs_have_expected_fields() {
     let created = json(&env.ok(&["issue", "open", "--title", "JSON", "--json"]));
     assert_eq!(created["number"], 1);
 
-    env.ok(&["issue", "comment", "1", "--body", "a note"]);
+    env.ok(&["issue", "comment", "add", "1", "--body", "a note"]);
 
     let list = json(&env.ok(&["issue", "list", "--json"]));
     let arr = list.as_array().expect("list --json not an array");
@@ -2220,14 +2247,6 @@ fn every_issue_mutation_surface_rejects_missing_and_mismatched_leases() {
     env.ok(&["issue", "open", "--title", "Guarded"]);
     env.ok(&["issue", "open", "--title", "Peer"]);
     env.ok(&["config", "issue", "label", "create", "guarded"]);
-    env.ok(&[
-        "pull-request",
-        "create",
-        "--title",
-        "Implementation",
-        "--branch",
-        "guarded",
-    ]);
     let lease = env.lease("1");
 
     let commands = [
@@ -2236,20 +2255,6 @@ fn every_issue_mutation_surface_rejects_missing_and_mismatched_leases() {
         vec!["issue", "unset", "1", "--parent"],
         vec!["issue", "add", "1", "--label", "guarded"],
         vec!["issue", "remove", "1", "--label", "guarded"],
-        vec!["issue", "add", "1", "--pull-request", "1"],
-        vec!["issue", "remove", "1", "--pull-request", "1"],
-        vec!["pull-request", "add", "1", "--issue", "1"],
-        vec!["pull-request", "remove", "1", "--issue", "1"],
-        vec![
-            "pull-request",
-            "create",
-            "--title",
-            "Linked",
-            "--branch",
-            "linked",
-            "--issue",
-            "1",
-        ],
     ];
     for command in commands {
         let missing = env.run_raw(&command);
@@ -2500,252 +2505,6 @@ fn related_issues_are_symmetric_idempotent_and_filterable() {
     );
 }
 
-// --- Pull requests ----------------------------------------------------------
-
-#[test]
-fn pull_request_lifecycle_tracks_branch_and_comments() {
-    let env = Env::new();
-    let created = env.ok(&[
-        "pull-request",
-        "create",
-        "--title",
-        "Add feature",
-        "--branch",
-        "feat/x",
-    ]);
-    assert_eq!(created.trim(), "#1");
-
-    env.ok(&["pull-request", "comment", "1", "--body", "looks good"]);
-    let show = json(&env.ok(&["pull-request", "show", "1", "--json"]));
-    assert_eq!(show["branch"], "feat/x");
-    assert_eq!(show["comments"].as_array().unwrap().len(), 1);
-    let text_show = env.ok(&["pull-request", "show", "1"]);
-    assert!(text_show.contains("--- comments ---"));
-    assert!(text_show.contains("looks good"));
-
-    env.ok(&["pull-request", "set-state", "1", "closed"]);
-    let open = env.ok(&["pull-request", "list"]);
-    assert!(
-        !open.contains("Add feature"),
-        "closed pull request still open: {open}"
-    );
-    let all = env.ok(&["pull-request", "list", "--state", "all"]);
-    assert!(
-        all.contains("Add feature"),
-        "pull request missing from all: {all}"
-    );
-}
-
-#[test]
-fn issue_pull_request_links_are_many_to_many_idempotent_and_unlink_exact_pairs() {
-    let env = Env::new();
-    env.ok(&["issue", "open", "--title", "Implement"]);
-    env.ok(&["issue", "open", "--title", "Other"]);
-
-    env.ok(&[
-        "pull-request",
-        "create",
-        "--title",
-        "Implementation",
-        "--branch",
-        "feat/implementation",
-        "--issue",
-        "1",
-    ]);
-    let issue = json(&env.ok(&["issue", "show", "1", "--json"]));
-    assert_eq!(issue["pull_requests"][0]["number"], 1);
-    assert_eq!(issue["pull_requests"][0]["title"], "Implementation");
-    assert_eq!(issue["pull_requests"][0]["branch"], "feat/implementation");
-    assert_eq!(issue["pull_requests"][0]["state"], "open");
-    let text = env.ok(&["issue", "show", "1"]);
-    assert!(text.contains("pull request: #1 Implementation"));
-    assert!(text.contains("branch: feat/implementation"));
-
-    let second_pull_request = env.ok(&[
-        "pull-request",
-        "create",
-        "--title",
-        "Existing compatible pull request",
-        "--branch",
-        "feat/existing",
-    ]);
-    assert_eq!(second_pull_request.trim(), "#2");
-    env.ok(&["pull-request", "add", "2", "--issue", "2"]);
-    env.ok(&["pull-request", "add", "2", "--issue", "1"]);
-    env.ok(&["pull-request", "add", "1", "--issue", "2"]);
-    env.ok(&["pull-request", "add", "1", "--issue", "1"]);
-
-    let first_issue = json(&env.ok(&["issue", "show", "1", "--json"]));
-    assert_eq!(
-        first_issue["pull_requests"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|pull_request| pull_request["number"].as_i64().unwrap())
-            .collect::<Vec<_>>(),
-        vec![1, 2]
-    );
-    let second_issue = json(&env.ok(&["issue", "show", "2", "--json"]));
-    assert_eq!(
-        second_issue["pull_requests"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|pull_request| pull_request["number"].as_i64().unwrap())
-            .collect::<Vec<_>>(),
-        vec![1, 2]
-    );
-
-    // Unlink removes only the requested pair, leaving both other cardinality
-    // directions intact.
-    env.ok(&["pull-request", "remove", "1", "--issue", "1"]);
-    let first_issue = json(&env.ok(&["issue", "show", "1", "--json"]));
-    assert_eq!(first_issue["pull_requests"].as_array().unwrap().len(), 1);
-    assert_eq!(first_issue["pull_requests"][0]["number"], 2);
-    assert_eq!(
-        json(&env.ok(&["issue", "show", "2", "--json"]))["pull_requests"][0]["number"],
-        1
-    );
-
-    let missing_pair = env.run(&["pull-request", "remove", "1", "--issue", "1"]);
-    assert!(!missing_pair.status.success());
-    assert!(String::from_utf8_lossy(&missing_pair.stderr).contains("is not linked"));
-    env.ok(&["pull-request", "add", "1", "--issue", "1"]);
-    env.ok(&["pull-request", "add", "1", "--issue", "1"]);
-    assert_eq!(
-        json(&env.ok(&["issue", "show", "1", "--json"]))["pull_requests"]
-            .as_array()
-            .unwrap()
-            .len(),
-        2,
-        "an identical pair was stored more than once"
-    );
-}
-
-#[test]
-fn linked_pull_request_create_failure_leaves_no_orphan_and_links_are_repository_local() {
-    let env = Env::new();
-    env.ok(&["issue", "open", "--title", "Owner"]);
-    env.ok(&[
-        "pull-request",
-        "create",
-        "--title",
-        "Owned",
-        "--branch",
-        "owned",
-        "--issue",
-        "1",
-    ]);
-
-    let second = env.ok(&[
-        "pull-request",
-        "create",
-        "--title",
-        "Second linked pull request",
-        "--branch",
-        "second",
-        "--issue",
-        "1",
-    ]);
-    assert_eq!(second.trim(), "#2");
-
-    let missing_issue = env.run(&[
-        "pull-request",
-        "create",
-        "--title",
-        "Must not exist",
-        "--branch",
-        "orphan",
-        "--issue",
-        "999",
-    ]);
-    assert!(!missing_issue.status.success());
-    let pull_requests = json(&env.ok(&["pull-request", "list", "--state", "all", "--json"]));
-    assert_eq!(pull_requests.as_array().unwrap().len(), 2);
-    assert_eq!(pull_requests[0]["branch"], "owned");
-    assert_eq!(pull_requests[1]["branch"], "second");
-
-    let repository2 = TempDir::new().unwrap();
-    git(repository2.path(), &["init", "-q", "-b", "main"]);
-    git(
-        repository2.path(),
-        &["config", "user.email", "test@example.com"],
-    );
-    git(repository2.path(), &["config", "user.name", "test"]);
-    git(
-        repository2.path(),
-        &["commit", "-q", "--allow-empty", "-m", "init"],
-    );
-    env.ok_in(
-        repository2.path(),
-        &[
-            "pull-request",
-            "create",
-            "--title",
-            "Repository two",
-            "--branch",
-            "repository-two",
-        ],
-    );
-    let missing_in_repository_one = env.run(&["pull-request", "add", "3", "--issue", "1"]);
-    assert!(!missing_in_repository_one.status.success());
-    assert!(String::from_utf8_lossy(&missing_in_repository_one.stderr)
-        .contains("pull request #3 not found"));
-}
-
-// --- Wiki -------------------------------------------------------------------
-
-#[test]
-fn wiki_pages_link_and_backlink() {
-    let env = Env::new();
-    env.ok(&[
-        "wiki",
-        "create",
-        "--title",
-        "Home",
-        "--body",
-        "see [[design]]",
-    ]);
-    env.ok(&[
-        "wiki",
-        "create",
-        "--title",
-        "Design",
-        "--slug",
-        "design",
-        "--body",
-        "the design",
-    ]);
-
-    let home = json(&env.ok(&["wiki", "show", "home", "--json"]));
-    let links: Vec<&str> = home["links_to"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|s| s.as_str().unwrap())
-        .collect();
-    assert!(
-        links.contains(&"design"),
-        "home should link to design: {links:?}"
-    );
-
-    let design = json(&env.ok(&["wiki", "show", "design", "--json"]));
-    let backlinks: Vec<&str> = design["backlinks"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|s| s.as_str().unwrap())
-        .collect();
-    assert!(
-        backlinks.contains(&"home"),
-        "design should be backlinked by home: {backlinks:?}"
-    );
-    let home_text = env.ok(&["wiki", "show", "home"]);
-    assert!(home_text.contains("links to: design"));
-    let design_text = env.ok(&["wiki", "show", "design"]);
-    assert!(design_text.contains("backlinks: home"));
-}
-
 // --- Cross-worktree and cross-repository scope ------------------------------------
 
 #[test]
@@ -2776,7 +2535,10 @@ fn issues_are_shared_across_worktrees() {
     );
     assert_eq!(arr[0]["title"], "Shared");
 
-    env.ok_in(&wt, &["issue", "comment", "1", "--body", "from worktree"]);
+    env.ok_in(
+        &wt,
+        &["issue", "comment", "add", "1", "--body", "from worktree"],
+    );
     let shown = env.ok(&["issue", "show", "1"]);
     assert!(
         shown.contains("from worktree"),
@@ -2926,58 +2688,6 @@ fn project_overview_aggregates_tallies_across_repositories() {
 }
 
 #[test]
-fn pull_request_state_filter_and_edit_validation_are_preserved() {
-    let env = Env::new();
-    env.ok(&[
-        "pull-request",
-        "create",
-        "--title",
-        "One",
-        "--branch",
-        "one",
-    ]);
-    env.ok(&["pull-request", "set-state", "1", "waiting"]);
-    assert!(env
-        .ok(&["pull-request", "list", "--state", "closed"])
-        .contains("One"));
-    assert!(!env.ok(&["pull-request", "list"]).contains("One"));
-    let out = env.run(&["pull-request", "set", "1"]);
-    assert!(!out.status.success());
-    assert!(String::from_utf8_lossy(&out.stderr).contains("nothing to update"));
-}
-
-#[test]
-fn wiki_body_edit_replaces_links_and_title_edit_preserves_them() {
-    let env = Env::new();
-    env.ok(&[
-        "wiki",
-        "create",
-        "--title",
-        "Home",
-        "--body",
-        "[[old]] [[old]] [[home]]",
-    ]);
-    env.ok(&["wiki", "create", "--title", "Old", "--slug", "old"]);
-    env.ok(&["wiki", "create", "--title", "New", "--slug", "new"]);
-    env.ok(&["wiki", "set", "home", "--body", "[[new]]"]);
-    assert_eq!(
-        json(&env.ok(&["wiki", "show", "home", "--json"]))["links_to"],
-        serde_json::json!(["new"])
-    );
-    assert!(
-        json(&env.ok(&["wiki", "show", "old", "--json"]))["backlinks"]
-            .as_array()
-            .unwrap()
-            .is_empty()
-    );
-    env.ok(&["wiki", "set", "home", "--title", "Renamed"]);
-    assert_eq!(
-        json(&env.ok(&["wiki", "show", "home", "--json"]))["links_to"],
-        serde_json::json!(["new"])
-    );
-}
-
-#[test]
 fn label_errors_and_idempotent_operations_are_preserved() {
     let env = Env::new();
     assert!(!env
@@ -3080,19 +2790,6 @@ fn graphql_query_traverses_entities_with_variables_filters_and_pagination() {
     env.ok(&["issue", "add", "3", "--label", "docs"]);
     env.ok(&["issue", "add", "1", "--blocks", "2"]);
     env.ok(&["issue", "add", "1", "--related", "2"]);
-    env.ok(&[
-        "pull-request",
-        "create",
-        "--title",
-        "Change",
-        "--branch",
-        "change",
-        "--issue",
-        "1",
-    ]);
-    env.ok(&["wiki", "create", "--title", "Home", "--body", "[[guide]]"]);
-    env.ok(&["wiki", "create", "--title", "Guide", "--slug", "guide"]);
-
     let document = r#"
           query($number: Int!, $limit: Int!) {
           issue(number: $number) {
@@ -3102,10 +2799,8 @@ fn graphql_query_traverses_entities_with_variables_filters_and_pagination() {
             labels { name }
             blocks(limit: $limit) { number leased }
             related(limit: $limit) { number }
-            pullRequests { number }
           }
           issues(filter: { projectId: 1, label: "impl" }, limit: $limit) { number leased }
-          wikiPage(slug: "home") { linksTo { slug backlinks { slug } } }
         }
     "#;
     let out = env.query_stdin(document, &["--variables", r#"{"number":1,"limit":1}"#]);
@@ -3120,9 +2815,7 @@ fn graphql_query_traverses_entities_with_variables_filters_and_pagination() {
     assert_eq!(response["data"]["issue"]["blocks"][0]["number"], 2);
     assert_eq!(response["data"]["issue"]["blocks"][0]["leased"], false);
     assert_eq!(response["data"]["issue"]["related"][0]["number"], 2);
-    assert_eq!(response["data"]["issue"]["pullRequests"][0]["number"], 1);
     assert_eq!(response["data"]["issues"].as_array().unwrap().len(), 1);
-    assert_eq!(response["data"]["wikiPage"]["linksTo"][0]["slug"], "guide");
     assert!(response["extensions"]["dbAccesses"].as_i64().unwrap() > 0);
 
     let joined = env.query_stdin(
@@ -3148,7 +2841,7 @@ fn graphql_query_traverses_entities_with_variables_filters_and_pagination() {
     assert_eq!(project_projection["extensions"]["dbAccesses"], 1);
 
     let relation_projection = env.query_stdin(
-        "{ issues { number milestone { name } blocks { number } blockedBy { number } related { number } parent { number } subIssues { number } pullRequests { number } } }",
+        "{ issues { number milestone { name } blocks { number } blockedBy { number } related { number } parent { number } subIssues { number } } }",
         &[],
     );
     let relation_projection = json(&String::from_utf8(relation_projection.stdout).unwrap());
@@ -3365,10 +3058,6 @@ fn help_enumerates_value_sets_fixed_in_code() {
         (
             vec!["config", "project", "label-group", "create", "--help"],
             vec!["single", "multi"],
-        ),
-        (
-            vec!["pull-request", "list", "--help"],
-            vec!["open", "closed", "all"],
         ),
     ] {
         let stdout = env.help(&args);

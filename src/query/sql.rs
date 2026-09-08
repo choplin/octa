@@ -110,13 +110,6 @@ impl Planner {
                     let page = Page::from_field(field)?;
                     list(format!("SELECT {nested} item FROM issue_parents {r} JOIN issues {i} ON {i}.repository_id={r}.repository_id AND {i}.number={r}.child_number {} WHERE {r}.repository_id={issue}.repository_id AND {r}.parent_number={issue}.number ORDER BY {i}.number {}", state.sql(), page.sql()))
                 }
-                "pullRequests" => {
-                    let p = self.next("pull_request");
-                    let x = self.next("ipl");
-                    let nested = self.pull_request(&merged.children, &p)?;
-                    let page = Page::from_field(field)?;
-                    list(format!("SELECT {nested} item FROM issue_pull_request_links {x} JOIN pull_requests {p} ON {p}.repository_id={x}.repository_id AND {p}.number={x}.pull_request_number WHERE {x}.repository_id={issue}.repository_id AND {x}.issue_number={issue}.number ORDER BY {p}.number {}", page.sql()))
-                }
                 name => return Err(format!("unsupported Issue selection {name}").into()),
             };
             pairs.push(json_pair(&key, &value));
@@ -208,67 +201,6 @@ impl Planner {
                     list(format!("SELECT {nested} item FROM issue_milestones {x} JOIN issues {i} ON {i}.repository_id={x}.repository_id AND {i}.number={x}.issue_number {} WHERE {x}.repository_id={milestone}.repository_id AND {x}.project_id={milestone}.project_id AND {x}.milestone_id={milestone}.id ORDER BY {i}.number {}", state.sql(), page.sql()))
                 }
                 name => return Err(format!("unsupported Milestone selection {name}").into()),
-            };
-            pairs.push(json_pair(&key, &value));
-        }
-        Ok(json_object(pairs))
-    }
-
-    pub(super) fn pull_request(
-        &mut self,
-        fields: &[SelectionField<'_>],
-        pull_request: &str,
-    ) -> async_graphql::Result<String> {
-        let mut pairs = Vec::new();
-        for merged in merged_fields(fields) {
-            let field = &merged.field;
-            let key = response_key(field);
-            let value = match field.name() {
-                "number" | "title" | "body" | "branch" | "state" | "createdAt" | "updatedAt" => {
-                    format!("{pull_request}.{}", snake(field.name()))
-                }
-                "issues" => {
-                    let i = self.next("i");
-                    let s = self.next("s");
-                    let x = self.next("ipl");
-                    let state = issue_state_join(&merged.children, &i, &s, false);
-                    let nested = self.issue(&merged.children, &i, state.alias())?;
-                    let page = Page::from_field(field)?;
-                    list(format!("SELECT {nested} item FROM issue_pull_request_links {x} JOIN issues {i} ON {i}.repository_id={x}.repository_id AND {i}.number={x}.issue_number {} WHERE {x}.repository_id={pull_request}.repository_id AND {x}.pull_request_number={pull_request}.number ORDER BY {i}.number {}", state.sql(), page.sql()))
-                }
-                name => return Err(format!("unsupported PullRequest selection {name}").into()),
-            };
-            pairs.push(json_pair(&key, &value));
-        }
-        Ok(json_object(pairs))
-    }
-
-    pub(super) fn wiki(
-        &mut self,
-        fields: &[SelectionField<'_>],
-        wiki: &str,
-    ) -> async_graphql::Result<String> {
-        let mut pairs = Vec::new();
-        for merged in merged_fields(fields) {
-            let field = &merged.field;
-            let key = response_key(field);
-            let value = match field.name() {
-                "slug" | "title" | "body" | "createdAt" | "updatedAt" => {
-                    format!("{wiki}.{}", snake(field.name()))
-                }
-                "linksTo" | "backlinks" => {
-                    let w = self.next("w");
-                    let x = self.next("wl");
-                    let nested = self.wiki(&merged.children, &w)?;
-                    let page = Page::from_field(field)?;
-                    let (join, predicate) = if field.name() == "linksTo" {
-                        ("to_slug", "from_slug")
-                    } else {
-                        ("from_slug", "to_slug")
-                    };
-                    list(format!("SELECT {nested} item FROM wiki_links {x} JOIN wiki_pages {w} ON {w}.repository_id={x}.repository_id AND {w}.slug={x}.{join} WHERE {x}.repository_id={wiki}.repository_id AND {x}.{predicate}={wiki}.slug ORDER BY {w}.slug {}", page.sql()))
-                }
-                name => return Err(format!("unsupported WikiPage selection {name}").into()),
             };
             pairs.push(json_pair(&key, &value));
         }

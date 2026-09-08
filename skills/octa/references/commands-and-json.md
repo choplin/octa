@@ -54,15 +54,16 @@ The selection set is compiled into a SQLite query that projects only selected co
 ## Issue
 
 ```text
-issue open|create|list|show|start|close|reopen|set|unset|add|remove|comment|lock|unlock|tui
+issue open|create|list|show|start|close|reopen|set|unset|add|remove|lock|unlock|tui
+issue comment add|show|delete
 ```
 
 Important constraints:
 
 - `issue lock N` returns a random opaque non-expiring lease ID once. A second acquisition fails while the Issue is leased.
-- `issue start`, `close`, `reopen`, `set`, `unset`, `add`, and `remove` require the target Issue's `--lease`. So do Issue–Pull Request link changes through `pull-request create --issue`, `pull-request add`, and `pull-request remove`.
+- `issue start`, `close`, `reopen`, `set`, `unset`, `add`, `remove`, and `comment delete` require the target Issue's `--lease`. So do Issue–Pull Request link changes through `pull-request create --issue`, `pull-request add`, and `pull-request remove`.
 - Normal `issue unlock` requires the matching `--lease`. `issue unlock --force` accepts no lease and invalidates the old credential immediately; use it only for recovery.
-- `issue open` (alias `create`), `issue comment`, unlinked `pull-request create`, `pull-request comment`, `pull-request set`, `pull-request set-state`, and Project, Milestone, Wiki, and config operations do not require an Issue lease. Read commands and lease acquisition also require no existing lease credential.
+- `issue open` (alias `create`), `issue comment add`, unlinked `pull-request create`, `pull-request comment`, `pull-request set`, `pull-request set-state`, and Project, Milestone, Wiki, and config operations do not require an Issue lease. Read commands, including `issue comment show`, and lease acquisition also require no existing lease credential.
 - Each verb without an explicit target moves the Issue to its type's default state: `open` to the `open` default, `start` to the `in progress` default, `close` to the `closed` default, `reopen` back to the `open` default. `--as <state>` picks another state of that verb's own type and rejects any other type, `issue open` included. `start` has no `--as`. `issue set --as <state>` is the only unconstrained move and reaches any configured state; capturing work that is already underway is `open` then `start`.
 - With no state selector, `issue list` returns Issues outside the `closed` type. `--state <names>` matches configured state names, `--state-type <types>` matches state types, both comma-separated and matching any listed value, and `--all` applies no filter. These three selectors are mutually exclusive. States are global configuration, so `--state` and `--state-type` also work under `--all-repositories`.
 - A Milestone belongs to a Project. `issue open --milestone` requires `--project`.
@@ -116,6 +117,7 @@ Commands exposing `--json` write one JSON value to stdout:
 
 - List commands return arrays.
 - `issue show` returns the Issue fields plus `labels`, `blocks`, `blocked_by`, `related`, `pull_requests`, `parent`, `sub_issues`, and `comments`.
+- `issue comment show <issue> <comment-id> --json` returns one comment with `id`, `body`, and `created_at`.
 - An Issue includes `repo`, `number`, `title`, `body`, `state`, optional `project`, optional `milestone`, `leased`, `created_at`, and `updated_at`. `config issue state list --json` returns each state's `name`, `type`, and `is_default`. The lease ID is never exposed by list, show, or query output.
 - `project list` includes every Project by default, including closed ones. Use `--active` for the explicit open-Project filter. A Project's closed flag is set by `project create --closed` and `project set-state <project> <state> --closed`.
 - Project list/show tallies count all assigned Issues and expose open, closed, and total; closed work is never subtracted implicitly.

@@ -5,6 +5,7 @@ use super::Store;
 use crate::domain::issue::{
     Issue, IssueDetail, IssueListSelector, IssueState, LeaseOutcome, StateType,
 };
+use crate::domain::Comment;
 use anyhow::Result;
 
 impl Store {
@@ -84,6 +85,10 @@ impl Store {
 
     pub async fn add_issue_comment(&self, number: i64, body: &str) -> Result<()> {
         crate::app::issue::comment(&self.pool, self.repository_id()?, number, body).await
+    }
+
+    pub async fn issue_comment(&self, number: i64, comment: i64) -> Result<Comment> {
+        crate::app::issue::comment_detail(&self.pool, self.repository_id()?, number, comment).await
     }
 
     pub async fn delete_issue_comment(

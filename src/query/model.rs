@@ -20,11 +20,6 @@ pub(super) struct ProjectFilter {
     pub(super) label: Option<String>,
 }
 
-#[derive(InputObject, Default, Clone)]
-pub(super) struct PullRequestFilter {
-    pub(super) state: Option<String>,
-}
-
 #[derive(Enum, Copy, Clone, Eq, PartialEq)]
 pub(super) enum LabelTarget {
     Issue,
@@ -195,14 +190,6 @@ impl IssueObject {
     ) -> async_graphql::Result<Vec<IssueObject>> {
         self.0.objects(ctx, IssueObject)
     }
-    async fn pull_requests(
-        &self,
-        ctx: &Context<'_>,
-        _offset: Option<i64>,
-        _limit: Option<i64>,
-    ) -> async_graphql::Result<Vec<PullRequestObject>> {
-        self.0.objects(ctx, PullRequestObject)
-    }
 }
 
 #[derive(Clone)]
@@ -309,80 +296,6 @@ impl MilestoneObject {
         _limit: Option<i64>,
     ) -> async_graphql::Result<Vec<IssueObject>> {
         self.0.objects(ctx, IssueObject)
-    }
-}
-
-#[derive(Clone)]
-pub(super) struct PullRequestObject(pub(super) JsonObject);
-
-#[Object]
-impl PullRequestObject {
-    async fn number(&self, ctx: &Context<'_>) -> async_graphql::Result<i64> {
-        self.0.integer(ctx)
-    }
-    async fn title<'a>(&'a self, ctx: &Context<'_>) -> async_graphql::Result<&'a str> {
-        self.0.string(ctx)
-    }
-    async fn body<'a>(&'a self, ctx: &Context<'_>) -> async_graphql::Result<&'a str> {
-        self.0.string(ctx)
-    }
-    async fn branch<'a>(&'a self, ctx: &Context<'_>) -> async_graphql::Result<&'a str> {
-        self.0.string(ctx)
-    }
-    async fn state<'a>(&'a self, ctx: &Context<'_>) -> async_graphql::Result<&'a str> {
-        self.0.string(ctx)
-    }
-    async fn created_at<'a>(&'a self, ctx: &Context<'_>) -> async_graphql::Result<&'a str> {
-        self.0.string(ctx)
-    }
-    async fn updated_at<'a>(&'a self, ctx: &Context<'_>) -> async_graphql::Result<&'a str> {
-        self.0.string(ctx)
-    }
-    async fn issues(
-        &self,
-        ctx: &Context<'_>,
-        _offset: Option<i64>,
-        _limit: Option<i64>,
-    ) -> async_graphql::Result<Vec<IssueObject>> {
-        self.0.objects(ctx, IssueObject)
-    }
-}
-
-#[derive(Clone)]
-pub(super) struct WikiPageObject(pub(super) JsonObject);
-
-#[Object]
-impl WikiPageObject {
-    async fn slug<'a>(&'a self, ctx: &Context<'_>) -> async_graphql::Result<&'a str> {
-        self.0.string(ctx)
-    }
-    async fn title<'a>(&'a self, ctx: &Context<'_>) -> async_graphql::Result<&'a str> {
-        self.0.string(ctx)
-    }
-    async fn body<'a>(&'a self, ctx: &Context<'_>) -> async_graphql::Result<&'a str> {
-        self.0.string(ctx)
-    }
-    async fn created_at<'a>(&'a self, ctx: &Context<'_>) -> async_graphql::Result<&'a str> {
-        self.0.string(ctx)
-    }
-    async fn updated_at<'a>(&'a self, ctx: &Context<'_>) -> async_graphql::Result<&'a str> {
-        self.0.string(ctx)
-    }
-    async fn links_to(
-        &self,
-        ctx: &Context<'_>,
-        _offset: Option<i64>,
-        _limit: Option<i64>,
-    ) -> async_graphql::Result<Vec<WikiPageObject>> {
-        self.0.objects(ctx, WikiPageObject)
-    }
-    async fn backlinks(
-        &self,
-        ctx: &Context<'_>,
-        _offset: Option<i64>,
-        _limit: Option<i64>,
-    ) -> async_graphql::Result<Vec<WikiPageObject>> {
-        self.0.objects(ctx, WikiPageObject)
     }
 }
 

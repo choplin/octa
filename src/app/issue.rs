@@ -3,7 +3,8 @@
 use crate::domain::issue::{
     Issue, IssueDetail, IssueListSelector, IssueState, LeaseOutcome, StateType,
 };
-use anyhow::{anyhow, bail, Result};
+use crate::domain::Comment;
+use anyhow::{anyhow, bail, Context, Result};
 use sqlx::SqlitePool;
 use std::collections::{HashMap, HashSet};
 
@@ -455,6 +456,18 @@ pub async fn comment(pool: &SqlitePool, repository: i64, number: i64, body: &str
     require(pool, repository, number).await?;
     crate::sql::issue::insert_comment(pool, repository, number, body).await?;
     crate::sql::issue::touch(pool, repository, number).await
+}
+
+pub async fn comment_detail(
+    pool: &SqlitePool,
+    repository: i64,
+    number: i64,
+    comment: i64,
+) -> Result<Comment> {
+    require(pool, repository, number).await?;
+    crate::sql::issue::comment(pool, repository, number, comment)
+        .await?
+        .with_context(|| format!("comment #{comment} not found on issue #{number}"))
 }
 
 pub async fn delete_comment(
