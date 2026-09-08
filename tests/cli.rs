@@ -2597,29 +2597,25 @@ fn all_repositories_aggregates_across_repositories() {
     env.ok(&["issue", "close", "1"]);
 
     // A second repository sharing the same global store.
-    let repository2_parent = TempDir::new().unwrap();
-    let repository2 = repository2_parent
-        .path()
-        .join(env.path().file_name().unwrap());
-    std::fs::create_dir(&repository2).unwrap();
-    git(&repository2, &["init", "-q", "-b", "main"]);
-    git(&repository2, &["config", "user.email", "t@e.com"]);
-    git(&repository2, &["config", "user.name", "t"]);
+    let repository2 = TempDir::new().unwrap();
+    git(repository2.path(), &["init", "-q", "-b", "main"]);
+    git(repository2.path(), &["config", "user.email", "t@e.com"]);
+    git(repository2.path(), &["config", "user.name", "t"]);
     git(
-        &repository2,
+        repository2.path(),
         &["commit", "-q", "--allow-empty", "-m", "init"],
     );
     env.ok_in(
-        &repository2,
+        repository2.path(),
         &["issue", "open", "--title", "In second repository"],
     );
     env.ok_in(
-        &repository2,
+        repository2.path(),
         &["issue", "add", "1", "--label", "second-repository"],
     );
 
     // Each repository numbers from 1 independently.
-    let second = json(&env.ok_in(&repository2, &["issue", "list", "--json"]));
+    let second = json(&env.ok_in(repository2.path(), &["issue", "list", "--json"]));
     assert_eq!(second.as_array().unwrap()[0]["number"], 1);
     assert_eq!(
         second.as_array().unwrap()[0]["labels"],
@@ -2628,7 +2624,7 @@ fn all_repositories_aggregates_across_repositories() {
 
     // --all-repositories sees both.
     let all = json(&env.ok_in(
-        &repository2,
+        repository2.path(),
         &["issue", "list", "--all-repositories", "--all", "--json"],
     ));
     let titles: Vec<&str> = all
@@ -2663,7 +2659,7 @@ fn all_repositories_aggregates_across_repositories() {
     // States are global configuration, so both state selectors work across
     // repositories; only the repository-scoped filters need a single repository.
     let closed = json(&env.ok_in(
-        &repository2,
+        repository2.path(),
         &[
             "issue",
             "list",
@@ -2680,7 +2676,7 @@ fn all_repositories_aggregates_across_repositories() {
     );
 
     let named = json(&env.ok_in(
-        &repository2,
+        repository2.path(),
         &[
             "issue",
             "list",
@@ -2696,7 +2692,7 @@ fn all_repositories_aggregates_across_repositories() {
         vec!["issue", "list", "--all-repositories", "--label", "missing"],
         vec!["issue", "list", "--all-repositories", "--unblocked"],
     ] {
-        let out = env.run_in(&repository2, &args);
+        let out = env.run_in(repository2.path(), &args);
         assert!(!out.status.success(), "{args:?} unexpectedly succeeded");
     }
 }
