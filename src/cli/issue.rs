@@ -303,15 +303,9 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             blocker,
             blocks,
             related,
-            pull_request,
             lease,
         } => {
-            if label.is_none()
-                && blocker.is_none()
-                && blocks.is_none()
-                && related.is_none()
-                && pull_request.is_none()
-            {
+            if label.is_none() && blocker.is_none() && blocks.is_none() && related.is_none() {
                 anyhow::bail!("specify at least one relationship to add");
             }
             if let Some(label) = label {
@@ -332,11 +326,6 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                     .add_issue_relation(number, other, lease.as_deref())
                     .await?;
             }
-            if let Some(pull_request) = pull_request {
-                store
-                    .link_pull_request(number, pull_request, lease.as_deref())
-                    .await?;
-            }
             output.print(output.line(Tone::Success, format!("updated issue #{number}")));
         }
         IssueCommand::Remove {
@@ -345,15 +334,9 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             blocker,
             blocks,
             related,
-            pull_request,
             lease,
         } => {
-            if label.is_none()
-                && blocker.is_none()
-                && blocks.is_none()
-                && related.is_none()
-                && pull_request.is_none()
-            {
+            if label.is_none() && blocker.is_none() && blocks.is_none() && related.is_none() {
                 anyhow::bail!("specify at least one relationship to remove");
             }
             if let Some(label) = label {
@@ -374,11 +357,6 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             if let Some(other) = related {
                 store
                     .remove_issue_relation(number, other, lease.as_deref())
-                    .await?;
-            }
-            if let Some(pull_request) = pull_request {
-                store
-                    .unlink_pull_request(number, pull_request, lease.as_deref())
                     .await?;
             }
             output.print(output.line(Tone::Success, format!("updated issue #{number}")));

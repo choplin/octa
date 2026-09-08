@@ -368,8 +368,6 @@ pub(crate) enum IssueCommand {
         blocks: Option<i64>,
         #[arg(long)]
         related: Option<i64>,
-        #[arg(long, alias = "pr")]
-        pull_request: Option<i64>,
         #[arg(long)]
         lease: Option<String>,
     },
@@ -385,8 +383,6 @@ pub(crate) enum IssueCommand {
         blocks: Option<i64>,
         #[arg(long)]
         related: Option<i64>,
-        #[arg(long, alias = "pr")]
-        pull_request: Option<i64>,
         #[arg(long)]
         lease: Option<String>,
     },

@@ -343,6 +343,27 @@ fn pull_request_and_wiki_commands_are_withdrawn() {
             "withdrawn command {command:?} did not fail at clap parsing:\n{stderr}"
         );
     }
+
+    for command in ["add", "remove"] {
+        let help = env.help(&["issue", command, "--help"]);
+        assert!(
+            !help.contains("pull-request"),
+            "withdrawn option in issue {command} help:\n{help}"
+        );
+
+        for option in ["--pull-request", "--pr"] {
+            let output = env.run_raw(&["issue", command, "1", option, "1"]);
+            assert!(
+                !output.status.success(),
+                "withdrawn option {option:?} on issue {command} succeeded"
+            );
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                stderr.contains("unexpected argument"),
+                "withdrawn option {option:?} on issue {command} did not fail at clap parsing:\n{stderr}"
+            );
+        }
+    }
 }
 
 #[test]
