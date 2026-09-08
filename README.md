@@ -1,606 +1,289 @@
 # octa
 
-**A CLI that brings team-grade collaboration to solo, AI-agent-driven development, locally.**
+octa is a local Issue collaboration CLI for individual developers coordinating multiple AI agents, worktrees, and development sessions in a Git repository.
 
-octa is a local collaboration substrate for individual developers who run several AI agents and several development sessions in parallel on a single machine.
+It keeps work, dependencies, ownership, and handoff context in a local SQLite database. No hosted service or account is required.
 
-With a GitHub-like mental model of Issues, Pull Requests, and a Wiki, it keeps what a repository is aiming at and what is left to do across sessions.
+## Why octa?
 
-Data is never sent to an external service; it is stored in a local SQLite database.
+- **Keep work context between sessions.** Issue bodies and comments preserve decisions, progress, and the next concrete step.
+- **Prevent duplicate ownership.** Atomic leases let one agent or session claim an Issue before changing it.
+- **Keep repositories separate.** Issues, Projects, and Milestones are scoped to a Git repository, while linked worktrees share the same records.
+- **Support people and automation.** Human-readable output, JSON output, and a read-only GraphQL query surface use the same local data.
 
-## What octa solves
+octa 0.1.0 supports an Issue-centered workflow. Pull Request and Wiki workflows are intentionally deferred until they have been exercised and released separately.
 
-When work is split across AI agents, the reasoning behind decisions, the unfinished work, and the context to hand to whoever comes next get scattered across sessions.
+## Installation
 
-octa turns that information into a record that persists per repository.
+octa 0.1.0 requires Git. Installing with Cargo also requires Rust 1.89 or later. The distribution commands below apply after the corresponding 0.1.0 package or GitHub Release has been published.
 
-- **Issue**: a work record with a state, dependencies, comments, labels, and an atomic lease.
-- **Pull Request**: a record of discussion and state tied to a Git branch. Code and diffs stay on the Git side.
-- **Wiki**: pages for policies and procedures, with `[[slug]]` links and backlinks.
-- **Labels and states**: the classification and workflow each project configures for itself.
+### Cargo
 
-octa does not provide Git hosting, a web UI, remote sync, authentication, or real-time collaboration for many people.
-
-It is focused on coordinating the multiple worktrees, agents, and sessions running on the same machine.
-
-## Prerequisites
-
-- Run it inside a Git repository.
-- Rust 1.89 or later and Cargo.
-
-This repository also ships a Nix development environment.
+The 0.1.0 crates.io package is named `octa-cli`, and it installs a binary named `octa`.
 
 ```sh
-nix develop
-cargo build
+cargo install octa-cli --version 0.1.0 --locked
+octa --version
 ```
 
-To install it locally and use it as the `octa` command:
+Make sure `~/.cargo/bin` is on your `PATH`.
 
-```sh
-cargo install --path .
-```
+### GitHub Releases
 
-`~/.cargo/bin` must be on your `PATH`.
+The 0.1.0 release matrix contains checksummed archives for:
 
-To use the development binary without installing:
+- Apple Silicon macOS (`aarch64-apple-darwin`)
+- Intel macOS (`x86_64-apple-darwin`)
+- x86_64 Linux with glibc (`x86_64-unknown-linux-gnu`)
 
-```sh
-./target/debug/octa --help
-```
+After the artifacts are published on the [GitHub Releases page](https://github.com/choplin/octa/releases), download the archive for your platform, verify its checksum, and place the extracted `octa` binary on your `PATH`.
 
-The examples below assume `octa` is on your `PATH`.
+Windows and Linux ARM binaries are not part of the 0.1.0 release.
 
-## The first five minutes
+## Quick start
 
-First, move into the target Git repository.
+Run octa inside the Git repository whose work you want to track. The repository is registered automatically when octa first stores data for it.
 
 ```sh
 cd path/to/your-repository
-```
 
-Create an Issue, then list and inspect it.
-
-```sh
 octa issue open \
   --title "Document the release process" \
-  --body "Record the required checks and the steps in the Wiki."
+  --body "Record the required checks and handoff notes."
 
 octa issue list
 octa issue show 1
 ```
 
-An agent or session that starts working can take an exclusive **lease** with no expiry.
-`issue lock` prints a human-friendly three-word lease ID such as `amber-otter-lantern`
-to standard output exactly once. A lease ID is not a security credential; it is an
-ownership ID that prevents accidental concurrent edits. Keep it so later commands
-can reuse it.
+A successful `issue open` prints `#1`. The final `issue show` command confirms the stored Issue:
+
+```text
+#1 Document the release process (open)
+project: No Project
+milestone: No Milestone
+
+Record the required checks and handoff notes.
+```
+
+Claim the Issue before changing it. `issue lock` prints a three-word lease ID once; keep it in the current shell and pass it to protected mutations.
 
 ```sh
 LEASE=$(octa issue lock 1)
 octa issue start 1 --lease "$LEASE"
-octa issue comment add 1 --body "Started working on this."
+octa issue comment add 1 --body "Started by checking the existing release steps."
 ```
 
-When the work is done, close the Issue with the same lease, then release the lease.
+To hand unfinished work to another session, record the current state and next step, then release the lease. The Issue remains in progress.
+
+```sh
+octa issue comment add 1 \
+  --body "Handoff: checks are documented; next, verify a clean installation."
+octa issue unlock 1 --lease "$LEASE"
+```
+
+The next session can inspect the comments and claim the same Issue.
+
+```sh
+octa issue show 1
+LEASE=$(octa issue lock 1)
+```
+
+When the work is accepted, close the Issue and release its lease.
 
 ```sh
 octa issue close 1 --lease "$LEASE"
 octa issue unlock 1 --lease "$LEASE"
 ```
 
-If you lose the lease ID, `--force` releases it as a recovery operation.
-The previous lease ID becomes invalid immediately, and resuming work requires taking a new lease.
+If a lease ID is irretrievably lost, `octa issue unlock 1 --force` invalidates it. Use forced unlock only after confirming that no active session still owns the work.
+
+Long Markdown can be read from a file or from standard input instead of crossing a shell argument boundary.
 
 ```sh
-octa issue unlock 1 --force
-LEASE=$(octa issue lock 1)
+octa issue open --title "Release notes" --body-file notes.md
+printf '%s\n' 'Handoff: validation is pending.' | \
+  octa issue comment add 2 --body-file -
 ```
 
-`issue start`, `close`, `reopen`, `set`, `unset`, `add`, `remove`, a regular `unlock`, and the commands that change the link between an Issue and a Pull Request — `pull-request create --issue`, `pull-request add`, `pull-request remove` — all require the target Issue's `--lease`.
-Creating and commenting on Issues, commenting on PRs, creating a PR that links to no Issue, `set` / `set-state` on the PR itself, and Project, Milestone, Wiki, and config operations need no lease.
-Neither do read operations.
-Lease IDs appearing in tool logs and command arguments is expected. Do not put them in
-durable records such as Issue comments, Git artifacts, or repository files. `issue list`
-and `issue show` do not display lease IDs; they only report whether one is held, via `leased`.
+## Working with Issues
 
-## Coordinating work with Issues
+An Issue contains a title, body, state, comments, labels, relations, and an optional lease.
 
-An Issue has a number, a body, comments, a state, dependencies, and labels.
+### States
 
-The examples below that modify the existing Issue 1 use the lease taken earlier.
+`issue start`, `close`, and `reopen` move an Issue to the configured default state for the corresponding state type. Use `issue set --as <STATE>` when a workflow needs an exact configured state.
 
 ```sh
-LEASE=$(octa issue lock 1)
-```
-
-### States and listing
-
-A new repository gets four states — `open`, `in progress`, `closed`, and `not planned` —
-and new Issues land in `open`. Every state carries exactly one **type** out of the three
-values `open` / `in progress` / `closed`.
-
-```sh
-octa issue start 1 --lease "$LEASE"
 octa issue list
-octa issue list --state-type "in progress"
-octa issue list --state-type closed
-octa issue list --state "open,not planned"
+octa issue list --state-type "open,in progress"
 octa issue list --all
+octa config issue state list
 ```
 
-With no selector, the listing excludes Issues in closed-type states. `--state-type <types>`
-matches on the type and `--state <names>` matches exactly on configured state names; both
-accept a `,`-separated list and return Issues matching any of them. `--all` applies no
-filtering. These three selectors are mutually exclusive: naming a state already fixes its
-type, so combining `--state` with `--state-type` is always either redundant or always empty.
+With no state selector, `issue list` omits closed Issues. State and label configuration is shared across the local octa store; repository records remain repository-scoped.
 
-A read-only two-pane TUI is available as an alternative to listing and inspecting Issues.
-This describes the current initial implementation; it does not exclude future TUI mutation
-operations from the product boundary.
-The default `filter: all` shows every Issue in the current repository — not just candidates
-for work, but also closed-type Issues and existing custom states — ordered by Issue number.
+### Labels and relations
+
+Labels classify Issues. Relations record ordering or context without hiding it in prose.
+The following commands continue from the Quick start by creating Issue 2 and making Issue 1 its blocker.
+
+```sh
+octa issue open --title "Publish 0.1.0"
+octa config issue label list
+LEASE_2=$(octa issue lock 2)
+octa issue add 2 --blocker 1 --lease "$LEASE_2"
+octa issue add 2 --related 1 --lease "$LEASE_2"
+octa issue list --unblocked
+```
+
+`--blocker 1` means Issue 2 is blocked by Issue 1. Parent and child relations group a small set of deliverables; they do not imply execution order.
+
+### Projects and Milestones
+
+A Project represents a finite outcome. Ordered Milestones divide that outcome into stages.
+
+```sh
+octa project create --name "Publish 0.1.0"
+octa milestone create \
+  --project "Publish 0.1.0" \
+  --name "Release candidate" \
+  --status active \
+  --position 1
+
+octa issue open \
+  --title "Verify the packaged binary" \
+  --project "Publish 0.1.0" \
+  --milestone "Release candidate"
+```
+
+Use `octa project list --active` to show only Projects whose configured state is not closed.
+
+### Terminal and machine-readable views
+
+The Issue TUI is a read-only two-pane browser.
 
 ```sh
 octa issue tui
 ```
 
-Select an Issue with `j/k` or the arrow keys, and switch focus between the list and the detail
-pane with `Tab`. The detail pane also scrolls with `PgUp/PgDn`, and `q` or `Esc` exits.
-No operation on this screen modifies an Issue or its related data.
-
-### Projects and Milestones
-
-Group a finite outcome as a Project, and for a Project that needs stages, create ordered
-Milestones. Projects and Milestones can be referenced by name or by number.
-`project list` returns every Project including closed ones by default, and each tally counts
-all Issues, closed ones included, as open / closed. When you only want the Projects being
-worked on, say so with `project list --active`. Projects are displayed in creation order.
-If you need priority, define a `single` label group of your own.
-
-A Project carries a configured state the same way an Issue does, so whether it is closed is
-read from that state's type rather than set beside it. The type axis has two values here,
-`open` and `closed`: a Project is an outcome that is either still open or finished with, and
-whether work is under way inside it is already readable from its Issue tally. `Planned` and
-`In Progress` are both `open` states that differ by name.
+Commands that support JSON accept `--json`. Issue list entries include their labels.
 
 ```sh
-octa project create --name "Publish the CLI"
-octa project create --name "Publish the docs" --as Planned
-octa project list
-octa project list --active
-
-octa project set "Publish the CLI" --as Planned
-octa project close "Publish the CLI"
-octa project close "Publish the CLI" --as "not planned"
-octa project reopen "Publish the CLI"
-
-octa milestone create --project "Publish the CLI" \
-  --name "Public beta" \
-  --description "The stage that ships a beta to users" \
-  --status active \
-  --position 1 \
-  --target-date 2026-09-01
-
-octa milestone list --project "Publish the CLI"
-octa milestone show "Public beta" --project "Publish the CLI"
-octa milestone set "Public beta" --project "Publish the CLI" \
-  --status completed \
-  --target-date 2026-09-15
+octa issue list --all --json
+octa issue show 1 --json
+octa project list --active --json
 ```
 
-A Project and a Milestone can be set when the Issue is created. A Milestone is an entity
-inside a Project, so `--milestone` also requires `--project`.
-
-```sh
-octa issue open \
-  --title "Invite beta users" \
-  --project "Publish the CLI" \
-  --milestone "Public beta"
-```
-
-You can also set or unset a Milestone on an existing Issue, and list the Issues belonging to
-the same Milestone. To change or clear the Project, unset the Milestone first.
-
-```sh
-octa issue set 1 --milestone "Public beta" --lease "$LEASE"
-octa issue list --project "Publish the CLI" --milestone "Public beta"
-octa issue unset 1 --milestone --lease "$LEASE"
-```
-
-Parent-child relationships between Issues can be set within the same repository and are
-independent of Project membership. Parent and child may belong to different Projects, and it
-is fine for only one of them to belong to a Project at all. When a parent is set on an
-existing Issue that has no Project, the parent's Project at that moment is inherited as the
-initial value; afterwards the Project of the parent and of the child can each be changed or
-cleared.
-
-```sh
-LEASE_2=$(octa issue lock 2)
-octa issue set 2 --parent 1 --lease "$LEASE_2"
-octa issue set 2 --project "Another Project" --lease "$LEASE_2"
-octa issue unset 1 --project --lease "$LEASE"
-```
-
-Only for an Issue that has a Milestone inside a Project does the old rule still apply: unset
-the Milestone first, then change or clear the Project.
-
-A new repository is seeded with one default state per type, plus a second way to end.
-
-| State | Type | Default for that type |
-|---|---|---|
-| open | open | ✓ |
-| in progress | in progress | ✓ |
-| closed | closed | ✓ |
-| not planned | closed | |
-
-Seeding only runs for a repository that has no states at all. The state configuration of a
-repository that already has a workflow is left as it is.
-
-States can be added, changed, and deleted later. `--type` defaults to `open` when omitted.
-
-Configuration commands are grouped by the record they configure, so `octa config issue ...`
-and `octa config project ...` are the two entry points. Issues and Projects each have their
-own states, under `config issue state` and `config project state`.
-
-```sh
-octa config issue state create Backlog
-octa config issue state create "In Review" --type "in progress"
-octa config issue state set open --name Ready
-octa config issue state set Ready --type "in progress"
-octa config issue state delete Backlog --move-to Ready
-octa config issue state set Ready --default
-octa config issue state list
-
-octa config project state create Planned
-octa config project state create shipped --type closed
-octa config project state set Planned --default
-octa config project state delete shipped --move-to closed
-octa config project state list
-```
-
-Project states work the same way over two types instead of three, and the seed that runs for
-a store with no Project states is `open`, `closed`, and `not planned`.
-
-Renaming with `config issue state set --name` moves the Issues in that state along with it.
-`config issue state delete` requires `--move-to <state>` when Issues remain in the state.
-Both are also reference constraints in the database: deleting a state that still holds Issues
-is rejected. Deleting a state never takes Issues down with it.
-
-**A type that has any state always has exactly one default state. The database schema
-guarantees this.** Creating the first state in an empty type makes that state the default even
-without `--default`. The same happens when a state is moved into an empty type. A verb invoked
-without arguments must always have a determined destination, as long as the type has a usable
-state. This automatic promotion is reported in the output.
-
-To move the default to a different state, use `config issue state set <name> --default`.
-`config issue state create --default` behaves the same way. Neither takes a type argument, because a
-state already has exactly one type and restating it could only produce a contradiction.
-
-While another state remains in the same type, you cannot delete the default state or change its
-type. Move the default first with `config issue state set <name> --default`. This too is a schema-level
-constraint. In addition, the `open` and `closed` types cannot be emptied, because every Issue must
-be able to start and to finish. The `in progress` type may be empty, since a workflow that does not
-distinguish started work is valid. In that case `issue start` has no destination and fails,
-reporting that no state of the `in progress` type exists. Create one state and it becomes the
-default, so `issue start` works again as-is.
-
-States carry no ordering. The display order of `config issue state list` is derived from type, default
-flag, and name, running `open` → `in progress` → `closed`. Within each type the default state comes
-first and the rest follow in name order.
-
-Whether an Issue is closed is derived from its type. An Issue in a state whose `type` is `closed`
-is closed. That is what `issue list --state-type closed` and the `Open/Closed` columns of
-`project list` count. The reason it was closed is expressed by the state name, not the type — which
-is why `closed` and `not planned` share a type.
-
-This type axis is the only classification octa holds over states; it does not distinguish stages in
-between. State names themselves are given no meaning, so any state name can be used.
-Workflow states and other custom states created by older versions, along with the Issues that
-reference them, are neither deleted nor renamed by a migration.
-
-Issue states are transitioned with verbs. A verb invoked without arguments moves the Issue to the
-default of its type.
-
-```sh
-octa issue start 1 --lease "$LEASE"
-octa issue close 1 --lease "$LEASE"
-octa issue close 1 --as "not planned" --lease "$LEASE"
-octa issue reopen 1 --lease "$LEASE"
-octa issue set 1 --as "In Review" --lease "$LEASE"
-```
-
-`--as` only accepts states belonging to that verb's type. The same holds for `issue open` (aliased
-as `create`), which accepts only open-type states. To record an Issue that has already been started
-or already resolved, `open` it and then `start` or `close` it. `issue set --as` is the only
-operation that can move an Issue to any state regardless of type. `issue start` has no `--as`
-because the destination is not yet determined at the moment work begins.
-
-### Dependencies
-
-To record that Issue 1 blocks Issue 2:
-
-```sh
-octa issue add 1 --blocks 2 --lease "$LEASE"
-octa issue show 1
-octa issue show 2
-```
-
-Work that has no blocker outside a terminal state can be listed with `--unblocked`.
-
-```sh
-octa issue list --unblocked
-```
-
-To drop a dependency, `remove` the same property.
-
-```sh
-octa issue remove 1 --blocks 2 --lease "$LEASE"
-```
-
-Related Issues with no ordering between them are connected with `--related`. Adding the same pair in
-the opposite order stores a single record, and `--related-to` narrows the candidates.
-
-```sh
-octa issue add 1 --related 2 --lease "$LEASE"
-octa issue list --related-to 1
-octa issue remove 2 --related 1 --lease "$LEASE_2"
-```
-
-### Labels
-
-Labels can be used on their own.
-Label names and group names are yours to choose per repository; octa reserves no classification
-names and gives no special treatment to labels such as `impl` / `design` / `research`.
-Issue labels are configured under `octa config issue`, Project labels under `octa config project`.
-
-```sh
-octa config issue label create documentation
-octa issue add 1 --label documentation --lease "$LEASE"
-octa issue remove 1 --label documentation --lease "$LEASE"
-```
-
-In a `single` group, only one label from that group can be attached at a time.
-
-In a `multi` group, several labels from the same group can coexist.
-
-```sh
-octa config issue label-group create priority --selection single
-octa config issue label create high --group priority
-octa config issue label create low --group priority
-octa issue add 1 --label high --lease "$LEASE"
-
-octa config issue label-group create area --selection multi
-octa config issue label create cli --group area
-octa config issue label create storage --group area
-octa issue add 1 --label cli --lease "$LEASE"
-octa issue add 1 --label storage --lease "$LEASE"
-```
-
-Label definitions for Projects are separate from those for Issues. The same name can be defined for
-each independently, and which set a command touches is part of the command path.
-
-```sh
-octa config project label-group create horizon --selection single
-octa config project label create now --group horizon
-octa config project label create next --group horizon
-octa project add "Publish the CLI" --label now
-octa project remove "Publish the CLI" --label now
-```
-
-## Keeping Pull Request discussion
-
-A Pull Request in octa is a numbered discussion entity tied to a branch.
-
-Git handles the code and the diff; octa holds the state and the comments.
-
-```sh
-octa pull-request create \
-  --title "Add the release process" \
-  --branch docs/release-process \
-  --body "Update the Wiki and the README." \
-  --issue 1 \
-  --lease "$LEASE"
-
-octa pull-request comment 1 --body "Please take a look."
-octa pull-request show 1
-octa pull-request set-state 1 closed
-```
-
-An existing PR keeps working exactly as it was created, and can be explicitly linked to an Issue only
-when that becomes necessary.
-One Issue can link to several PRs and one PR to several Issues. The same pair is never stored twice.
-
-```sh
-octa pull-request add 2 --issue 1 --lease "$LEASE"
-octa issue show 1
-octa pull-request remove 2 --issue 1 --lease "$LEASE"
-```
-
-PR listings can be filtered with `open`, `closed`, or `all`.
-
-```sh
-octa pull-request list --state open
-octa pull-request list --state all
-```
-
-## Keeping policies and procedures in the Wiki
-
-The Wiki is stored in octa's local store, not as files inside the repository.
-
-When the slug is omitted, one is generated from the title using ASCII alphanumerics and hyphens.
-
-For titles where that generation yields an empty slug — a title written only in Japanese, for
-example — pass `--slug` explicitly.
-
-```sh
-octa wiki create \
-  --title "Release process" \
-  --slug release-process \
-  --body "See [[development-policy]] for the related policy."
-
-octa wiki show release-process
-octa wiki list
-```
-
-You can also specify an explicit slug.
-
-```sh
-octa wiki create \
-  --title "Development policy" \
-  --slug development-policy \
-  --body "Design decisions are recorded here."
-```
-
-A `[[slug]]` in the body is recorded as a link.
-
-`wiki show` displays both the links from that page and the backlinks to it.
-
-## Reading exactly the data you need with GraphQL
-
-`octa query` exposes a read-only GraphQL schema scoped to the current repository by default.
-The document is passed on standard input or with `--file`, and variables are given as a JSON object.
-
-```sh
-octa query --variables '{"number": 25}' <<'GRAPHQL'
-query IssueContext($number: Int!) {
-  issue(number: $number) {
-    number
-    title
-    leased
-    project { name }
-    labels { name }
-    blocks(limit: 20) { number title }
-  }
-}
-GRAPHQL
-
-octa query --file query.graphql --variables '{"limit": 20}'
-```
-
-The selection set is translated into a SQLite query that fetches only the columns and relations you
-asked for. A single relation becomes a correlated JOIN and a multiple relation an aggregate subquery
-containing a JOIN; relations that were not selected are never accessed. The response is a GraphQL
-JSON envelope, with the number of executed queries in `extensions.dbAccesses`. The `limit` of a list
-field defaults to 50 and caps at 100; query depth caps at 8 and complexity at 500. The schema has no
-mutations. An Issue's `leased` field only reports whether a lease is held; it never exposes the
-lease ID.
-
-Both success and validation errors come back as a standard GraphQL JSON envelope.
-Success carries `data` and a validation error carries `errors`, so check the envelope rather than the
-CLI exit status alone.
-
-```json
-{"data":{"issue":{"number":25,"title":"Add a read-only GraphQL query surface"}},"extensions":{"dbAccesses":1}}
-```
-
-```sh
-printf '%s\n' '{ missingField }' | octa query
-```
-
-```json
-{"data":null,"extensions":{"dbAccesses":0},"errors":[{"message":"Unknown field \"missingField\" on type \"QueryRoot\".","locations":[{"line":1,"column":3}]}]}
-```
-
-The available types and fields can be inspected through introspection or SDL output.
+`octa query` executes read-only GraphQL. Inspect the public schema before building a query that will be kept in automation.
 
 ```sh
 octa query --schema
+
+octa query <<'GRAPHQL'
+{
+  issues(limit: 20) {
+    number
+    title
+    state
+    leased
+    labels { name }
+  }
+}
+GRAPHQL
 ```
 
-## JSON output
+## Repository scope
 
-For automation and agents, pass `--json` to the commands that support it.
+octa normally uses the Git repository containing the current directory. All linked worktrees of that repository share its octa records.
 
-```sh
-octa issue create --title "Investigate" --json
-octa issue list --all --json
-octa issue show 1 --json
-octa pull-request list --state all --json
-octa wiki show release-process --json
-octa config issue label list --json
-```
-
-## Worktrees and repository scope
-
-Normally the target is the Git repository you are currently in.
-
-octa stores the unique repository name in both its database and repository-local Git config. The Git
-common directory supplies the repository's current path, so linked worktrees share the same octa data
-and a moved repository can be verified before its recorded path is updated.
-
-Registration is normally implicit. Use the repository commands when a generated name conflicts, or
-when a registered repository's name changes or it is moved.
+Use `--repository <NAME>` to read or change another registered repository. Supported read-only commands can aggregate repositories with `--all-repositories`.
 
 ```sh
-octa repository register --name other-copy /path/to/repository
-octa repository set old-name --name new-name
-octa repository relocate new-name /new/path/to/repository
-```
-
-To name another registered repository explicitly, use `--repository`.
-
-```sh
-octa --repository other-repository issue list
-```
-
-Some read-only listings can span registered repositories with `--all-repositories`.
-
-```sh
+octa repository list
+octa --repository another-repository issue list
 octa --all-repositories issue list --all
-octa --all-repositories pull-request list --state all
-octa --all-repositories wiki list
 ```
 
-Mutating operations, and Issue filtering by `--label`, `--project`, `--milestone`, `--related-to`, and
-`--unblocked`, must be run against a single repository. State configuration is global across
-repositories, so `--state` and `--state-type` also work with `--all-repositories`.
+Repository registration is usually automatic. The explicit repository commands handle naming conflicts and repositories that have moved.
 
-The former `pr`, `repo`, `--repo`, `--all-repos`, and `--pr` spellings remain available as
-compatibility aliases, but help and examples use the full names.
+```sh
+octa repository register --name another-repository /path/to/repository
+octa repository relocate another-repository /new/path/to/repository
+```
 
-## Storage location and backups
+## Data and backups
 
-octa uses one SQLite database per user.
+octa stores all repository records for the current user in one SQLite database:
 
 ```text
 $XDG_DATA_HOME/octa/octa.db
 ```
 
-When `XDG_DATA_HOME` is unset, the location is:
+When `XDG_DATA_HOME` is unset, the database is stored at:
 
 ```text
 ~/.local/share/octa/octa.db
 ```
 
-This database is not committed to Git and is not synced automatically to clones or remotes.
+The database is not committed to Git and is not synchronized automatically.
 
-If you need to migrate machines or keep backups, back this database up.
+The source repository provides logical backup and restore scripts. Stop every process using octa before a restore. Run the scripts from the source checkout whose schema should own the restored database, and install that same octa version before replacing a live database.
 
-## Discovering commands
+```sh
+# Requires sqlite3; prints the new dump path.
+scripts/db-dump
+
+# Also requires sqlx-cli. The previous database is archived on success.
+scripts/db-restore /path/to/octa-data.sql
+```
+
+`db-restore` builds a new database from the repository's current migration, loads the dump in a transaction, and checks foreign-key and SQLite integrity before replacing the live database.
+
+## Current boundaries
+
+octa 0.1.0 is designed for one developer coordinating local agents and sessions. It does not provide:
+
+- Git hosting or remote synchronization
+- a hosted service, web UI, or authentication
+- real-time multi-user collaboration
+- public Pull Request or Wiki commands
+- prebuilt Windows or Linux ARM binaries
+
+Internal Pull Request and Wiki storage is retained for staged future support, but it is not part of the 0.1.0 public interface.
+
+## Command discovery
+
+The CLI help is the command reference for the installed version.
 
 ```sh
 octa --help
 octa issue --help
 octa issue add --help
+octa project --help
 octa milestone --help
-octa pull-request --help
-octa wiki --help
 octa config --help
-octa config issue --help
-octa config project --help
-octa config issue label --help
-octa config issue state --help
+octa query --schema
 ```
 
-A guide for AI agents to discover and use the octa CLI's features, scope, JSON output, and storage
-location lives in [`skills/octa`](skills/octa/SKILL.md). Team-specific Issue conventions are kept out
-of that guide.
+AI agents can use the repository's [octa CLI guide](skills/octa/SKILL.md) for machine-readable output, mutation safety, leases, and repository-scope behavior. Workflow policy remains separate from the CLI's product contract.
 
-## Checks during development
+## Development
+
+This repository provides a Nix development environment.
+
+```sh
+nix develop
+cargo build
+```
+
+Required checks:
 
 ```sh
 cargo fmt --check
 SQLX_OFFLINE=true cargo clippy --all-targets -- -D warnings
 SQLX_OFFLINE=true TMPDIR=/private/tmp cargo test
 ```
+
+## License
+
+octa is licensed under the [MIT License](LICENSE-MIT).
