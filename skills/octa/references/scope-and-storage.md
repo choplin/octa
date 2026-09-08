@@ -7,7 +7,8 @@ Read this reference only when an operation goes beyond the current repository or
 Normal commands operate on the Git repository containing the current working directory.
 
 - Use `octa --repository <known-name> ...` to select another repository already known to octa.
-- Worktrees that share the same Git common directory share one octa repository identity and dataset.
+- A unique name stored in both octa's database and repository-local Git configuration is the stable repository identity. The canonical Git common directory is its current location, so linked worktrees share one identity and dataset.
+- Registration is normally implicit. Use `octa repository register --name <name> [path]` to choose a name explicitly, `octa repository set <name> --name <new-name>` to rename an identity, and `octa repository relocate <name> [path]` after moving a registered repository.
 - Keep mutations and repository-specific filters scoped to one repository.
 
 Use `--all-repositories` only for an explicit cross-repository overview. It is supported by these aggregate read-only commands:
@@ -15,11 +16,9 @@ Use `--all-repositories` only for an explicit cross-repository overview. It is s
 ```text
 issue list
 project list
-pull-request list
-wiki list
 ```
 
-With `--all-repositories`, `issue list` supports the generic `--open`, `--closed`, and `--all` filters. Named `--state` values and the `--label`, `--project`, `--milestone`, `--related-to`, and `--unblocked` filters require one repository. The former `--repo` and `--all-repos` spellings remain compatibility aliases.
+With `--all-repositories`, `issue list` supports `--state`, `--state-type`, and `--all` because state configuration is global. The `--label`, `--project`, `--milestone`, `--related-to`, and `--unblocked` filters require one repository. The former `--repo` and `--all-repos` spellings remain compatibility aliases.
 
 ## Local storage
 
