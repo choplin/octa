@@ -2,7 +2,7 @@ use std::io;
 
 use urushi::{
     Align, AnsiRenderer, BlockStyle, ComponentRole, ComponentStyles, SemanticTokens, Table,
-    TableStyle, TerminalProfile, TextStyle, Theme, VerticalAlign, View,
+    TablePresentation, TerminalProfile, TextStyle, Theme, VerticalAlign, View,
 };
 
 use urushi::Color;
@@ -53,7 +53,7 @@ impl Output {
         let components = ComponentStyles::from_tokens(&tokens)
             .with_text_style(ComponentRole::Body, TextStyle::new())
             .with_text_style(ComponentRole::Muted, TextStyle::new().dim())
-            .with_table(TableStyle::new(
+            .with_table(TablePresentation::new(
                 BlockStyle::new().foreground(tokens.accent).bold(),
                 BlockStyle::new(),
                 TextStyle::new().foreground(tokens.border),
@@ -102,7 +102,7 @@ impl Output {
         S: Into<String>,
     {
         let table = Table::new().headers(headers).rows(rows);
-        self.theme.components().table().view(&table)
+        self.theme.components().table().compose(&table)
     }
 
     pub(crate) fn print(&self, view: View) {
