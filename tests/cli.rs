@@ -810,9 +810,61 @@ fn piped_human_output_is_plain_and_json_stays_machine_readable() {
     assert!(listed.contains("Title"));
     assert!(!listed.contains('\u{1b}'));
 
+    let shown = env.ok(&["issue", "show", "1"]);
+    assert!(shown.lines().all(|line| line == line.trim_end()));
+
     let raw_json = env.ok(&["issue", "show", "1", "--json"]);
     assert_eq!(json(&raw_json)["title"], "Styled");
     assert!(!raw_json.contains('\u{1b}'));
+}
+
+#[test]
+fn human_table_fits_the_interactive_terminal_width() {
+    let env = Env::new();
+    env.ok(&[
+        "issue",
+        "open",
+        "--title",
+        "A deliberately long issue title that must wrap inside its table cell",
+    ]);
+
+    let output = Command::new("/usr/bin/script")
+        .current_dir(env.path())
+        .env("XDG_DATA_HOME", env.xdg.path())
+        .env("TERM", "dumb")
+        .args([
+            "-q",
+            "/dev/null",
+            "/bin/sh",
+            "-c",
+            "stty rows 24 cols 40; exec \"$1\" issue list",
+            "octa-test",
+            bin(),
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .expect("failed to run issue list in a pseudo-terminal");
+    assert!(
+        output.status.success(),
+        "PTY issue list failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let screen = String::from_utf8(output.stdout).unwrap();
+    let table_lines = screen.lines().filter_map(|line| {
+        let line = line.trim_end_matches('\r');
+        let start = line.find(['┌', '│', '├', '└'])?;
+        Some(&line[start..])
+    });
+    let widths = table_lines
+        .map(|line| urushi::PrintableText::new(line).width())
+        .collect::<Vec<_>>();
+
+    assert!(widths.len() > 5, "the title did not wrap: {screen:?}");
+    assert!(
+        widths.iter().all(|width| *width == 40),
+        "table lines did not fit 40 columns: {widths:?}\n{screen:?}"
+    );
 }
 
 #[test]

@@ -25,7 +25,7 @@ pub(crate) async fn run(store: &Store, command: RepositoryCommand) -> Result<()>
                 output.print(output.table(
                     ["Name", "Path", "Created", "Updated", "Open", "In Progress"],
                     rows,
-                ));
+                ))?;
             }
         }
         RepositoryCommand::Register { name, path, json } => {
@@ -51,7 +51,7 @@ fn print_repository(output: &Output, repository: &Repository, json: bool) -> Res
         output.print_lines([
             output.field("Name", repository.name.clone()),
             output.field("Path", repository.path.clone()),
-        ]);
+        ])?;
     }
     Ok(())
 }

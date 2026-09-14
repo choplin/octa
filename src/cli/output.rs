@@ -1,8 +1,6 @@
-use std::io;
-
 use urushi::{
-    Align, AnsiRenderer, BlockStyle, ComponentRole, ComponentStyles, SemanticTokens, Table,
-    TablePresentation, TerminalProfile, TextStyle, Theme, VerticalAlign, View,
+    BlockStyle, ComponentRole, ComponentTheme, SemanticTokens, Table, TablePresentation, TextStyle,
+    Theme, VerticalAlign, View,
 };
 
 use urushi::Color;
@@ -27,17 +25,11 @@ impl Tone {
 }
 
 pub(crate) struct Output {
-    renderer: AnsiRenderer,
     theme: Theme,
 }
 
 impl Output {
     pub(crate) fn stdout() -> Self {
-        let stdout = io::stdout();
-        Self::new(TerminalProfile::detect_for(&stdout))
-    }
-
-    fn new(profile: TerminalProfile) -> Self {
         let tokens = SemanticTokens {
             text: Color::WHITE,
             text_muted: Color::BRIGHT_BLACK,
@@ -50,7 +42,7 @@ impl Output {
             error: Color::Rgb(248, 113, 113),
             border: Color::BRIGHT_BLACK,
         };
-        let components = ComponentStyles::from_tokens(&tokens)
+        let components = ComponentTheme::from_tokens(&tokens)
             .with_text_style(ComponentRole::Body, TextStyle::new())
             .with_text_style(ComponentRole::Muted, TextStyle::new().dim())
             .with_table(TablePresentation::new(
@@ -60,7 +52,6 @@ impl Output {
             ));
 
         Self {
-            renderer: AnsiRenderer::new(profile),
             theme: Theme::new(tokens, components),
         }
     }
@@ -105,27 +96,15 @@ impl Output {
         self.theme.components().table().compose(&table)
     }
 
-    pub(crate) fn print(&self, view: View) {
-        println!("{}", self.render(&view));
+    pub(crate) fn print(&self, view: View) -> std::io::Result<()> {
+        urushi::println(&view)
     }
 
     /// Prints lines stacked in the order they are given.
-    pub(crate) fn print_lines(&self, lines: impl IntoIterator<Item = View>) {
-        self.print(View::column(Align::Left, lines));
-    }
-
-    /// Renders a view as the text this CLI prints.
-    ///
-    /// A view resolves to a rectangle, so every line is padded to the width of
-    /// the widest one. CLI output is line-oriented rather than a fixed
-    /// rectangle, so that padding is dropped.
-    fn render(&self, view: &View) -> String {
-        self.renderer
-            .render(view)
-            .as_str()
-            .lines()
-            .map(str::trim_end)
-            .collect::<Vec<_>>()
-            .join("\n")
+    pub(crate) fn print_lines(&self, lines: impl IntoIterator<Item = View>) -> std::io::Result<()> {
+        for line in lines {
+            self.print(line)?;
+        }
+        Ok(())
     }
 }

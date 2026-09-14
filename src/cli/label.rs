@@ -19,7 +19,7 @@ pub(crate) async fn run(store: &Store, target: LabelTarget, command: LabelComman
                 LabelTarget::Issue => store.create_label(&name, group.as_deref()).await?,
                 LabelTarget::Project => store.create_project_label(&name, group.as_deref()).await?,
             }
-            output.print(output.line(Tone::Success, format!("created label {name}")))
+            output.print(output.line(Tone::Success, format!("created label {name}")))?;
         }
         LabelCommand::List { json } => {
             let labels = match target {
@@ -29,12 +29,12 @@ pub(crate) async fn run(store: &Store, target: LabelTarget, command: LabelComman
             if json {
                 println!("{}", serde_json::to_string(&labels)?)
             } else if labels.is_empty() {
-                output.print(output.line(Tone::Warning, "no labels"))
+                output.print(output.line(Tone::Warning, "no labels"))?;
             } else {
                 let rows = labels
                     .iter()
                     .map(|label| [label.name.clone(), label.group.clone().unwrap_or_default()]);
-                output.print(output.table(["Name", "Group"], rows))
+                output.print(output.table(["Name", "Group"], rows))?;
             }
         }
     }
@@ -56,7 +56,7 @@ pub(crate) async fn run_group(
             output.print(output.line(
                 Tone::Success,
                 format!("created {selection} label group {name}"),
-            ))
+            ))?;
         }
         LabelGroupCommand::List { json } => {
             let groups = match target {
@@ -66,12 +66,12 @@ pub(crate) async fn run_group(
             if json {
                 println!("{}", serde_json::to_string(&groups)?)
             } else if groups.is_empty() {
-                output.print(output.line(Tone::Warning, "no label groups"))
+                output.print(output.line(Tone::Warning, "no label groups"))?;
             } else {
                 let rows = groups
                     .iter()
                     .map(|group| [group.name.clone(), group.selection.clone()]);
-                output.print(output.table(["Name", "Selection"], rows))
+                output.print(output.table(["Name", "Selection"], rows))?;
             }
         }
     }

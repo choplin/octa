@@ -19,7 +19,7 @@ pub(crate) async fn run(store: &Store, command: PullRequestCommand) -> Result<()
             if json {
                 println!("{}", serde_json::json!({"number":number}))
             } else {
-                output.print(output.line(Tone::Success, format!("#{number}")))
+                output.print(output.line(Tone::Success, format!("#{number}")))?;
             }
         }
         PullRequestCommand::List { state, json } => {
@@ -29,7 +29,7 @@ pub(crate) async fn run(store: &Store, command: PullRequestCommand) -> Result<()
             if json {
                 println!("{}", serde_json::to_string(&pull_requests)?)
             } else if pull_requests.is_empty() {
-                output.print(output.line(Tone::Warning, "no pull requests"))
+                output.print(output.line(Tone::Warning, "no pull requests"))?;
             } else {
                 let rows = pull_requests.iter().map(|pull_request| {
                     [
@@ -39,7 +39,7 @@ pub(crate) async fn run(store: &Store, command: PullRequestCommand) -> Result<()
                         pull_request.branch.clone(),
                     ]
                 });
-                output.print(output.table(["pull request", "State", "Title", "Branch"], rows))
+                output.print(output.table(["pull request", "State", "Title", "Branch"], rows))?;
             }
         }
         PullRequestCommand::Show { number, json } => {
@@ -76,7 +76,7 @@ pub(crate) async fn run(store: &Store, command: PullRequestCommand) -> Result<()
                             .push(output.field(format!("[{}] ", comment.created_at), comment.body));
                     }
                 }
-                output.print_lines(lines)
+                output.print_lines(lines)?;
             }
         }
         PullRequestCommand::Comment { number, body } => {
@@ -84,11 +84,12 @@ pub(crate) async fn run(store: &Store, command: PullRequestCommand) -> Result<()
             output.print(output.line(
                 Tone::Success,
                 format!("commented on pull request #{number}"),
-            ))
+            ))?;
         }
         PullRequestCommand::SetState { number, state } => {
             store.set_pull_request_state(number, &state).await?;
-            output.print(output.line(Tone::Success, format!("pull request #{number} -> {state}")))
+            output
+                .print(output.line(Tone::Success, format!("pull request #{number} -> {state}")))?;
         }
         PullRequestCommand::Set {
             number,
@@ -98,7 +99,7 @@ pub(crate) async fn run(store: &Store, command: PullRequestCommand) -> Result<()
             store
                 .edit_pull_request(number, title.as_deref(), body.as_deref())
                 .await?;
-            output.print(output.line(Tone::Success, format!("updated pull request #{number}")))
+            output.print(output.line(Tone::Success, format!("updated pull request #{number}")))?;
         }
         PullRequestCommand::Add {
             number,
@@ -108,7 +109,7 @@ pub(crate) async fn run(store: &Store, command: PullRequestCommand) -> Result<()
             store
                 .link_pull_request(issue, number, lease.as_deref())
                 .await?;
-            output.print(output.line(Tone::Success, format!("updated pull request #{number}")))
+            output.print(output.line(Tone::Success, format!("updated pull request #{number}")))?;
         }
         PullRequestCommand::Remove {
             number,
@@ -118,7 +119,7 @@ pub(crate) async fn run(store: &Store, command: PullRequestCommand) -> Result<()
             store
                 .unlink_pull_request(issue, number, lease.as_deref())
                 .await?;
-            output.print(output.line(Tone::Success, format!("updated pull request #{number}")))
+            output.print(output.line(Tone::Success, format!("updated pull request #{number}")))?;
         }
     }
     Ok(())

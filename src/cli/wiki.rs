@@ -9,13 +9,13 @@ pub(crate) async fn run(store: &Store, command: WikiCommand) -> Result<()> {
             let slug = store
                 .create_wiki(&slug.unwrap_or_else(|| title.clone()), &title, &body)
                 .await?;
-            output.print(output.line(Tone::Success, format!("created wiki page {slug}")))
+            output.print(output.line(Tone::Success, format!("created wiki page {slug}")))?;
         }
         WikiCommand::Set { slug, title, body } => {
             store
                 .edit_wiki(&slug, title.as_deref(), body.as_deref())
                 .await?;
-            output.print(output.line(Tone::Success, format!("updated wiki page {slug}")))
+            output.print(output.line(Tone::Success, format!("updated wiki page {slug}")))?;
         }
         WikiCommand::Show { slug, json } => {
             let detail = store.wiki_detail(&slug).await?;
@@ -43,7 +43,7 @@ pub(crate) async fn run(store: &Store, command: WikiCommand) -> Result<()> {
                         &page.body
                     },
                 ));
-                output.print_lines(lines)
+                output.print_lines(lines)?;
             }
         }
         WikiCommand::List { json } => {
@@ -51,12 +51,12 @@ pub(crate) async fn run(store: &Store, command: WikiCommand) -> Result<()> {
             if json {
                 println!("{}", serde_json::to_string(&pages)?)
             } else if pages.is_empty() {
-                output.print(output.line(Tone::Warning, "no wiki pages"))
+                output.print(output.line(Tone::Warning, "no wiki pages"))?;
             } else {
                 let rows = pages
                     .iter()
                     .map(|page| [page.slug.clone(), page.title.clone()]);
-                output.print(output.table(["Slug", "Title"], rows))
+                output.print(output.table(["Slug", "Title"], rows))?;
             }
         }
     }

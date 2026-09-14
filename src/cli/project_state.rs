@@ -19,7 +19,7 @@ pub(crate) async fn run(store: &Store, command: ProjectStateCommand) -> Result<(
                         if state.is_default { "yes" } else { "" }.to_owned(),
                     ]
                 });
-                output.print(output.table(["Name", "Type", "Default"], rows));
+                output.print(output.table(["Name", "Type", "Default"], rows))?;
             }
         }
         ProjectStateCommand::Create {
@@ -36,7 +36,7 @@ pub(crate) async fn run(store: &Store, command: ProjectStateCommand) -> Result<(
                     promoted,
                     state_type,
                 ),
-            ));
+            ))?;
         }
         ProjectStateCommand::Set {
             name,
@@ -52,7 +52,7 @@ pub(crate) async fn run(store: &Store, command: ProjectStateCommand) -> Result<(
                 }
                 _ => format!("updated project state {name}"),
             };
-            output.print(output.line(Tone::Success, message));
+            output.print(output.line(Tone::Success, message))?;
         }
         ProjectStateCommand::Delete { name, move_to } => {
             let moved = store
@@ -67,7 +67,7 @@ pub(crate) async fn run(store: &Store, command: ProjectStateCommand) -> Result<(
                     format!("deleted project state {name}; {moved} project(s) affected")
                 }
             };
-            output.print(output.line(Tone::Success, message))
+            output.print(output.line(Tone::Success, message))?;
         }
     }
     Ok(())

@@ -17,7 +17,7 @@ pub(crate) async fn run(store: &Store, command: StateCommand) -> Result<()> {
                         if state.is_default { "yes" } else { "" }.to_owned(),
                     ]
                 });
-                output.print(output.table(["Name", "Type", "Default"], rows));
+                output.print(output.table(["Name", "Type", "Default"], rows))?;
             }
         }
         StateCommand::Create {
@@ -30,7 +30,7 @@ pub(crate) async fn run(store: &Store, command: StateCommand) -> Result<()> {
             output.print(output.line(
                 Tone::Success,
                 promotion_note(format!("created state {name}"), promoted, state_type),
-            ));
+            ))?;
         }
         StateCommand::Set {
             name,
@@ -46,7 +46,7 @@ pub(crate) async fn run(store: &Store, command: StateCommand) -> Result<()> {
                 }
                 _ => format!("updated state {name}"),
             };
-            output.print(output.line(Tone::Success, message));
+            output.print(output.line(Tone::Success, message))?;
         }
         StateCommand::Delete { name, move_to } => {
             let moved = store.delete_state(&name, move_to.as_deref()).await?;
@@ -57,7 +57,7 @@ pub(crate) async fn run(store: &Store, command: StateCommand) -> Result<()> {
                 }
                 (moved, None) => format!("deleted state {name}; {moved} issue(s) affected"),
             };
-            output.print(output.line(Tone::Success, message))
+            output.print(output.line(Tone::Success, message))?;
         }
     }
     Ok(())

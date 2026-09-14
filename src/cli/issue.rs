@@ -41,7 +41,7 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             if json {
                 println!("{}", serde_json::to_string(&issues)?);
             } else if issues.is_empty() {
-                output.print(output.line(Tone::Warning, "no issues"));
+                output.print(output.line(Tone::Warning, "no issues"))?;
             } else {
                 let rows = issues.iter().map(|item| {
                     let issue = &item.issue;
@@ -74,7 +74,7 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                         "Leased",
                     ],
                     rows,
-                ));
+                ))?;
             }
         }
         IssueCommand::Show { number, json } => {
@@ -166,13 +166,14 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                         ));
                     }
                 }
-                output.print_lines(lines);
+                output.print_lines(lines)?;
             }
         }
         IssueCommand::Comment { command } => match command {
             IssueCommentCommand::Add { number, args } => {
                 store.add_issue_comment(number, &args.into_body()?).await?;
-                output.print(output.line(Tone::Success, format!("commented on issue #{number}")));
+                output
+                    .print(output.line(Tone::Success, format!("commented on issue #{number}")))?;
             }
             IssueCommentCommand::Show {
                 number,
@@ -186,7 +187,7 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                     output.print(output.field(
                         format!("[comment #{} · {}] ", comment.id, comment.created_at),
                         comment.body,
-                    ));
+                    ))?;
                 }
             }
             IssueCommentCommand::Delete {
@@ -200,12 +201,12 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                 output.print(output.line(
                     Tone::Success,
                     format!("deleted comment #{comment} from issue #{number}"),
-                ));
+                ))?;
             }
         },
         IssueCommand::Start { number, lease } => {
             let state = store.start_issue(number, lease.as_deref()).await?;
-            output.print(output.line(Tone::Success, format!("issue #{number} -> {state}")));
+            output.print(output.line(Tone::Success, format!("issue #{number} -> {state}")))?;
         }
         IssueCommand::Close {
             number,
@@ -215,7 +216,7 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             let state = store
                 .close_issue(number, as_state.as_deref(), lease.as_deref())
                 .await?;
-            output.print(output.line(Tone::Success, format!("issue #{number} -> {state}")));
+            output.print(output.line(Tone::Success, format!("issue #{number} -> {state}")))?;
         }
         IssueCommand::Reopen {
             number,
@@ -225,7 +226,7 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             let state = store
                 .reopen_issue(number, as_state.as_deref(), lease.as_deref())
                 .await?;
-            output.print(output.line(Tone::Success, format!("issue #{number} -> {state}")));
+            output.print(output.line(Tone::Success, format!("issue #{number} -> {state}")))?;
         }
         IssueCommand::Set {
             number,
@@ -272,7 +273,7 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                     .set_issue_parent(number, parent, lease.as_deref())
                     .await?;
             }
-            output.print(output.line(Tone::Success, format!("updated issue #{number}")));
+            output.print(output.line(Tone::Success, format!("updated issue #{number}")))?;
         }
         IssueCommand::Unset {
             number,
@@ -295,7 +296,7 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             if parent {
                 store.clear_issue_parent(number, lease.as_deref()).await?;
             }
-            output.print(output.line(Tone::Success, format!("updated issue #{number}")));
+            output.print(output.line(Tone::Success, format!("updated issue #{number}")))?;
         }
         IssueCommand::Add {
             number,
@@ -326,7 +327,7 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                     .add_issue_relation(number, other, lease.as_deref())
                     .await?;
             }
-            output.print(output.line(Tone::Success, format!("updated issue #{number}")));
+            output.print(output.line(Tone::Success, format!("updated issue #{number}")))?;
         }
         IssueCommand::Remove {
             number,
@@ -359,7 +360,7 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
                     .remove_issue_relation(number, other, lease.as_deref())
                     .await?;
             }
-            output.print(output.line(Tone::Success, format!("updated issue #{number}")));
+            output.print(output.line(Tone::Success, format!("updated issue #{number}")))?;
         }
         IssueCommand::Lock { number } => match store.lock_issue(number).await? {
             LeaseOutcome::Acquired(lease) => println!("{lease}"),
@@ -373,7 +374,7 @@ pub(crate) async fn run(store: &Store, command: IssueCommand) -> Result<()> {
             force,
         } => {
             if store.unlock_issue(number, lease.as_deref(), force).await? {
-                output.print(output.line(Tone::Success, format!("unlocked issue #{number}")));
+                output.print(output.line(Tone::Success, format!("unlocked issue #{number}")))?;
             } else {
                 anyhow::bail!("valid lease required for issue #{number} (use --force to override)");
             }
@@ -406,7 +407,7 @@ async fn open_issue(store: &Store, output: &Output, args: IssueOpenArgs) -> Resu
     if json {
         println!("{}", serde_json::json!({ "number": number }));
     } else {
-        output.print(output.line(Tone::Success, format!("#{number}")));
+        output.print(output.line(Tone::Success, format!("#{number}")))?;
     }
     Ok(())
 }
