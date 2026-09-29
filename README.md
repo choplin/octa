@@ -271,6 +271,10 @@ AI agents can use the repository's [octa CLI guide](skills/octa/SKILL.md) for ma
 
 This repository provides a Nix development environment.
 
+Developer architecture, design contracts, and decision history start at
+[`docs/architecture.md`](docs/architecture.md). The organization policy for
+that documentation is in [`docs/README.md`](docs/README.md).
+
 ```sh
 nix develop
 cargo build
