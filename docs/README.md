@@ -28,15 +28,22 @@ uses it, records rejected alternatives when they still clarify the boundary,
 and gives implementers the examples or verification obligations they need.
 
 These files are not ADRs. When a rule changes, rewrite its design document to
-describe the new current state. Git retains the old text; the decision log
-retains the chronology that remains useful.
+describe the new current state. The decision log preserves the superseded
+decision and why octa revised it.
 
-## `decision-log.md`: chronology
+## `decision-log.md`: design decision history
 
-[`decision-log.md`](decision-log.md) is a concise, newest-first record of when a
-binding design choice was introduced or replaced and why. Each entry links to
-the current document that owns the resulting rule. Procedures and
-implementation detail do not belong in the log.
+[`decision-log.md`](decision-log.md) preserves design decisions whose historical
+context would otherwise disappear when a design document is rewritten in
+place. An entry records that octa chose or revised a durable design rule among
+meaningful alternatives, summarizes why, and links to the document that owns
+the current rule and rationale.
+
+The log does not record implementation or documentation activity. Implementing,
+completing, testing, or refactoring an existing decision does not add an entry;
+neither does synchronizing documentation with code or summarizing a change or
+release. If the design rule and its rationale did not change, the log does not
+change.
 
 ## Single source of truth
 

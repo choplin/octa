@@ -1,7 +1,9 @@
 # Decision Log
 
-Newest first. Each entry records the decision and its reason, then links to the
-document that owns the current rule.
+This table preserves design decisions whose historical context would otherwise
+disappear when linked documents are rewritten in place. Each entry records a
+durable design rule chosen or revised among meaningful alternatives and why;
+implementation and documentation activity is not recorded. Newest first.
 
 | Date | Decision and reason | Current rule |
 | --- | --- | --- |
