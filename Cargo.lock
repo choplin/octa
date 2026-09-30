@@ -2241,16 +2241,34 @@ dependencies = [
 [[package]]
 name = "urushi"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0e1cdc045a6ef6c403956f285a56ceef9649f0d484c54ba77fd2244e58c2de52"
 dependencies = [
  "unicode-segmentation",
  "unicode-width 0.2.0",
+ "urushi-derive",
  "urushi-terminal",
+]
+
+[[package]]
+name = "urushi-derive"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "358c037f9b816c6470f84807b8b9cd2964c7040b4c334191336d0729ead552c9"
+dependencies = [
+ "proc-macro-crate",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.118",
 ]
 
 [[package]]
 name = "urushi-terminal"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ff160c7938f29469f78d06a47e10e76ef71952bf2c48be8721ee29a47d049b10"
 dependencies = [
+ "libc",
  "terminal_size",
 ]
 
@@ -2599,11 +2617,3 @@ name = "zmij"
 version = "1.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8848ee67ecc8aedbaf3e4122217aff892639231befc6a1b58d29fff4c2cabaa"
-
-[[patch.unused]]
-name = "urushi-prompt"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "urushi-tui"
-version = "0.1.0"

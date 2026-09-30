@@ -1,6 +1,6 @@
 use urushi::{
-    BlockStyle, ComponentRole, ComponentTheme, SemanticTokens, Table, TablePresentation, TextStyle,
-    Theme, VerticalAlign, View,
+    BlockStyle, ComponentRole, ComponentTheme, SemanticTokens, Table, TableRole, TextStyle,
+    TextThemeRole, Theme, VerticalAlign, View,
 };
 
 use urushi::Color;
@@ -14,13 +14,19 @@ pub(crate) enum Tone {
 }
 
 impl Tone {
-    const fn role(self) -> ComponentRole {
+    fn style(self, theme: &Theme) -> TextStyle {
         match self {
-            Self::Body => ComponentRole::Body,
-            Self::Accent => ComponentRole::Accent,
-            Self::Success => ComponentRole::Success,
-            Self::Warning => ComponentRole::Warning,
+            Self::Body => theme.text_style(ComponentRole::Body),
+            Self::Accent => theme.text_style(ComponentRole::Accent),
+            Self::Success => theme.text_style(ComponentRole::Success),
+            Self::Warning => TextStyle::new().foreground(theme.tokens().warning),
         }
+    }
+}
+
+impl TextThemeRole for Tone {
+    fn resolve(self, theme: &Theme) -> TextStyle {
+        self.style(theme)
     }
 }
 
@@ -43,13 +49,13 @@ impl Output {
             border: Color::BRIGHT_BLACK,
         };
         let components = ComponentTheme::from_tokens(&tokens)
-            .with_text_style(ComponentRole::Body, TextStyle::new())
-            .with_text_style(ComponentRole::Muted, TextStyle::new().dim())
-            .with_table(TablePresentation::new(
+            .text_style(ComponentRole::Body, TextStyle::new())
+            .text_style(ComponentRole::Muted, TextStyle::new().dim())
+            .table_style(
+                TableRole::Header,
                 BlockStyle::new().foreground(tokens.accent).bold(),
-                BlockStyle::new(),
-                TextStyle::new().foreground(tokens.border),
-            ));
+            )
+            .table_style(TableRole::Cell, BlockStyle::new());
 
         Self {
             theme: Theme::new(tokens, components),
@@ -57,7 +63,7 @@ impl Output {
     }
 
     pub(crate) fn line(&self, tone: Tone, text: impl Into<String>) -> View {
-        View::text(text, self.theme.text_style(tone.role()))
+        View::text(text, self.theme.text_style(tone))
     }
 
     pub(crate) fn row(&self, identifier: impl Into<String>, remainder: impl Into<String>) -> View {
@@ -92,12 +98,12 @@ impl Output {
         R: IntoIterator<Item = S>,
         S: Into<String>,
     {
-        let table = Table::new().headers(headers).rows(rows);
+        let table = Table::text().headers(headers).rows(rows);
         self.theme.components().table().compose(&table)
     }
 
     pub(crate) fn print(&self, view: View) -> std::io::Result<()> {
-        urushi::println(&view)
+        urushi::println_view(&view)
     }
 
     /// Prints lines stacked in the order they are given.
