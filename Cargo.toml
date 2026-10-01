@@ -1,10 +1,24 @@
 [package]
-name = "octa"
+name = "octa-cli"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.89"
-description = "GitHub-style Issue collaboration, fully local"
+description = "Local Issue collaboration for developers and AI agents"
 license = "MIT"
+repository = "https://github.com/choplin/octa"
+readme = "README.md"
+include = [
+    "/.sqlx/**",
+    "/CHANGELOG.md",
+    "/LICENSE-MIT",
+    "/README.md",
+    "/docs/**",
+    "/migrations/**",
+    "/scripts/**",
+    "/skills/octa/**",
+    "/src/**",
+    "/tests/**",
+]
 
 [[bin]]
 name = "octa"

@@ -1,4 +1,4 @@
-//! octa: GitHub-style Issue / Pull Request / Wiki collaboration, fully local.
+//! octa: Local Issue collaboration for developers and AI agents.
 
 mod app;
 mod cli;
