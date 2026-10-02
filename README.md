@@ -40,6 +40,9 @@ After the artifacts are published on the [GitHub Releases page](https://github.c
 
 Windows and Linux ARM binaries are not part of the 0.1.0 release.
 
+Maintainers can find the release ownership, dry-run, and publication procedure
+in [the release automation design](docs/design/release-automation.md).
+
 ## Quick start
 
 Run octa inside the Git repository whose work you want to track. The repository is registered automatically when octa first stores data for it.

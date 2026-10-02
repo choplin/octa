@@ -39,3 +39,7 @@ urushi = "0.1.0"
 
 [dev-dependencies]
 tempfile = "3"
+
+[profile.dist]
+inherits = "release"
+lto = "thin"

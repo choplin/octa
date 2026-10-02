@@ -1,0 +1,17 @@
+[workspace]
+members = ["cargo:."]
+
+[dist]
+cargo-dist-version = "0.33.0"
+ci = "github"
+installers = []
+targets = [
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+]
+pr-run-mode = "upload"
+hosting = "github"
+checksum = "sha256"
+github-attestations = false
+install-updater = false

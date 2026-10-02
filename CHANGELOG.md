@@ -6,15 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
-## [0.1.0] - Unreleased
-
 ### Added
 
-- Repository-scoped Issues with comments, configurable states, labels, relations, parent-child grouping, and atomic leases.
-- Finite Projects, ordered Milestones, repository selection, JSON output, read-only GraphQL queries, and a read-only Issue TUI.
-- Issue body and comment input from files or standard input.
-- Logical SQLite backup and integrity-checked restore scripts.
-- Installation through the `octa-cli` crate and checksummed GitHub Release binaries for macOS and x86_64 Linux.
+- Local, repository-scoped Issue tracking backed by SQLite.
+- Issue comments, configurable states and labels, blocking and related relations, parent-child grouping, and atomic leases.
+- Finite Projects, ordered Milestones, and repository selection across linked worktrees.
+- Human-readable and JSON CLI output, read-only GraphQL queries, and a read-only Issue TUI.
+- Issue and comment input from files or standard input, plus logical database backup and integrity-checked restore scripts.
+- Installation through the `octa-cli` crate and checksummed GitHub Release binaries for Apple Silicon macOS, Intel macOS, and x86_64 Linux.
 
 [Unreleased]: https://github.com/choplin/octa/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/choplin/octa/releases/tag/v0.1.0

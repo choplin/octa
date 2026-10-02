@@ -152,3 +152,9 @@ repository.
 
 Schema changes also follow the pre-release database replacement contract in
 [`design/schema-evolution.md`](design/schema-evolution.md).
+
+Release automation is deliberately split at the version tag: `cargo-release`
+owns crate publication and creation of the tag, while `dist` reacts to that tag
+and owns binary artifacts and the GitHub Release. The exact ownership and
+operator procedure are in
+[`design/release-automation.md`](design/release-automation.md).
