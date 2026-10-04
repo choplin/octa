@@ -15,7 +15,7 @@ octa 0.1.0 supports an Issue-centered workflow. Pull Request and Wiki workflows 
 
 ## Installation
 
-octa 0.1.0 requires Git. Installing with Cargo also requires Rust 1.89 or later. The distribution commands below apply after the corresponding 0.1.0 package or GitHub Release has been published.
+octa 0.1.0 requires Git. Installing with Cargo also requires Rust 1.90 or later. The distribution commands below apply after the corresponding 0.1.0 package or GitHub Release has been published.
 
 ### Cargo
 

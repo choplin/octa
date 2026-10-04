@@ -2,7 +2,7 @@
 name = "octa-cli"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.89"
+rust-version = "1.90"
 description = "Local Issue collaboration for developers and AI agents"
 license = "MIT"
 repository = "https://github.com/choplin/octa"

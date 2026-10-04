@@ -32,18 +32,23 @@ publish to crates.io, update versions, create commits, or create tags.
 
 ## Validate a release
 
-Install `cargo-release` 1.1.6 and `dist` 0.33.0, then run both planning paths
-from a clean checkout:
+Install `cargo-release` 1.1.6 and `dist` 0.33.0, then run the package and both
+planning paths from a clean checkout using Rust 1.90.0, the declared minimum.
+Rustup-backed environments and generated dist builds select this version from
+`rust-toolchain.toml`; the Nix development shell manages its toolchain
+independently.
 
 ```sh
+cargo package --locked
 cargo release --dry-run 0.1.0
 dist plan
 dist generate --check
 ```
 
 These commands do not publish, commit, tag, push, or create a GitHub Release.
-The cargo-release dry run verifies the package and prints the planned release
-steps. The dist plan must contain only these targets:
+The package command verifies the locked public dependency graph on the minimum
+toolchain. The cargo-release dry run repeats package verification and prints the
+planned release steps. The dist plan must contain only these targets:
 
 - `aarch64-apple-darwin`
 - `x86_64-apple-darwin`

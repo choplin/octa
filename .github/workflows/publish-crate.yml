@@ -23,10 +23,10 @@ jobs:
           token: ${{ secrets.RELEASE_GITHUB_TOKEN }}
 
       - name: Install the supported Rust toolchain
-        run: rustup toolchain install 1.89.0 --profile minimal --no-self-update
+        run: rustup toolchain install 1.90.0 --profile minimal --no-self-update
 
       - name: Install cargo-release
-        run: cargo +1.89.0 install cargo-release --version 1.1.6 --locked
+        run: cargo +1.90.0 install cargo-release --version 1.1.6 --locked
 
       - name: Configure the release commit author
         run: |
@@ -42,4 +42,4 @@ jobs:
             echo "version must be a SemVer version" >&2
             exit 2
           fi
-          cargo +1.89.0 release --execute --no-confirm -- "$VERSION"
+          cargo +1.90.0 release --execute --no-confirm -- "$VERSION"
