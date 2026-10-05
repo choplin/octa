@@ -17,6 +17,39 @@ octa 0.1.0 supports an Issue-centered workflow. Pull Request and Wiki workflows 
 
 octa 0.1.0 requires Git. Installing with Cargo also requires Rust 1.90 or later. The distribution commands below apply after the corresponding 0.1.0 package or GitHub Release has been published.
 
+### Homebrew
+
+Homebrew is the recommended installation method on macOS and Linux. Releases
+that include the Homebrew channel can be installed and upgraded with:
+
+```sh
+brew install choplin/tap/octa
+brew upgrade octa
+```
+
+### Nix
+
+The repository flake builds octa from source in a Nix environment, without
+requiring a separately installed Rust toolchain:
+
+```sh
+nix profile install github:choplin/octa#octa
+octa --version
+```
+
+The flake does not currently use a project binary cache, so the first install
+builds octa and its Rust dependencies locally.
+
+### cargo-binstall
+
+For releases published with cargo-binstall metadata, Rust users can install the
+matching prebuilt GitHub Release archive instead of compiling octa locally:
+
+```sh
+cargo binstall octa-cli
+octa --version
+```
+
 ### Cargo
 
 The 0.1.0 crates.io package is named `octa-cli`, and it installs a binary named `octa`.
@@ -36,7 +69,9 @@ The 0.1.0 release matrix contains checksummed archives for:
 - Intel macOS (`x86_64-apple-darwin`)
 - x86_64 Linux with glibc (`x86_64-unknown-linux-gnu`)
 
-After the artifacts are published on the [GitHub Releases page](https://github.com/choplin/octa/releases), download the archive for your platform, verify its checksum, and place the extracted `octa` binary on your `PATH`.
+Download the archive and matching `.sha256` file for your platform from the
+[GitHub Releases page](https://github.com/choplin/octa/releases), verify the
+checksum, then place the extracted `octa` binary on your `PATH`.
 
 Windows and Linux ARM binaries are not part of the 0.1.0 release.
 

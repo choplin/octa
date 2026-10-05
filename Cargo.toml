@@ -6,6 +6,7 @@ rust-version = "1.90"
 description = "Local Issue collaboration for developers and AI agents"
 license = "MIT"
 repository = "https://github.com/choplin/octa"
+homepage = "https://github.com/choplin/octa"
 readme = "README.md"
 include = [
     "/.sqlx/**",
@@ -23,6 +24,11 @@ include = [
 [[bin]]
 name = "octa"
 path = "src/main.rs"
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }.tar.xz"
+bin-dir = "{ name }-{ target }/{ bin }"
+pkg-fmt = "txz"
 
 [dependencies]
 anyhow = "1"

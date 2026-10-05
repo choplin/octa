@@ -11,6 +11,7 @@ octa uses one release tag and two tools with non-overlapping ownership.
 | Binary builds and archives | `dist` |
 | SHA-256 checksums | `dist` |
 | GitHub Release and artifact upload | `dist` |
+| Homebrew formula generation and tap publication | `dist` |
 
 The `Publish crate` GitHub Actions workflow is the only supported execution
 path for a release. It runs `cargo-release` on the default branch and reads the
@@ -27,8 +28,15 @@ release input.
 
 `cargo-release` publishes the crate before it pushes the release commit and
 `v<version>` tag. The tag triggers the generated `Release` workflow, where
-`dist` builds and publishes the binary artifacts. The dist workflow does not
-publish to crates.io, update versions, create commits, or create tags.
+`dist` builds and publishes the binary artifacts and updates
+`choplin/homebrew-tap`. The dist workflow does not publish to crates.io, update
+versions, create commits, or create tags. The `HOMEBREW_TAP_TOKEN` Actions
+secret must contain a token with contents write access to the Homebrew tap.
+
+The Nix flake package is built directly from the selected repository revision;
+it has no release-time publication or project binary cache. cargo-binstall
+reads metadata from the published `octa-cli` crate and installs the matching
+archive produced by `dist`, so it adds no independent release side effect.
 
 ## Validate a release
 
@@ -40,15 +48,19 @@ independently.
 
 ```sh
 cargo package --locked
-cargo release --dry-run 0.1.0
+VERSION=x.y.z
+cargo release --dry-run "$VERSION"
 dist plan
 dist generate --check
+nix build .#octa
+./result/bin/octa --version
 ```
 
 These commands do not publish, commit, tag, push, or create a GitHub Release.
 The package command verifies the locked public dependency graph on the minimum
 toolchain. The cargo-release dry run repeats package verification and prints the
-planned release steps. The dist plan must contain only these targets:
+planned release steps. The dist plan must contain only these targets and must
+include the Homebrew installer and publisher for `choplin/homebrew-tap`:
 
 - `aarch64-apple-darwin`
 - `x86_64-apple-darwin`
@@ -58,16 +70,21 @@ Pull requests run the generated dist workflow in `upload` mode. It builds the
 same target matrix and retains the archives and SHA-256 checksums as workflow
 artifacts without creating a GitHub Release.
 
-## Publish 0.1.0
+## Publish a release
 
 1. Confirm the default branch is clean and all required checks pass.
-2. Confirm the repository Actions secrets `CARGO_REGISTRY_TOKEN` and
-   `RELEASE_GITHUB_TOKEN` are present and the latter can create release tags.
+2. Confirm the repository Actions secrets `CARGO_REGISTRY_TOKEN`,
+   `RELEASE_GITHUB_TOKEN`, and `HOMEBREW_TAP_TOKEN` are present. The release
+   token must be able to create release tags, and the tap token must be able to
+   update `choplin/homebrew-tap`.
 3. Run the `Publish crate` workflow from the default branch with version
-   `0.1.0`.
-4. Confirm crates.io contains `octa-cli 0.1.0`.
+   selected for the release.
+4. Confirm crates.io contains the selected `octa-cli` version.
 5. Confirm the tag-triggered `Release` workflow publishes archives and SHA-256
-   checksums for exactly the three supported targets.
+   checksums for exactly the three supported targets and updates the `octa`
+   formula in `choplin/homebrew-tap`.
+6. Install the released version through Homebrew and cargo-binstall and verify
+   `octa --version` reports that version.
 
 Do not run the workflow again for an already-published version. Recovery after
 a partial release requires inspecting which cargo-release step completed before

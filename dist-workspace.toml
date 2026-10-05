@@ -4,7 +4,7 @@ members = ["cargo:."]
 [dist]
 cargo-dist-version = "0.33.0"
 ci = "github"
-installers = []
+installers = ["homebrew"]
 targets = [
     "aarch64-apple-darwin",
     "x86_64-apple-darwin",
@@ -15,3 +15,6 @@ hosting = "github"
 checksum = "sha256"
 github-attestations = false
 install-updater = false
+tap = "choplin/homebrew-tap"
+formula = "octa"
+publish-jobs = ["homebrew"]

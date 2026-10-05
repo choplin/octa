@@ -44,6 +44,7 @@
           ...
         }:
         let
+          cargoManifest = builtins.fromTOML (builtins.readFile ./Cargo.toml);
           rustToolchain = fenix.packages.${system}.stable.withComponents [
             "cargo"
             "clippy"
@@ -52,6 +53,31 @@
             "rustc"
             "rustfmt"
           ];
+          rustPlatform = pkgs.makeRustPlatform {
+            cargo = rustToolchain;
+            rustc = rustToolchain;
+          };
+          octa = rustPlatform.buildRustPackage {
+            pname = "octa";
+            version = cargoManifest.package.version;
+            src = pkgs.lib.cleanSource ./.;
+            cargoLock.lockFile = ./Cargo.lock;
+            SQLX_OFFLINE = "true";
+            nativeBuildInputs = [ pkgs.makeWrapper ];
+            nativeCheckInputs = [ pkgs.git ];
+
+            postInstall = ''
+              wrapProgram "$out/bin/octa" \
+                --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.git ]}
+            '';
+
+            meta = {
+              description = "Local Issue collaboration for developers and AI agents";
+              homepage = "https://github.com/choplin/octa";
+              license = pkgs.lib.licenses.mit;
+              mainProgram = "octa";
+            };
+          };
         in
         {
           _module.args.pkgs = import nixpkgs {
@@ -66,6 +92,11 @@
               pkgs.sqlite
               pkgs.sqlx-cli
             ];
+          };
+
+          packages = {
+            inherit octa;
+            default = octa;
           };
         };
     };

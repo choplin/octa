@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Distribution through Homebrew, Nix, and cargo-binstall, with direct GitHub Release installation guidance.
+
 ## [0.1.0] - 2026-10-05
 
 ### Added
