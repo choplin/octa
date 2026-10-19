@@ -9,6 +9,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - Distribution through Homebrew, Nix, and cargo-binstall, with direct GitHub Release installation guidance.
+- Prebuilt ARM64 Linux archives in GitHub releases.
+
+### Changed
+
+- Nix exposes source builds as `octa` and checksummed GitHub release binaries
+  as `octa-bin`.
 
 ## [0.1.0] - 2026-10-05
 

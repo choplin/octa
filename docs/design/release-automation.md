@@ -33,10 +33,14 @@ release input.
 versions, create commits, or create tags. The `HOMEBREW_TAP_TOKEN` Actions
 secret must contain a token with contents write access to the Homebrew tap.
 
-The Nix flake package is built directly from the selected repository revision;
-it has no release-time publication or project binary cache. cargo-binstall
-reads metadata from the published `octa-cli` crate and installs the matching
-archive produced by `dist`, so it adds no independent release side effect.
+The Nix flake exposes the source build as `octa` and the checksummed archives
+published by `dist` as `octa-bin`; it intentionally defines no default
+package. After publishing a release, update the flake's release version and
+artifact hashes on the default branch. This separate update avoids requiring
+the release tag to refer to artifacts that do not exist until its workflow has
+completed. cargo-binstall reads metadata from the published `octa-cli` crate
+and installs the matching archive produced by `dist`, so it adds no independent
+release side effect.
 
 ## Validate a release
 
@@ -63,6 +67,7 @@ planned release steps. The dist plan must contain only these targets and must
 include the Homebrew installer and publisher for `choplin/homebrew-tap`:
 
 - `aarch64-apple-darwin`
+- `aarch64-unknown-linux-gnu`
 - `x86_64-apple-darwin`
 - `x86_64-unknown-linux-gnu`
 
@@ -81,10 +86,11 @@ artifacts without creating a GitHub Release.
    selected for the release.
 4. Confirm crates.io contains the selected `octa-cli` version.
 5. Confirm the tag-triggered `Release` workflow publishes archives and SHA-256
-   checksums for exactly the three supported targets and updates the `octa`
+   checksums for exactly the four supported targets and updates the `octa`
    formula in `choplin/homebrew-tap`.
-6. Install the released version through Homebrew and cargo-binstall and verify
-   `octa --version` reports that version.
+6. Update `releaseVersion` and the corresponding artifact hashes in `flake.nix`.
+7. Install the released version through Homebrew, cargo-binstall, and Nix, then
+   verify `octa --version` reports that version.
 
 Do not run the workflow again for an already-published version. Recovery after
 a partial release requires inspecting which cargo-release step completed before

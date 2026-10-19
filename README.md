@@ -29,16 +29,22 @@ brew upgrade octa
 
 ### Nix
 
-The repository flake builds octa from source in a Nix environment, without
-requiring a separately installed Rust toolchain:
+Nix users can install the prebuilt binary from the latest packaged release:
+
+```sh
+nix profile install github:choplin/octa#octa-bin
+```
+
+Prebuilt Nix packages are currently available for macOS on Apple Silicon and
+Intel, and for Linux on x86-64. The `octa-bin` package will become available
+on Linux ARM64 when the next release publishes its first ARM64 Linux archive.
+To build the selected repository revision from source on any supported
+platform:
 
 ```sh
 nix profile install github:choplin/octa#octa
 octa --version
 ```
-
-The flake does not currently use a project binary cache, so the first install
-builds octa and its Rust dependencies locally.
 
 ### cargo-binstall
 
@@ -73,7 +79,8 @@ Download the archive and matching `.sha256` file for your platform from the
 [GitHub Releases page](https://github.com/choplin/octa/releases), verify the
 checksum, then place the extracted `octa` binary on your `PATH`.
 
-Windows and Linux ARM binaries are not part of the 0.1.0 release.
+Windows and Linux ARM binaries are not part of the 0.1.0 release. Linux ARM
+binaries will be included in future releases.
 
 Maintainers can find the release ownership, dry-run, and publication procedure
 in [the release automation design](docs/design/release-automation.md).
